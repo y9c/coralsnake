@@ -1,15 +1,25 @@
 import os
 import platform
 
+# from setuptools import Distribution, Extension
+# from setuptools.command.build_ext import build_ext
+from distutils.core import Distribution, Extension
+from distutils.command.build_ext import build_ext
+
 from Cython.Build import cythonize
-from setuptools import Distribution, Extension
-from setuptools.command.build_ext import build_ext
 
 # Define the base path for minimap2 sources
 minimap2_base = "coralsnake/minimap2"
 
 # Define extra compile arguments based on the platform
-extra_compile_args = ["-DHAVE_KALLOC", "-O3"]
+extra_compile_args = [
+    "-DHAVE_KALLOC",
+    "-O3",
+    "-Wno-sign-compare",
+    "-Wno-unreachable-code-fallthrough",
+    "-Wno-unreachable-code",
+]
+
 include_dirs = [minimap2_base]
 
 # Adjust compile args for ARM or x86 architectures
