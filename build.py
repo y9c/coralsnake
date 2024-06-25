@@ -1,10 +1,10 @@
 import os
 import platform
+from distutils.command.build_ext import build_ext
 
 # from setuptools import Distribution, Extension
 # from setuptools.command.build_ext import build_ext
 from distutils.core import Distribution, Extension
-from distutils.command.build_ext import build_ext
 
 from Cython.Build import cythonize
 
@@ -16,8 +16,8 @@ extra_compile_args = [
     "-DHAVE_KALLOC",
     "-O3",
     "-Wno-sign-compare",
-    "-Wno-unreachable-code-fallthrough",
-    "-Wno-unreachable-code",
+    "-Wno-unused-variable",
+    "-Wno-unused-but-set-variable",
 ]
 
 include_dirs = [minimap2_base]

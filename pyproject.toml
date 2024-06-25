@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "coralsnake"
 version = "0.0.2"
-description = ""
+description = "MAPPING"
 authors = ["Chang Ye <yech1990@gmail.com>"]
 readme = "README.md"
 license = "GPL-3.0"
