@@ -7,81 +7,17 @@
 # Created: 2024-06-23 18:01
 
 
-import argparse
 import bisect
-import logging
 from functools import lru_cache
 
-import numpy as np
 import pysam
 from rich.progress import track
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+from .utils import Transcript, get_logger, load_annotation, reverse_complement
+
+LOGGER = get_logger(__name__)
+
 COMP = str.maketrans("ACGTNacgtn", "TGCANtgcan")
-
-
-class Exon:
-    def __init__(self, start: int, end: int):
-        self.start = start
-        self.end = end
-
-    def __repr__(self) -> str:
-        return f"Exon({self.start=}, {self.end=})"
-
-
-class Transcript:
-    def __init__(
-        self,
-        gene_id: str,
-        transcript_id: str,
-        gene_name: str,
-        chrom: str,
-        strand: str,
-        spans: str,
-    ):
-        self.gene_id = gene_id
-        self.transcript_id = transcript_id
-        self.gene_name = gene_name
-        self.chrom = chrom
-        self.strand = strand
-        self.exons = self._parse_exons(spans)
-        self.cum_exon_lens = self._calculate_cum_exon_lens()
-        self.length = self.cum_exon_lens[-1]
-
-    def _parse_exons(self, spans: str) -> list[Exon]:
-        # gff and gtf are 1-based, convert to 0-based
-        exons = [
-            Exon(int(start) - 1, int(end))
-            for span in spans.split(",")
-            for start, end in [span.split("-")]
-        ]
-        return exons if self.strand == "+" else list(reversed(exons))
-
-    def _calculate_cum_exon_lens(self) -> np.ndarray:
-        lengths = [exon.end - exon.start for exon in self.exons]
-        return np.cumsum(lengths)
-
-    def __repr__(self) -> str:
-        return f"Transcript({self.gene_id=}, {self.transcript_id=}, {self.gene_name=}, {self.chrom=}, {self.strand=}, {self.exons=}, {self.length=})"
-
-
-def load_annotation(annotation_file: str) -> dict[str, Transcript]:
-    annot = {}
-    with open(annotation_file, "r") as f:
-        next(f)  # Skip header
-        for line in f:
-            fields = line.strip().split("\t")
-            transcript = Transcript(*fields[:6])
-            # annot[transcript.transcript_id] = transcript
-            annot[transcript.gene_id] = transcript
-    return annot
-
-
-@lru_cache(maxsize=10000)
-def reverse_complement(seq: str) -> str:
-    return seq.translate(COMP)[::-1]
 
 
 @lru_cache(maxsize=10000)
@@ -228,10 +164,10 @@ def parse_alignment(
     return new_align
 
 
-def main(input_bam: str, output_bam: str, annotation_file: str, faidx_file: str):
-    logging.info("Loading annotation...")
+def convert_bam(input_bam: str, output_bam: str, annotation_file: str, faidx_file: str):
+    LOGGER.info("Loading annotation...")
     annot = load_annotation(annotation_file)
-    logging.info("Loading fasta index...")
+    LOGGER.info("Loading fasta index...")
     faidx = load_fasta_index(faidx_file)
 
     with pysam.AlignmentFile(input_bam, "rb") as in_bam:
@@ -241,13 +177,19 @@ def main(input_bam: str, output_bam: str, annotation_file: str, faidx_file: str)
         ]
         genome_header = pysam.AlignmentHeader.from_dict(new_header)
 
-        with pysam.AlignmentFile(output_bam, "wb", header=genome_header) as out_bam:
+        with pysam.AlignmentFile(
+            output_bam,
+            "wb" if output_bam.endswith(".bam") else "w",
+            header=genome_header,
+        ) as out_bam:
             for align in track(in_bam, description="Processing..."):
                 new_align = parse_alignment(align, annot, genome_header)
                 out_bam.write(new_align)
 
 
 if __name__ == "__main__":
+    import argparse
+
     parser = argparse.ArgumentParser(
         description="Remap transcriptome BAM to genome BAM"
     )
@@ -257,4 +199,4 @@ if __name__ == "__main__":
     parser.add_argument("-f", "--faidx", required=True, help="Fasta index file")
     args = parser.parse_args()
 
-    main(args.input, args.output, args.annotation, args.faidx)
+    convert_bam(args.input, args.output, args.annotation, args.faidx)

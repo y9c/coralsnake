@@ -57,76 +57,37 @@ def extract(gtf_file, fasta_file, output_file, seq_file):
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
 @click.option(
-    "--input",
+    "--input-bam",
     "-i",
-    "input",
-    default="-",
-    help="Input position file.",
-    required=False,
-)
-@click.option(
-    "--output",
-    "-o",
-    "output",
-    default="-",
-    help="Output annotation file.",
-    required=False,
-)
-@click.option(
-    "--fasta",
-    "-f",
-    "fasta",
-    help="reference fasta file.",
+    "input_bam",
+    help="Input bam file.",
     required=True,
 )
 @click.option(
-    "--npad",
-    "-n",
-    "npad",
-    default="10",
-    help="Number of padding base to call motif. "
-    "If you want to set different left and right pads, "
-    "use comma to separate them. (eg. 2,3)",
+    "--output-bam",
+    "-o",
+    "output_bam",
+    help="Output bam file.",
+    required=True,
 )
 @click.option(
-    "--with-header", "-H", help="With header line in input file.", is_flag=True
+    "--annotation-file",
+    "-a",
+    "annotation_file",
+    help="Annotation file.",
+    required=True,
 )
 @click.option(
-    "--columns",
-    "-c",
-    "columns",
-    default="1,2,3",
-    show_default=True,
-    type=str,
-    help="Sets columns for site info. (Chrom,Pos,Strand)",
+    "--faidx-file",
+    "-f",
+    "faidx_file",
+    help="Faidx file.",
+    required=True,
 )
-@click.option("--to-upper", "-u", help="Convert motif to upper case.", is_flag=True)
-@click.option("--wrap-site", "-w", help="Wrap motif site.", is_flag=True)
-def motif(input, output, fasta, npad, with_header, columns, to_upper, wrap_site):
-    from .motif import run_motif
+def liftover(input_bam, output_bam, annotation_file, faidx_file):
+    from .tbam2gbam import convert_bam
 
-    if "," in npad:
-        lpad, rpad = npad.split(",")
-    else:
-        lpad, rpad = npad, npad
-    # check if lpad and rpad are positive int
-    # exit with error if not
-    if not lpad.isdigit() or not rpad.isdigit():
-        click.echo(f"Error: npad should be positive integer, not {npad}", err=True)
-        exit(1)
-    lpad = int(lpad)
-    rpad = int(rpad)
-    run_motif(
-        input,
-        output,
-        fasta,
-        lpad,
-        rpad,
-        with_header,
-        columns,
-        to_upper,
-        wrap_site,
-    )
+    convert_bam(input_bam, output_bam, annotation_file, faidx_file)
 
 
 @cli.command(
