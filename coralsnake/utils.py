@@ -23,6 +23,11 @@ def get_logger(name: str) -> logging.Logger:
 COMP = str.maketrans("ACGTNacgtn", "TGCANtgcan")
 
 
+@lru_cache(maxsize=10000)
+def reverse_complement(seq: str) -> str:
+    return seq.translate(COMP)[::-1]
+
+
 class Exon:
     def __init__(self, start: int, end: int):
         self.start = start
@@ -80,6 +85,10 @@ def load_annotation(annotation_file: str) -> dict[str, Transcript]:
     return annot
 
 
-@lru_cache(maxsize=10000)
-def reverse_complement(seq: str) -> str:
-    return seq.translate(COMP)[::-1]
+def load_faidx(faidx_file: str) -> dict[str, int]:
+    faidx = {}
+    with open(faidx_file, "r") as f:
+        for line in f:
+            fields = line.strip().split("\t")
+            faidx[fields[0]] = int(fields[1])
+    return faidx

@@ -13,11 +13,27 @@ from functools import lru_cache
 import pysam
 from rich.progress import track
 
-from .utils import Transcript, get_logger, load_annotation, reverse_complement
+from .utils import (
+    Transcript,
+    get_logger,
+    load_annotation,
+    load_faidx,
+    reverse_complement,
+)
 
 LOGGER = get_logger(__name__)
 
 COMP = str.maketrans("ACGTNacgtn", "TGCANtgcan")
+
+
+@lru_cache(maxsize=10000)
+def flip_flag(flag):
+    if flag & 16:
+        return (flag & ~16) | 32
+    elif flag & 32:
+        return (flag & ~32) | 16
+    else:
+        return flag ^ 16
 
 
 @lru_cache(maxsize=10000)
@@ -60,16 +76,6 @@ def transcript_to_genome(
         return transcript.exons[0].start + transcript_pos, 0
     offset = transcript_pos - transcript.cum_exon_lens[exon_index - 1]
     return transcript.exons[exon_index].start + offset, exon_index
-
-
-@lru_cache(maxsize=10000)
-def flip_flag(flag):
-    if flag & 16:
-        return (flag & ~16) | 32
-    elif flag & 32:
-        return (flag & ~32) | 16
-    else:
-        return flag ^ 16
 
 
 def remap_to_genome(
@@ -136,15 +142,6 @@ def remap_to_genome(
     return new_align
 
 
-def load_fasta_index(faidx_file: str) -> dict[str, int]:
-    faidx = {}
-    with open(faidx_file, "r") as f:
-        for line in f:
-            fields = line.strip().split("\t")
-            faidx[fields[0]] = int(fields[1])
-    return faidx
-
-
 def parse_alignment(
     align: pysam.AlignedSegment, annot, genome_header
 ) -> pysam.AlignedSegment:
@@ -168,7 +165,7 @@ def convert_bam(input_bam: str, output_bam: str, annotation_file: str, faidx_fil
     LOGGER.info("Loading annotation...")
     annot = load_annotation(annotation_file)
     LOGGER.info("Loading fasta index...")
-    faidx = load_fasta_index(faidx_file)
+    faidx = load_faidx(faidx_file)
 
     with pysam.AlignmentFile(input_bam, "rb") as in_bam:
         new_header = in_bam.header.to_dict()
