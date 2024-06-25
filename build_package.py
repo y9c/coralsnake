@@ -18,6 +18,7 @@ extra_compile_args = [
     "-Wno-sign-compare",
     "-Wno-unused-variable",
     "-Wno-unused-but-set-variable",
+    "-Wno-unused-result",
 ]
 
 include_dirs = [minimap2_base]
