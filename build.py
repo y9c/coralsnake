@@ -1,10 +1,9 @@
 import os
 import platform
-import shutil
-from distutils.command.build_ext import build_ext
-from distutils.core import Distribution, Extension
 
 from Cython.Build import cythonize
+from setuptools import Distribution, Extension
+from setuptools.command.build_ext import build_ext
 
 # Define the base path for minimap2 sources
 minimap2_base = "coralsnake/minimap2"
@@ -83,20 +82,25 @@ def build():
         compiler_directives={"binding": True, "language_level": 3},
     )
 
-    distribution = Distribution({"name": "coralsnake", "ext_modules": ext_modules})
-    distribution.package_dir = "coralsnake"
+    distribution = Distribution(
+        {
+            "name": "coralsnake",
+            "ext_modules": ext_modules,
+            "cmdclass": {"build_ext": build_ext},
+        }
+    )
+    distribution.package_dir = {"": "coralsnake"}
 
     # Define the output directory for the compiled extensions
     output_dir = "coralsnake"
     cmd = build_ext(distribution)
     cmd.build_lib = output_dir  # Direct output to coralsnake directory
+    cmd.inplace = 1  # Build extensions in place
     cmd.ensure_finalized()
     cmd.run()
 
     # Ensure the outputs are set with the correct permissions
     for output in cmd.get_outputs():
-        # relative_extension = os.path.relpath(output, cmd.build_lib)
-        # shutil.copyfile(output, relative_extension)
         mode = os.stat(output).st_mode
         mode |= (
             mode & 0o444
