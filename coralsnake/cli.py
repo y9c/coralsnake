@@ -13,124 +13,42 @@ def cli(ctx):
 
 
 @cli.command(
-    help="Annotation genomic variant effect.",
+    help="Extract primary transcript from gtf/gff file.",
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
 @click.option(
-    "--input",
-    "-i",
-    "input",
-    default="-",
-    help="Input position file.",
-    required=False,
+    "--gtf-file",
+    "-g",
+    "gtf_file",
+    help="GTF file.",
+    required=True,
 )
 @click.option(
-    "--output",
+    "--fasta-file",
+    "-f",
+    "fasta_file",
+    help="Fasta file.",
+    required=True,
+)
+@click.option(
+    "--output-file",
     "-o",
-    "output",
-    default="-",
-    help="Output annotation file",
-    required=False,
+    "output_file",
+    help="Output file.",
+    required=True,
 )
 @click.option(
-    "--reference",
-    "-r",
-    "reference",
-    default="homo_sapiens",
-    help="reference species",
-    required=False,
+    "--seq-file",
+    "-s",
+    "seq_file",
+    help="Sequence file.",
+    required=True,
 )
-@click.option(
-    "--reference-gtf",
-    "reference_gtf",
-    help="Customized reference gtf file.",
-    required=False,
-)
-@click.option(
-    "--reference-transcript",
-    "reference_transcript",
-    help="Customized reference transcript fasta file.",
-    multiple=True,
-    required=False,
-)
-@click.option(
-    "--reference-protein",
-    "reference_protein",
-    help="Customized reference protein fasta file.",
-    multiple=True,
-    required=False,
-)
-@click.option(
-    "--release",
-    "-e",
-    "release",
-    default=None,
-    type=int,
-    help="ensembl release",
-    required=False,
-)
-@click.option("--strandness", "-s", help="Use strand infomation or not?", is_flag=True)
-@click.option(
-    "--pU-mode",
-    "-u",
-    "pU_mode",
-    help="Make rRNA, tRNA, snoRNA into top priority.",
-    is_flag=True,
-)
-@click.option(
-    "--npad",
-    "-n",
-    "npad",
-    default=10,
-    type=int,
-    help="Number of padding base to call motif.",
-)
-@click.option("--all-effects", "-a", help="Output all effects.", is_flag=True)
-@click.option(
-    "--with-header", "-H", help="With header line in input file.", is_flag=True
-)
-@click.option(
-    "--columns",
-    "-c",
-    "columns",
-    default="1,2,3,4,5",
-    show_default=True,
-    type=str,
-    help="Sets columns for site info. (Chrom,Pos,Strand,Ref,Alt)",
-)
-def effect(
-    input,
-    output,
-    reference,
-    release,
-    reference_gtf,
-    reference_transcript,
-    reference_protein,
-    npad,
-    strandness,
-    all_effects,
-    pU_mode,
-    with_header,
-    columns,
-):
-    from .effect import run_effect
+def extract(gtf_file, fasta_file, output_file, seq_file):
+    from .gtf2tx import parse_file
 
-    run_effect(
-        input,
-        output,
-        reference,
-        release,
-        reference_gtf,
-        reference_transcript,
-        reference_protein,
-        npad,
-        strandness,
-        all_effects,
-        pU_mode,
-        with_header,
-        columns,
-    )
+    parse_file(gtf_file, fasta_file, output_file, seq_file)
 
 
 @cli.command(

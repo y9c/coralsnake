@@ -7,11 +7,11 @@
 # Created: 2024-05-01 18:23
 
 
-import argparse
 import logging
 from collections import defaultdict
 
 from pyfaidx import Fasta
+from rich.progress import track
 
 logging.basicConfig(level=logging.INFO)
 
@@ -37,7 +37,7 @@ class TranscriptExon:
     def calc_len(self):
         return sum([v[1] - v[0] + 1 for _, v in self.span.items()])
 
-    def get_seq(self):
+    def get_seq(self, fasta):
         seq = ""
         for _, v in sorted(self.span.items()):
             e = fasta[self.chrom][v[0] - 1 : v[1]]
@@ -80,12 +80,12 @@ def read_gtf(gtf_file, is_gff=False):
         parse_annot = parse_gtf_annot
     gene_dict = defaultdict(lambda: defaultdict(lambda: TranscriptExon()))
 
-    i = 0
+    # i = 0
     with open(gtf_file, "r") as f:
-        for line in f:
-            i += 1
-            if i % 200_000 == 0:
-                logging.info(f"Processed {i:,} lines")
+        for line in track(f, description="Parsing GTF..."):
+            # i += 1
+            # if i % 200_000 == 0:
+            #     logging.info(f"Processed {i:,} lines")
             if line.startswith("#"):
                 continue
             line = line.strip().split("\t")
@@ -156,7 +156,27 @@ def rank_exons(tx_id, exon_info):
     return (4, 100_100 - tx_len if tx_len < 100_000 else 100_001)
 
 
+def parse_file(gtf_file, fasta_file, output_file, seq_file):
+    gene_dict = read_gtf(
+        gtf_file, is_gff=gtf_file.endswith("gff") or gtf_file.endswith("gff3")
+    )
+    fasta = Fasta(fasta_file, read_ahead=100_000)
+    # i = 0
+    with open(output_file, "w") as f1, open(seq_file, "w") as f2:
+        f1.write("gene_id\ttranscript_id\tgene_name\tchrom\tstrand\tspans\n")
+        for g, v in track(gene_dict.items(), description="Fetching sequences..."):
+            # i += 1
+            # if i % 5_000 == 0:
+            #     logging.info(f"Processed {i:,} genes")
+            vs = sorted(v.items(), key=lambda x: rank_exons(x[0], x[1]))
+            e, v2 = vs[0]
+            f1.write(f"{g}\t{e}\t{v2}\n")
+            f2.write(f">{g}\n{v2.get_seq(fasta)}\n")
+
+
 if __name__ == "__main__":
+    import argparse
+
     argparser = argparse.ArgumentParser()
     argparser.add_argument("-g", "--gtf-file", help="GTF file", required=True)
     argparser.add_argument("-f", "--fasta-file", help="Fasta file", required=True)
@@ -166,24 +186,4 @@ if __name__ == "__main__":
     )
 
     args = argparser.parse_args()
-
-    # gtf_file = "./IRGSP-1.0.release57.gtf"
-    # fasta_file = "./IRGSP-1.0.fa"
-
-    gene_dict = read_gtf(
-        args.gtf_file,
-        is_gff=args.gtf_file.endswith("gff") or args.gtf_file.endswith("gff3"),
-    )
-    fasta = Fasta(args.fasta_file, read_ahead=100_000)
-
-    i = 0
-    with open(args.output_file, "w") as f1, open(args.seq_file, "w") as f2:
-        f1.write("gene_id\ttranscript_id\tgene_name\tchrom\tstrand\tspans\n")
-        for g, v in gene_dict.items():
-            i += 1
-            if i % 5_000 == 0:
-                logging.info(f"Processed {i:,} genes")
-            vs = sorted(v.items(), key=lambda x: rank_exons(x[0], x[1]))
-            e, v2 = vs[0]
-            f1.write(f"{g}\t{e}\t{v2}\n")
-            f2.write(f">{g}\n{v2.get_seq()}\n")
+    parse_file(args.gtf_file, args.fasta_file, args.output_file, args.seq_file)
