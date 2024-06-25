@@ -10,8 +10,8 @@
 import os
 import random
 
+from . import mappy as mp
 from .conversion import convert_file, km_conversion, mk_conversion
-import .mappy as mp
 
 
 def find_properly_paired_hits(hits, fwd=True):

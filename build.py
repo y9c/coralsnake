@@ -95,13 +95,13 @@ def build():
 
     # Ensure the outputs are set with the correct permissions
     for output in cmd.get_outputs():
-        relative_extension = os.path.relpath(output, cmd.build_lib)
-        shutil.copyfile(output, relative_extension)
-        mode = os.stat(relative_extension).st_mode
+        # relative_extension = os.path.relpath(output, cmd.build_lib)
+        # shutil.copyfile(output, relative_extension)
+        mode = os.stat(output).st_mode
         mode |= (
             mode & 0o444
         ) >> 2  # Make read-only by owner readable by group and others
-        os.chmod(relative_extension, mode)
+        os.chmod(output, mode)
 
 
 if __name__ == "__main__":
