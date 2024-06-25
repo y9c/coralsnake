@@ -1,13 +1,12 @@
 [tool.poetry]
 name = "coralsnake"
-version = "0.0.1"
+version = "0.0.2"
 description = ""
 authors = ["Chang Ye <yech1990@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.10"
-# mappy = { path = "./coralsnake/minimap2" }
 dnaio = "^1.2.1"
 rich-click = "^1.8.3"
 pyfaidx = "^0.8.1.1"
