@@ -7,7 +7,7 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.10"
-mappy = { path = "./coralsnake/minimap2" }
+# mappy = { path = "./coralsnake/minimap2" }
 dnaio = "^1.2.1"
 rich-click = "^1.8.3"
 pyfaidx = "^0.8.1.1"
@@ -16,5 +16,9 @@ pyfaidx = "^0.8.1.1"
 coralsnake = 'coralsnake.cli:cli'
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core", "Cython"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.build]
+generate-setup-file = false
+script = 'build.py'
