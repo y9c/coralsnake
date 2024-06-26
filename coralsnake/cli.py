@@ -1,13 +1,15 @@
 import rich_click as click
 
 click.rich_click.COMMAND_GROUPS = {
-    "cli.py": [
+    "coralsnake": [
         {
-            "name": "Main usage",
+            "name": "Commands",
             "commands": ["prepare", "map", "liftover"],
         },
     ]
 }
+click.rich_click.STYLE_OPTION = "bold green"
+# click.rich_click.STYLE_COMMAND = "bold blue"
 
 
 @click.group(
