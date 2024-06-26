@@ -7,9 +7,11 @@
 # Created: 2024-06-25 14:21
 
 import logging
+from collections import defaultdict
 from functools import lru_cache
 
 import numpy as np
+from pyfaidx import Fasta
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -34,54 +36,117 @@ class Exon:
         self.end = end
 
     def __repr__(self) -> str:
-        return f"Exon({self.start=}, {self.end=})"
+        return f"Exon(start={self.start}, end={self.end})"
 
 
 class Transcript:
     def __init__(
         self,
-        gene_id: str,
-        transcript_id: str,
-        gene_name: str,
-        chrom: str,
-        strand: str,
-        spans: str,
+        gene_id: str | None = None,
+        transcript_id: str | None = None,
+        chrom: str = "",
+        strand: str = "",
+        exons: dict[str | int, Exon] = {},
+        gene_name: str = "",
     ):
         self.gene_id = gene_id
         self.transcript_id = transcript_id
-        self.gene_name = gene_name
         self.chrom = chrom
         self.strand = strand
-        self.exons = self._parse_exons(spans)
-        self.cum_exon_lens = self._calculate_cum_exon_lens()
-        self.length = self.cum_exon_lens[-1]
+        self.exons = exons
+        # calculated feature
+        self._exons_forwards = None
+        self._cum_exon_lens = None
+        # extra feature
+        self.gene_name = gene_name
+        self.priority: tuple[int, int] = (10, 0)
 
-    def _parse_exons(self, spans: str) -> list[Exon]:
-        # gff and gtf are 1-based, convert to 0-based
-        exons = [
-            Exon(int(start) - 1, int(end))
-            for span in spans.split(",")
-            for start, end in [span.split("-")]
-        ]
-        return exons if self.strand == "+" else list(reversed(exons))
+    def add_exon(self, exon_id: str | int, exon: Exon) -> None:
+        self.exons[exon_id] = exon
+        self._exons_forwards = None
+        self._cum_exon_lens = None
 
-    def _calculate_cum_exon_lens(self) -> np.ndarray:
-        lengths = [exon.end - exon.start for exon in self.exons]
-        return np.cumsum(lengths)
+    def sort_exons(self) -> None:
+        self.exons = dict(sorted(self.exons.items(), key=lambda x: x[1].start))
+        self._exons_forwards = None
+        self._cum_exon_lens = None
+
+    def to_tsv(self) -> str:
+        # convert into 1-based
+        spans = ",".join([f"{v.start + 1}-{v.end}" for v in self.exons.values()])
+        return f"{self.gene_id}\t{self.transcript_id}\t{self.gene_name}\t{self.chrom}\t{self.strand}\t{spans}"
+
+    def get_seq(self, fasta: Fasta, sort=True):
+        if sort:
+            self.sort_exons()
+        seq = ""
+        for _, v in self.exons.items():
+            e = fasta[self.chrom][v.start : v.end]
+            if self.strand == "-":
+                e = e.reverse.complement
+            seq += e.seq
+        return seq.upper()
+
+    @property
+    def exons_forwards(self) -> list[Exon]:
+        if self._exons_forwards is None:
+            self._exons_forwards = list(self.exons.values())
+            if self.strand == "-":
+                self._exons_forwards = self._exons_forwards[::-1]
+        return self._exons_forwards
+
+    @property
+    def cum_exon_lens(self) -> np.ndarray:
+        if self._cum_exon_lens is None:
+            lengths = [exon.end - exon.start for exon in self.exons_forwards]
+            return np.cumsum(lengths)
+        return self._cum_exon_lens
+
+    @property
+    def length(self) -> int:
+        return self.cum_exon_lens[-1]
 
     def __repr__(self) -> str:
-        return f"Transcript({self.gene_id=}, {self.transcript_id=}, {self.gene_name=}, {self.chrom=}, {self.strand=}, {self.exons=}, {self.length=})"
+        res = []
+        for key in [
+            "gene_id",
+            "transcript_id",
+            "gene_name",
+            "chrom",
+            "strand",
+            "exons_forwards",
+            "length",
+        ]:
+            res.append(f"{key}={getattr(self, key)}")
+        return f"Transcript({', '.join(res)})"
 
 
-def load_annotation(annotation_file: str) -> dict[str, Transcript]:
-    annot = {}
+def load_annotation(
+    annotation_file: str, with_header: bool = True
+) -> dict[str, dict[str, Transcript]]:
+    annot = defaultdict(dict)
     with open(annotation_file, "r") as f:
-        next(f)  # Skip header
+        if with_header:
+            next(f)  # Skip header
         for line in f:
             fields = line.strip().split("\t")
-            transcript = Transcript(*fields[:6])
-            # annot[transcript.transcript_id] = transcript
-            annot[transcript.gene_id] = transcript
+            if len(fields) < 6:
+                continue
+            gene_id, transcript_id, gene_name, chrom, strand, spans = fields[:6]
+            exons = [
+                Exon(int(start) - 1, int(end))
+                for span in spans.split(",")
+                for start, end in [span.split("-")]
+            ]
+            transcript = Transcript(
+                gene_id=gene_id,
+                transcript_id=transcript_id,
+                chrom=chrom,
+                strand=strand,
+                exons=exons,
+                gene_name=gene_name,
+            )
+            annot[gene_id][transcript_id] = transcript
     return annot
 
 

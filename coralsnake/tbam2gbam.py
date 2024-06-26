@@ -73,9 +73,9 @@ def transcript_to_genome(
     # in math notation, it is [a, b)
     exon_index = bisect.bisect_right(transcript.cum_exon_lens, transcript_pos)
     if exon_index == 0:
-        return transcript.exons[0].start + transcript_pos, 0
+        return transcript.exons_forwards[0].start + transcript_pos, 0
     offset = transcript_pos - transcript.cum_exon_lens[exon_index - 1]
-    return transcript.exons[exon_index].start + offset, exon_index
+    return transcript.exons_forwards[exon_index].start + offset, exon_index
 
 
 def remap_to_genome(
@@ -114,7 +114,7 @@ def remap_to_genome(
     for op, length in cigartuples:
         if op in (0, 2):  # Match, deletion
             while length > 0:
-                current_exon = transcript.exons[exon_index]
+                current_exon = transcript.exons_forwards[exon_index]
                 exon_remaining = current_exon.end - genome_pos
                 if length <= exon_remaining:
                     new_cigar.append((op, length))
@@ -125,8 +125,8 @@ def remap_to_genome(
                         new_cigar.append((op, exon_remaining))
                         genome_pos += exon_remaining
                         length -= exon_remaining
-                    if exon_index + 1 < len(transcript.exons):
-                        next_exon = transcript.exons[exon_index + 1]
+                    if exon_index + 1 < len(transcript.exons_forwards):
+                        next_exon = transcript.exons_forwards[exon_index + 1]
                         intron_length = next_exon.start - current_exon.end
                         new_cigar.append((3, intron_length))
                         genome_pos = next_exon.start
@@ -143,7 +143,9 @@ def remap_to_genome(
 
 
 def parse_alignment(
-    align: pysam.AlignedSegment, annot, genome_header
+    align: pysam.AlignedSegment,
+    annot: dict[str, dict[str, Transcript]],
+    genome_header: pysam.AlignmentHeader,
 ) -> pysam.AlignedSegment:
     if (
         align.is_unmapped
@@ -156,7 +158,7 @@ def parse_alignment(
         align.next_reference_start = -1
         return align
 
-    transcript = annot.get(align.reference_name)
+    transcript = next(iter(annot[align.reference_name].values()))
     new_align = remap_to_genome(align, transcript, genome_header)
     return new_align
 
