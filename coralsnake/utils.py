@@ -66,7 +66,11 @@ class Transcript:
         self._cum_exon_lens = None
 
     def sort_exons(self) -> None:
-        self.exons = dict(sorted(self.exons.items(), key=lambda x: x[1].start))
+        self.exons = dict(
+            sorted(
+                self.exons.items(), key=lambda x: x[1].start, reverse=self.strand == "-"
+            ),
+        )
         self._exons_forwards = None
         self._cum_exon_lens = None
 
@@ -137,11 +141,11 @@ def load_annotation(
             if len(fields) < 6:
                 continue
             gene_id, transcript_id, gene_name, chrom, strand, spans = fields[:6]
-            exons = [
-                Exon(int(start) - 1, int(end))
-                for span in spans.split(",")
+            exons = {
+                idx: Exon(int(start) - 1, int(end))
+                for idx, span in enumerate(spans.split(","), 1)
                 for start, end in [span.split("-")]
-            ]
+            }
             transcript = Transcript(
                 gene_id=gene_id,
                 transcript_id=transcript_id,
