@@ -10,7 +10,6 @@ import logging
 from collections import defaultdict
 from functools import lru_cache
 
-import numpy as np
 from pyfaidx import Fasta
 
 logging.basicConfig(
@@ -96,10 +95,15 @@ class Transcript:
         return self._exons_forwards
 
     @property
-    def cum_exon_lens(self) -> np.ndarray:
+    def cum_exon_lens(self) -> list[int]:
         if self._cum_exon_lens is None:
             lengths = [exon.end - exon.start for exon in self.exons_forwards]
-            return np.cumsum(lengths)
+            cum_lengths = []
+            total = 0
+            for length in lengths:
+                total += length
+                cum_lengths.append(total)
+            return cum_lengths
         return self._cum_exon_lens
 
     @property

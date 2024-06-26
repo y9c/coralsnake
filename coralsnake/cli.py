@@ -1,5 +1,14 @@
 import rich_click as click
 
+click.rich_click.COMMAND_GROUPS = {
+    "cli.py": [
+        {
+            "name": "Main usage",
+            "commands": ["prepare", "map", "liftover"],
+        },
+    ]
+}
+
 
 @click.group(
     invoke_without_command=False,
@@ -45,7 +54,7 @@ def cli(ctx):
     help="Sequence file.",
     required=True,
 )
-def extract(gtf_file, fasta_file, output_file, seq_file):
+def prepare(gtf_file, fasta_file, output_file, seq_file):
     from .gtf2tx import parse_file
 
     parse_file(gtf_file, fasta_file, output_file, seq_file)
