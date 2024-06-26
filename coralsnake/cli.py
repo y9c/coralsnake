@@ -28,34 +28,10 @@ def cli(ctx):
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
-@click.option(
-    "--gtf-file",
-    "-g",
-    "gtf_file",
-    help="GTF file.",
-    required=True,
-)
-@click.option(
-    "--fasta-file",
-    "-f",
-    "fasta_file",
-    help="Fasta file.",
-    required=True,
-)
-@click.option(
-    "--output-file",
-    "-o",
-    "output_file",
-    help="Output file.",
-    required=True,
-)
-@click.option(
-    "--seq-file",
-    "-s",
-    "seq_file",
-    help="Sequence file.",
-    required=True,
-)
+@click.option("--gtf-file", "-g", "gtf_file", help="GTF file.", required=True)
+@click.option("--fasta-file", "-f", "fasta_file", help="Fasta file.", required=True)
+@click.option("--output-file", "-o", "output_file", help="Output file.", required=True)
+@click.option("--seq-file", "-s", "seq_file", help="Sequence file.", required=True)
 def prepare(gtf_file, fasta_file, output_file, seq_file):
     from .gtf2tx import parse_file
 
@@ -67,38 +43,20 @@ def prepare(gtf_file, fasta_file, output_file, seq_file):
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
+@click.option("--input-bam", "-i", "input_bam", help="Input bam file.", required=True)
 @click.option(
-    "--input-bam",
-    "-i",
-    "input_bam",
-    help="Input bam file.",
-    required=True,
+    "--output-bam", "-o", "output_bam", help="Output bam file.", required=True
 )
 @click.option(
-    "--output-bam",
-    "-o",
-    "output_bam",
-    help="Output bam file.",
-    required=True,
+    "--annotation-file", "-a", "annotation_file", help="Annotation file.", required=True
 )
-@click.option(
-    "--annotation-file",
-    "-a",
-    "annotation_file",
-    help="Annotation file.",
-    required=True,
-)
-@click.option(
-    "--faidx-file",
-    "-f",
-    "faidx_file",
-    help="Faidx file.",
-    required=True,
-)
-def liftover(input_bam, output_bam, annotation_file, faidx_file):
+@click.option("--faidx-file", "-f", "faidx_file", help="Faidx file.", required=True)
+@click.option("--threads", "-t", "threads", help="Threads.", default=8)
+@click.option("--sort", "-s", "sort", help="Sort.", is_flag=True)
+def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     from .tbam2gbam import convert_bam
 
-    convert_bam(input_bam, output_bam, annotation_file, faidx_file)
+    convert_bam(input_bam, output_bam, annotation_file, faidx_file, threads, sort)
 
 
 @cli.command(

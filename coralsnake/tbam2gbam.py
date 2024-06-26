@@ -163,7 +163,14 @@ def parse_alignment(
     return new_align
 
 
-def convert_bam(input_bam: str, output_bam: str, annotation_file: str, faidx_file: str):
+def convert_bam(
+    input_bam: str,
+    output_bam: str,
+    annotation_file: str,
+    faidx_file: str,
+    threads: int = 8,
+    sort: bool = False,
+):
     LOGGER.info("Loading annotation...")
     annot = load_annotation(annotation_file)
     LOGGER.info("Loading fasta index...")
@@ -171,6 +178,8 @@ def convert_bam(input_bam: str, output_bam: str, annotation_file: str, faidx_fil
 
     with pysam.AlignmentFile(input_bam, "rb") as in_bam:
         new_header = in_bam.header.to_dict()
+        # mark as unsorted
+        new_header["HD"]["SO"] = "unsorted"
         new_header["SQ"] = [
             {"SN": chrom, "LN": length} for chrom, length in faidx.items()
         ]
@@ -185,6 +194,20 @@ def convert_bam(input_bam: str, output_bam: str, annotation_file: str, faidx_fil
                 new_align = parse_alignment(align, annot, genome_header)
                 out_bam.write(new_align)
 
+    if sort:
+        # skip sorting if output is not BAM file
+        if not output_bam.endswith(".bam"):
+            LOGGER.info("Output is not BAM file, skip sorting and indexing")
+            return
+        LOGGER.info("Sorting output BAM file...")
+        import shutil
+        import uuid
+
+        internal_sorted_bam = f".{str(uuid.uuid4())[:8]}_{output_bam}"
+        pysam.sort("-@", str(threads), "-o", internal_sorted_bam, output_bam)
+        shutil.move(internal_sorted_bam, output_bam)
+        pysam.index("-@", str(threads), output_bam)
+
 
 if __name__ == "__main__":
     import argparse
@@ -196,6 +219,15 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--output", required=True, help="Output BAM file")
     parser.add_argument("-a", "--annotation", required=True, help="Annotation file")
     parser.add_argument("-f", "--faidx", required=True, help="Fasta index file")
+    # sort bam file
+    parser.add_argument(
+        "--sort", action="store_true", help="Sort output BAM file by coordinates"
+    )
+    parser.add_argument(
+        "-t", "--threads", type=int, default=8, help="Number of threads"
+    )
     args = parser.parse_args()
 
-    convert_bam(args.input, args.output, args.annotation, args.faidx)
+    convert_bam(
+        args.input, args.output, args.annotation, args.faidx, args.threads, args.sort
+    )
