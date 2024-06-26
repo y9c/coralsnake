@@ -84,33 +84,19 @@ def read_gtf(gtf_file, is_gff=False):
                 priority = (10, 0)
 
             tx = gene_dict[gene_id][transcript_id]
+            # do not need to check priority is set or not
+            tx.priority = priority
             for k, v in zip(
-                [
-                    "gene_id",
-                    "transcript_id",
-                    "gene_name",
-                    "chrom",
-                    "strand",
-                    "priority",
-                ],
-                [
-                    gene_id,
-                    transcript_id,
-                    d.get("gene_name", None),
-                    line[0],
-                    line[6],
-                    priority,
-                ],
+                ["gene_id", "transcript_id", "gene_name", "chrom", "strand"],
+                [gene_id, transcript_id, d.get("gene_name", None), line[0], line[6]],
             ):
-                if getattr(tx, k) is not None:
-                    if d[k] != getattr(tx, k):
+                if getattr(tx, k):
+                    if v != getattr(tx, k):
                         raise ValueError(f"{k} mismatch")
                 else:
                     setattr(tx, k, v)
 
-            gene_dict[gene_id][transcript_id].add_exon(
-                exon_id, Exon(int(line[3]) - 1, int(line[4]))
-            )
+            tx.add_exon(exon_id, Exon(int(line[3]) - 1, int(line[4])))
     return gene_dict
 
 
@@ -144,8 +130,8 @@ def parse_file(gtf_file, fasta_file, output_file, seq_file):
         f1.write("gene_id\ttranscript_id\tgene_name\tchrom\tstrand\tspans\n")
         for g, v in track(gene_dict.items(), description="Fetching sequences..."):
             t, v2 = sorted(v.items(), key=lambda x: rank_transcript(x[0], x[1]))[0]
-            f1.write(f"{g}\t{t}\t{v2}\n")
             f2.write(f">{g}\n{v2.get_seq(fasta)}\n")
+            f1.write(f"{g}\t{t}\t{v2.to_tsv()}\n")
 
 
 if __name__ == "__main__":

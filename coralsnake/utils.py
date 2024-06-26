@@ -45,14 +45,14 @@ class Transcript:
         transcript_id: str | None = None,
         chrom: str = "",
         strand: str = "",
-        exons: dict[str | int, Exon] = {},
-        gene_name: str = "",
+        exons: dict[str | int, Exon] | None = None,
+        gene_name: str | None = None,
     ):
         self.gene_id = gene_id
         self.transcript_id = transcript_id
         self.chrom = chrom
         self.strand = strand
-        self.exons = exons
+        self.exons = {} if exons is None else exons
         # calculated feature
         self._exons_forwards = None
         self._cum_exon_lens = None
@@ -76,8 +76,15 @@ class Transcript:
 
     def to_tsv(self) -> str:
         # convert into 1-based
+        line = []
         spans = ",".join([f"{v.start + 1}-{v.end}" for v in self.exons.values()])
-        return f"{self.gene_id}\t{self.transcript_id}\t{self.gene_name}\t{self.chrom}\t{self.strand}\t{spans}"
+        for key in ["gene_id", "transcript_id", "gene_name", "chrom", "strand"]:
+            v = getattr(self, key)
+            if v is not None:
+                line.append(v)
+            else:
+                line.append("")
+        return "\t".join(line + [spans])
 
     def get_seq(self, fasta: Fasta, sort=True):
         if sort:
@@ -112,7 +119,7 @@ class Transcript:
 
     @property
     def length(self) -> int:
-        return self.cum_exon_lens[-1]
+        return (self.cum_exon_lens or [0])[-1]
 
     def __repr__(self) -> str:
         res = []
@@ -122,8 +129,7 @@ class Transcript:
             "gene_name",
             "chrom",
             "strand",
-            "exons_forwards",
-            "length",
+            # "exons_forwards",
         ]:
             res.append(f"{key}={getattr(self, key)}")
         return f"Transcript({', '.join(res)})"
