@@ -5,7 +5,6 @@
 
 <p align="center">
     <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="https://coralsnake.yech.science/coralsnake_DNA.png" style="width: 50%">
         <img alt="rich-click logo" src="https://coralsnake.yech.science/coralsnake_DNA.png" style="width: 50%">
     </picture>
 </p>
