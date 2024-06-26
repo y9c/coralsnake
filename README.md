@@ -5,6 +5,6 @@
 
 <p align="center">
     <picture>
-        <img alt="rich-click logo" src="https://coralsnake.yech.science/coralsnake_DNA.png" style="width: 50%">
+        <img alt="coralsnake logo" src="https://coralsnake.yech.science/coralsnake_DNA.png" style="width: 50%">
     </picture>
 </p>
