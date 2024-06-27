@@ -11,7 +11,7 @@ import os
 import random
 
 from . import mappy as mp
-from .conversion import convert_file, km_conversion, mk_conversion
+from .conversion import km_conversion, mk_conversion, mk_convert_file
 
 
 def find_properly_paired_hits(hits, fwd=True):
@@ -54,25 +54,12 @@ def find_properly_paired_hits(hits, fwd=True):
     return parsed_hits
 
 
-# sam format specification
-# 1. QNAME: Query template NAME
-# 2. FLAG: bitwise FLAG
-# 3. RNAME: Reference sequence NAME
-# 4. POS: 1-based leftmost POSition/coordinate of clipped sequence
-# 5. MAPQ: MAPping Quality (Phred-scaled)
-# 6. CIGAR: CIGAR string
-# 7. RNEXT: Reference name of the mate/next read
-# 8. PNEXT: Position of the mate/next read
-# 9. TLEN: observed Template LENgth
-# 10. SEQ: segment SEQuence
-# 11. QUAL: ASCII of Phred-scaled base QUALity+33
-# 12. TAG: additional information
-
-# q_st  q_en  strand  ctg  ctg_len  r_st  r_en  mlen  blen  mapq  cg:Z:cigar_str
-
-
-def cal_md(cigar, seq, ref):
+def cal_md_and_tag(cigar, seq, ref, fwd):
     """
+    fwd:
+    if True, A->G, C->T
+    if False, T->C, G->A
+
     calculate MD tag
     M (0): Alignment match
     I (1): Insertion to the reference
@@ -83,39 +70,117 @@ def cal_md(cigar, seq, ref):
     P (6): Padding
     = (7): Sequence match
     X (8): Sequence mismatch
+
+    Some tags:
+    Yf:i:<N>: Number of (A to G) conversions are detected in the read.
+    Zf:i:<N>: Number of (A to A) un-converted bases are detected in the read. Yf + Zf = total number of bases which can be converted in the read sequence.
+    Yc:i:<N>: Number of (C to T) conversions are detected in the read.
+    Zc:i:<N>: Number of (C to C) un-converted bases are detected in the read. Yc + Zc = total number of bases which can be converted in the read
+    NS:i:<N>: Number of substitutions are detected in the read.
+    NC:i:<N>: Number of clipped bases and INDEL bases are detected in the read.
+
+
+    ### add tag function that I used previously, learn from this function
+    for read_pos, _, ref_base in read.get_aligned_pairs(with_seq=True):
+        # Dn not forget to convert the ref_base to upper case
+        ref_base = ref_base.upper() if ref_base is not None else None
+        read_base = s[read_pos] if read_pos is not None else None
+        if strand == "+":
+            if ref_base == "A":
+                if read_base == "G":
+                    yf += 1
+                elif read_base == "A":
+                    zf += 1
+                elif read_base is not None:
+                    ns += 1
+            elif ref_base == "C":
+                if read_base == "T":
+                    yc += 1
+                elif read_base == "C":
+                    zc += 1
+                elif read_base is not None:
+                    ns += 1
+            elif ref_base is None or read_base is None:
+                nc += 1
+            elif ref_base != read_base:
+                ns += 1
+
+        else:
+            if ref_base == "T":
+                if read_base == "C":
+                    yf += 1
+                elif read_base == "T":
+                    zf += 1
+                elif read_base is not None:
+                    ns += 1
+            elif ref_base == "G":
+                if read_base == "A":
+                    yc += 1
+                elif read_base == "G":
+                    zc += 1
+                elif read_base is not None:
+                    ns += 1
+            elif ref_base is None or read_base is None:
+                nc += 1
+            elif ref_base != read_base:
+                ns += 1
     """
+    yf = 0
+    zf = 0
+    yc = 0
+    zc = 0
+    ns = 0
+    nc = 0
     md_tag = []
     ref_index = 0
     query_index = 0
     match_count = 0
+
+    if fwd:
+        b1, b2, b3, b4 = "A", "G", "C", "T"
+    else:
+        b1, b2, b3, b4 = "T", "C", "G", "A"
 
     for length, operation in cigar:
         if operation == 0:  # Match or Mismatch
             for i in range(length):
                 if ref[ref_index] == seq[query_index]:
                     match_count += 1
+                    if seq[query_index] == b1:
+                        zf += 1
+                    elif seq[query_index] == b3:
+                        zc += 1
                 else:
                     if match_count > 0:
                         md_tag.append(str(match_count))
                         match_count = 0
                     md_tag.append(ref[ref_index])
+                    if seq[query_index] == b2:
+                        yf += 1
+                    elif seq[query_index] == b4:
+                        yc += 1
+                    else:
+                        ns += 1
                 ref_index += 1
                 query_index += 1
         elif operation == 1:  # Insertion to the reference (ignored in MD tag)
             query_index += length
+            nc += length
         elif operation == 4:  # Soft clipping
             query_index += length
+            nc += length
         elif operation == 2:  # Deletion from the reference
             if match_count > 0:
                 md_tag.append(str(match_count))
                 match_count = 0
             md_tag.append("^" + ref[ref_index : ref_index + length])
             ref_index += length
+            nc += length
 
     if match_count > 0:
         md_tag.append(str(match_count))
 
-    return "".join(md_tag)
+    return "".join(md_tag), yf, zf, yc, zc, ns, nc
 
 
 def filter_hits(hits, seq1, seq2):
@@ -134,14 +199,30 @@ def filter_hits(hits, seq1, seq2):
 
 
 def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_km, idx_mk, fwd_lib=True):
+    # sam format specification
+    # 1. QNAME: Query template NAME
+    # 2. FLAG: bitwise FLAG
+    # 3. RNAME: Reference sequence NAME
+    # 4. POS: 1-based leftmost POSition/coordinate of clipped sequence
+    # 5. MAPQ: MAPping Quality (Phred-scaled)
+    # 6. CIGAR: CIGAR string
+    # 7. RNEXT: Reference name of the mate/next read
+    # 8. PNEXT: Position of the mate/next read
+    # 9. TLEN: observed Template LENgth
+    # 10. SEQ: segment SEQuence
+    # 11. QUAL: ASCII of Phred-scaled base QUALity+33
+    # 12. TAG: additional information
+
+    # q_st  q_en  strand  ctg  ctg_len  r_st  r_en  mlen  blen  mapq  cg:Z:cigar_str
     if fwd_lib:
-        seq1_conv = km_conversion(seq1)
-        seq2_conv = mk_conversion(seq2)
-    else:
         seq1_conv = mk_conversion(seq1)
         seq2_conv = km_conversion(seq2)
+    else:
+        seq1_conv = km_conversion(seq1)
+        seq2_conv = mk_conversion(seq2)
+
     mapped = []
-    for idx, is_fwd in zip([idx_km, idx_mk], [True, False]):
+    for idx, is_fwd in zip([idx_mk, idx_km], [True, False]):
         for hit1, hit2 in find_properly_paired_hits(
             filter_hits(
                 idx.map(seq1_conv, seq2=seq2_conv, cs=False, MD=False), seq1, seq2
@@ -182,11 +263,14 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_km, idx_mk, fwd_lib=True
                 cigar_str2 = cigar_str2 + f"{len(s2) - hit2.q_en}S"
                 cigar2 = cigar2 + [[len(s2) - hit2.q_en, 4]]
 
-            md1 = cal_md(cigar1, s1, ref1)
-            md2 = cal_md(cigar2, s2, ref2)
+            md1, *debug = cal_md_and_tag(cigar1, s1, ref1, fwd_lib == is_fwd)
+            md2, *_ = cal_md_and_tag(cigar2, s2, ref2, fwd_lib == is_fwd)
+            # print(dict(zip(["Yf", "Zf", "Yc", "Zc", "NS", "NC"], debug)))
+            # add this info into string and append ito name to debuging
+            tag_info = f"__Yf:{debug[0]}+Zf:{debug[1]}+Yc:{debug[2]}+Zc:{debug[3]}+NS:{debug[4]}+NC:{debug[5]}"
 
             map1 = [
-                name,
+                name + tag_info,
                 flag1,
                 hit1.ctg,
                 hit1.r_st + 1,
@@ -203,7 +287,7 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_km, idx_mk, fwd_lib=True
                 # "cs:Z:" + hit1.cs,
             ]
             map2 = [
-                name,
+                name + tag_info,
                 flag2,
                 hit2.ctg,
                 hit2.r_st + 1,
@@ -236,7 +320,7 @@ def map_file(ref_file, r1_file, r2_file, fwd_lib=True):
     mk_file = ref_file + ".mk.fa"
     km_file = ref_file + ".km.fa"
     if not os.path.exists(mk_file) or not os.path.exists(km_file):
-        convert_file(ref_file, mk_file, km_file)
+        mk_convert_file(ref_file, mk_file, km_file, include_ys_tag=False)
 
     # from .conversion import
 
@@ -257,18 +341,6 @@ def map_file(ref_file, r1_file, r2_file, fwd_lib=True):
         min_cnt=0,
         min_chain_score=0,
         best_n=50,
-        extra_flags=0x100000,
-    )
-    idx_km = mp.Aligner(
-        fn_idx_in=km_file,
-        preset="sr",
-        n_threads=8,
-        k=10,
-        w=10,
-        min_cnt=0,
-        min_chain_score=0,
-        best_n=50,
-        extra_flags=0x100000,
     )
     idx_mk = mp.Aligner(
         fn_idx_in=mk_file,
@@ -279,7 +351,18 @@ def map_file(ref_file, r1_file, r2_file, fwd_lib=True):
         min_cnt=0,
         min_chain_score=0,
         best_n=50,
-        extra_flags=0x200000,
+        extra_flags=0x100000 if fwd_lib else 0x200000,
+    )
+    idx_km = mp.Aligner(
+        fn_idx_in=km_file,
+        preset="sr",
+        n_threads=8,
+        k=10,
+        w=10,
+        min_cnt=0,
+        min_chain_score=0,
+        best_n=50,
+        extra_flags=0x200000 if fwd_lib else 0x100000,
     )
     # write sam header
     print("@HD\tVN:1.6\tSO:unsorted")
@@ -292,14 +375,14 @@ def map_file(ref_file, r1_file, r2_file, fwd_lib=True):
     ):
         if name1 != name2:
             raise ValueError("r1 and r2 not in the same order")
-        run_mapping(name1, seq1, seq2, qua1, qua2, idx0, idx_km, idx_mk, fwd_lib=True)
+        run_mapping(name1, seq1, seq2, qua1, qua2, idx0, idx_km, idx_mk, fwd_lib)
 
 
 if __name__ == "__main__":
-    ref_file = "./demo/ref.fa"
-    r1_file = "./demo/r1.fq.gz"
-    r2_file = "./demo/r2.fq.gz"
-    map_file(ref_file, r1_file, r2_file, fwd_lib=True)
+    ref_file = "./test/ref.fa"
+    r1_file = "./test/r1.fq.gz"
+    r2_file = "./test/r2.fq.gz"
+    map_file(ref_file, r1_file, r2_file, fwd_lib=False)
 
 # # ## # on forward strand example
 # seq_name = "test1"

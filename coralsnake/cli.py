@@ -67,7 +67,8 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
 @click.option("-r", "--ref-file", help="reference file", required=True)
 @click.option("-1", "--r1-file", help="r1 file", required=True)
 @click.option("-2", "--r2-file", help="r2 file", required=True)
-@click.option("-f", "--fwd-lib", is_flag=True, help="forward library")
+# if --fwd is passed (or leave empty), fwd_lib will be True, otherwise if --rev is passed, fwd_lib will be False
+@click.option("--fwd/--rev", "fwd_lib", default=True, help="forward or reverse library")
 def map(ref_file, r1_file, r2_file, fwd_lib):
     from .mapping import map_file
 
