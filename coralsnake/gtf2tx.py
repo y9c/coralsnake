@@ -199,7 +199,7 @@ def parse_file(
             header += "\tstart_codon\tstop_codon"
         if with_genename:
             header += "\tgene_name"
-        f1.write(header)
+        f1.write(header + "\n")
         for g, v in track(gene_dict.items(), description="Fetching sequences..."):
             t, v2 = sorted(v.items(), key=lambda x: rank_transcript(x[0], x[1]))[0]
             if sanitize:
