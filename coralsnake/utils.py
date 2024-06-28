@@ -10,7 +10,8 @@ import logging
 from collections import defaultdict
 from functools import lru_cache
 
-from pyfaidx import Fasta
+# from pyfaidx import Fasta
+from pyfastx import Fasta
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -100,13 +101,19 @@ class Transcript:
     def get_seq(self, fasta: Fasta, sort=True):
         if sort:
             self.sort_exons()
-        seq = ""
-        for _, v in self.exons.items():
-            e = fasta[self.chrom][v.start : v.end]
-            if self.strand == "-":
-                e = e.reverse.complement
-            seq += e.seq
-        return seq.upper()
+        # seq = ""
+        # for _, v in self.exons.items():
+        #     e = fasta[self.chrom][v.start : v.end]
+        #     if self.strand == "-":
+        #         e = e.reverse.complement
+        #     seq += e.seq
+        # return seq.upper()
+
+        return fasta.fetch(
+            self.chrom,
+            [(e.start, e.end) for e in self.exons.values()],
+            strand=self.strand,
+        )
 
     @property
     def exons_forwards(self) -> list[Span]:
