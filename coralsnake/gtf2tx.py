@@ -62,6 +62,8 @@ def read_gtf(gtf_file, is_gff=False):
                 gene_id = d["gene_id"]
                 transcript_id = d["transcript_id"]
                 exon_id = d["exon_number"] if "exon_number" in d else d["exon"]
+                if "gene_name" not in d and "gene" in d:
+                    d["gene_name"] = d["gene"]
             elif "Parent" in d and "ID" in d:
                 gene_id = d["Parent"]
                 # eg: NbL00g00020.1.exon.1 (last 1 is the exon number)
