@@ -180,11 +180,17 @@ def sanitize_sequence_name(name):
     return sanitized_name
 
 
+def top_transcript(gene_dict):
+    for g, v in gene_dict.items():
+        t, v2 = sorted(v.items(), key=lambda x: rank_transcript(x[0], x[1]))[0]
+        yield v2
+
+
 def parse_file(
     gtf_file,
     fasta_file,
     output_file,
-    seq_file,
+    seq_file=None,
     sanitize=False,
     with_codon=False,
     with_genename=False,
@@ -192,22 +198,26 @@ def parse_file(
     gene_dict = read_gtf(
         gtf_file, is_gff=gtf_file.endswith("gff") or gtf_file.endswith("gff3")
     )
-    fasta = Fasta(fasta_file, read_ahead=100_000)
-    with open(output_file, "w") as f1, open(seq_file, "w") as f2:
-        header = "gene_id\ttranscript_id\tgene_name\tchrom\tstrand\tspans"
-        if with_codon:
-            header += "\tstart_codon\tstop_codon"
-        if with_genename:
-            header += "\tgene_name"
-        f1.write(header + "\n")
-        for g, v in track(gene_dict.items(), description="Fetching sequences..."):
-            t, v2 = sorted(v.items(), key=lambda x: rank_transcript(x[0], x[1]))[0]
-            if sanitize:
-                g = sanitize_sequence_name(g)
-            f2.write(f">{g}\n{v2.get_seq(fasta)}\n")
-            f1.write(
-                f"{g}\t{t}\t{v2.to_tsv(with_codon=with_codon, with_genename=with_genename)}\n"
-            )
+    if seq_file is not None:
+        fasta = Fasta(fasta_file, read_ahead=100_000)
+        seq_writer = open(seq_file, "w")
+    tsv_writer = open(output_file, "w")
+    header = "gene_id\ttranscript_id\tchrom\tstrand\tspans"
+    if with_codon:
+        header += "\tstart_codon\tstop_codon"
+    if with_genename:
+        header += "\tgene_name"
+    tsv_writer.write(header + "\n")
+    for tx in top_transcript(gene_dict):
+        if sanitize:
+            tx.gene_id = sanitize_sequence_name(tx.gene_id)
+        if seq_file is not None:
+            seq_writer.write(f">{tx.gene_id}\n{tx.get_seq(fasta)}\n")
+        tsv_writer.write(tx.to_tsv(with_codon=with_codon, with_genename=with_genename))
+        tsv_writer.write("\n")
+    if seq_file is not None:
+        seq_writer.close()
+    tsv_writer.close()
 
 
 if __name__ == "__main__":
