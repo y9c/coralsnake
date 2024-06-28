@@ -31,7 +31,7 @@ def cli(ctx):
 @click.option("--gtf-file", "-g", "gtf_file", help="GTF file.", required=True)
 @click.option("--fasta-file", "-f", "fasta_file", help="Fasta file.", required=True)
 @click.option("--output-file", "-o", "output_file", help="Output file.", required=True)
-@click.option("--seq-file", "-s", "seq_file", help="Sequence file.", required=True)
+@click.option("--seq-file", "-s", "seq_file", help="Sequence file.")
 @click.option(
     "--sanitize",
     "-z",
