@@ -208,7 +208,9 @@ def parse_file(
     if with_genename:
         header += "\tgene_name"
     tsv_writer.write(header + "\n")
-    for tx in top_transcript(gene_dict):
+    for tx in track(
+        top_transcript(gene_dict), total=len(gene_dict), description="Writing..."
+    ):
         if sanitize:
             tx.gene_id = sanitize_sequence_name(tx.gene_id)
         if seq_file is not None:
