@@ -188,7 +188,10 @@ def parse_file(
     )
     fasta = Fasta(fasta_file, read_ahead=100_000)
     with open(output_file, "w") as f1, open(seq_file, "w") as f2:
-        f1.write("gene_id\ttranscript_id\tgene_name\tchrom\tstrand\tspans\n")
+        header = "gene_id\ttranscript_id\tgene_name\tchrom\tstrand\tspans"
+        if with_codon:
+            header += "\tstart_codon\tstop_codon"
+        f1.write(header)
         for g, v in track(gene_dict.items(), description="Fetching sequences..."):
             t, v2 = sorted(v.items(), key=lambda x: rank_transcript(x[0], x[1]))[0]
             if sanitize:
