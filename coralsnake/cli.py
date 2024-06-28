@@ -39,10 +39,17 @@ def cli(ctx):
     help="Sanitize name to remove specical charaters.",
     is_flag=True,
 )
-def prepare(gtf_file, fasta_file, output_file, seq_file, sanitize):
+@click.option(
+    "--with-codon",
+    "-c",
+    "with_codon",
+    help="Include codon in the output.",
+    is_flag=True,
+)
+def prepare(gtf_file, fasta_file, output_file, seq_file, sanitize, with_codon):
     from .gtf2tx import parse_file
 
-    parse_file(gtf_file, fasta_file, output_file, seq_file, sanitize)
+    parse_file(gtf_file, fasta_file, output_file, seq_file, sanitize, with_codon)
 
 
 @cli.command(

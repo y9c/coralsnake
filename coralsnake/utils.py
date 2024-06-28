@@ -29,13 +29,14 @@ def reverse_complement(seq: str) -> str:
     return seq.translate(COMP)[::-1]
 
 
-class Exon:
+class Span:
     def __init__(self, start: int, end: int):
+        # 0-based
         self.start = start
         self.end = end
 
     def __repr__(self) -> str:
-        return f"Exon(start={self.start}, end={self.end})"
+        return f"(start={self.start}, end={self.end})"
 
 
 class Transcript:
@@ -45,7 +46,7 @@ class Transcript:
         transcript_id: str | None = None,
         chrom: str = "",
         strand: str = "",
-        exons: dict[str | int, Exon] | None = None,
+        exons: dict[str | int, Span] | None = None,
         gene_name: str | None = None,
     ):
         self.gene_id = gene_id
@@ -57,10 +58,12 @@ class Transcript:
         self._exons_forwards = None
         self._cum_exon_lens = None
         # extra feature
-        self.gene_name = gene_name
+        self.gene_name: str | None = gene_name
+        self.start_codon: Span | None = None
+        self.stop_codon: Span | None = None
         self.priority: tuple[int, int] = (10, 0)
 
-    def add_exon(self, exon_id: str | int, exon: Exon) -> None:
+    def add_exon(self, exon_id: str | int, exon: Span) -> None:
         self.exons[exon_id] = exon
         self._exons_forwards = None
         self._cum_exon_lens = None
@@ -74,17 +77,23 @@ class Transcript:
         self._exons_forwards = None
         self._cum_exon_lens = None
 
-    def to_tsv(self) -> str:
+    def to_tsv(self, with_codon=False) -> str:
         # convert into 1-based
         line = []
-        spans = ",".join([f"{v.start + 1}-{v.end}" for v in self.exons.values()])
         for key in ["gene_id", "transcript_id", "gene_name", "chrom", "strand"]:
             v = getattr(self, key)
             if v is not None:
                 line.append(v)
             else:
                 line.append("")
-        return "\t".join(line + [spans])
+        line += [",".join([f"{v.start + 1}-{v.end}" for v in self.exons.values()])]
+        if with_codon:
+            # use the start postion of the span
+            line += [
+                str(self.start_codon.start + 1) if self.start_codon else "",
+                str(self.stop_codon.start + 1) if self.stop_codon else "",
+            ]
+        return "\t".join(line)
 
     def get_seq(self, fasta: Fasta, sort=True):
         if sort:
@@ -98,7 +107,7 @@ class Transcript:
         return seq.upper()
 
     @property
-    def exons_forwards(self) -> list[Exon]:
+    def exons_forwards(self) -> list[Span]:
         if self._exons_forwards is None:
             self._exons_forwards = list(self.exons.values())
             if self.strand == "-":
@@ -148,7 +157,7 @@ def load_annotation(
                 continue
             gene_id, transcript_id, gene_name, chrom, strand, spans = fields[:6]
             exons = {
-                idx: Exon(int(start) - 1, int(end))
+                idx: Span(int(start) - 1, int(end))
                 for idx, span in enumerate(spans.split(","), 1)
                 for start, end in [span.split("-")]
             }

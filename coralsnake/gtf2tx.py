@@ -14,7 +14,7 @@ from functools import lru_cache
 from pyfaidx import Fasta
 from rich.progress import track
 
-from .utils import Exon, Transcript, get_logger
+from .utils import Span, Transcript, get_logger
 
 LOGGER = get_logger(__name__)
 
@@ -49,8 +49,13 @@ def read_gtf(gtf_file, is_gff=False):
         for line in track(f, description="Parsing GTF..."):
             if line.startswith("#"):
                 continue
+
             line = line.strip().split("\t")
-            if len(line) < 9 or line[2] != "exon":
+            if len(line) < 9:
+                continue
+
+            feature_type = line[2]
+            if feature_type not in ["exon", "start_codon", "stop_codon"]:
                 continue
             d = parse_annot(line[8])
             if "gene_id" in d and "transcript_id" in d:
@@ -59,8 +64,21 @@ def read_gtf(gtf_file, is_gff=False):
                 exon_id = d["exon_number"] if "exon_number" in d else d["exon"]
             elif "Parent" in d and "ID" in d:
                 gene_id = d["Parent"]
-                transcript_id, exon_id = d["ID"].rsplit(".", 1)
-                exon_id = exon_id.removeprefix("exon")
+                # eg: NbL00g00020.1.exon.1 (last 1 is the exon number)
+                # eg: CsaV3_5G032770.1.exon1 (last 1 is the exon number)
+                # eg: exon-XM_018814795.2-1 (last 1 is the exon number)
+                # Thus, we can rsplit by ".exon." or ".exon" or "-"
+                if ".exon." in d["ID"]:
+                    transcript_id, exon_id = d["ID"].rsplit(".exon.", 1)
+                elif ".exon" in d["ID"]:
+                    transcript_id, exon_id = d["ID"].rsplit(".exon", 1)
+                elif "-" in d["ID"]:
+                    transcript_id, exon_id = d["ID"].rsplit("-", 1)
+                    transcript_id = transcript_id.removeprefix("exon-").removeprefix(
+                        "exon"
+                    )
+                else:
+                    continue
             else:
                 continue
             # if exon id is digit, convert to interger
@@ -98,7 +116,14 @@ def read_gtf(gtf_file, is_gff=False):
                 else:
                     setattr(tx, k, v)
 
-            tx.add_exon(exon_id, Exon(int(line[3]) - 1, int(line[4])))
+            if feature_type == "exon":
+                tx.add_exon(exon_id, Span(int(line[3]) - 1, int(line[4])))
+            elif feature_type == "start_codon":
+                tx.start_codon = Span(int(line[3]) - 1, int(line[4]))
+            elif feature_type == "stop_codon":
+                tx.stop_codon = Span(int(line[3]) - 1, int(line[4]))
+            else:
+                continue
     return gene_dict
 
 
@@ -155,7 +180,9 @@ def sanitize_sequence_name(name):
     return sanitized_name
 
 
-def parse_file(gtf_file, fasta_file, output_file, seq_file, sanitize=False):
+def parse_file(
+    gtf_file, fasta_file, output_file, seq_file, sanitize=False, with_codon=False
+):
     gene_dict = read_gtf(
         gtf_file, is_gff=gtf_file.endswith("gff") or gtf_file.endswith("gff3")
     )
@@ -167,7 +194,7 @@ def parse_file(gtf_file, fasta_file, output_file, seq_file, sanitize=False):
             if sanitize:
                 g = sanitize_sequence_name(g)
             f2.write(f">{g}\n{v2.get_seq(fasta)}\n")
-            f1.write(f"{g}\t{t}\t{v2.to_tsv()}\n")
+            f1.write(f"{g}\t{t}\t{v2.to_tsv(with_codon=with_codon)}\n")
 
 
 if __name__ == "__main__":
