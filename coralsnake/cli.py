@@ -32,10 +32,17 @@ def cli(ctx):
 @click.option("--fasta-file", "-f", "fasta_file", help="Fasta file.", required=True)
 @click.option("--output-file", "-o", "output_file", help="Output file.", required=True)
 @click.option("--seq-file", "-s", "seq_file", help="Sequence file.", required=True)
-def prepare(gtf_file, fasta_file, output_file, seq_file):
+@click.option(
+    "--sanitize",
+    "-z",
+    "sanitize",
+    help="Sanitize name to remove specical charaters.",
+    is_flag=True,
+)
+def prepare(gtf_file, fasta_file, output_file, seq_file, sanitize):
     from .gtf2tx import parse_file
 
-    parse_file(gtf_file, fasta_file, output_file, seq_file)
+    parse_file(gtf_file, fasta_file, output_file, seq_file, sanitize)
 
 
 @cli.command(

@@ -7,7 +7,9 @@
 # Created: 2024-05-01 18:23
 
 
+import hashlib
 from collections import defaultdict
+from functools import lru_cache
 
 from pyfaidx import Fasta
 from rich.progress import track
@@ -121,7 +123,39 @@ def rank_transcript(tx_id, tx_info):
     return (4, 100_100 - tx_len if tx_len < 100_000 else 100_001)
 
 
-def parse_file(gtf_file, fasta_file, output_file, seq_file):
+# Define valid characters
+first_char_valid_chars = set(
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&+./:;?@^_|~-"
+)
+rest_char_valid_chars = set(
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&*+./:;=?@^_|~-"
+)
+
+
+@lru_cache(maxsize=1000)
+def sanitize_sequence_name(name):
+    if not name:
+        return name
+
+    first_char = name[0]
+    if first_char not in first_char_valid_chars:
+        sanitized_first_char = "_"
+    else:
+        sanitized_first_char = first_char
+
+    sanitized_rest_chars = "".join(
+        c if c in rest_char_valid_chars else "_" for c in name[1:]
+    )
+
+    sanitized_name = sanitized_first_char + sanitized_rest_chars
+    if sanitized_name != name:
+        hash_id = hashlib.md5(name.encode()).hexdigest()[:8]
+        sanitized_name = f"{sanitized_name}_{hash_id}"
+
+    return sanitized_name
+
+
+def parse_file(gtf_file, fasta_file, output_file, seq_file, sanitize=False):
     gene_dict = read_gtf(
         gtf_file, is_gff=gtf_file.endswith("gff") or gtf_file.endswith("gff3")
     )
@@ -130,6 +164,8 @@ def parse_file(gtf_file, fasta_file, output_file, seq_file):
         f1.write("gene_id\ttranscript_id\tgene_name\tchrom\tstrand\tspans\n")
         for g, v in track(gene_dict.items(), description="Fetching sequences..."):
             t, v2 = sorted(v.items(), key=lambda x: rank_transcript(x[0], x[1]))[0]
+            if sanitize:
+                g = sanitize_sequence_name(g)
             f2.write(f">{g}\n{v2.get_seq(fasta)}\n")
             f1.write(f"{g}\t{t}\t{v2.to_tsv()}\n")
 
