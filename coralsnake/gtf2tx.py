@@ -181,7 +181,13 @@ def sanitize_sequence_name(name):
 
 
 def parse_file(
-    gtf_file, fasta_file, output_file, seq_file, sanitize=False, with_codon=False
+    gtf_file,
+    fasta_file,
+    output_file,
+    seq_file,
+    sanitize=False,
+    with_codon=False,
+    with_genename=False,
 ):
     gene_dict = read_gtf(
         gtf_file, is_gff=gtf_file.endswith("gff") or gtf_file.endswith("gff3")
@@ -191,13 +197,17 @@ def parse_file(
         header = "gene_id\ttranscript_id\tgene_name\tchrom\tstrand\tspans"
         if with_codon:
             header += "\tstart_codon\tstop_codon"
+        if with_genename:
+            header += "\tgene_name"
         f1.write(header)
         for g, v in track(gene_dict.items(), description="Fetching sequences..."):
             t, v2 = sorted(v.items(), key=lambda x: rank_transcript(x[0], x[1]))[0]
             if sanitize:
                 g = sanitize_sequence_name(g)
             f2.write(f">{g}\n{v2.get_seq(fasta)}\n")
-            f1.write(f"{g}\t{t}\t{v2.to_tsv(with_codon=with_codon)}\n")
+            f1.write(
+                f"{g}\t{t}\t{v2.to_tsv(with_codon=with_codon, with_genename=with_genename)}\n"
+            )
 
 
 if __name__ == "__main__":

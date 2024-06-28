@@ -77,10 +77,10 @@ class Transcript:
         self._exons_forwards = None
         self._cum_exon_lens = None
 
-    def to_tsv(self, with_codon=False) -> str:
+    def to_tsv(self, with_codon=False, with_genename=False) -> str:
         # convert into 1-based
         line = []
-        for key in ["gene_id", "transcript_id", "gene_name", "chrom", "strand"]:
+        for key in ["gene_id", "transcript_id", "chrom", "strand"]:
             v = getattr(self, key)
             if v is not None:
                 line.append(v)
@@ -93,6 +93,8 @@ class Transcript:
                 str(self.start_codon.start + 1) if self.start_codon else "",
                 str(self.stop_codon.start + 1) if self.stop_codon else "",
             ]
+        if with_genename:
+            line.append(self.gene_name)
         return "\t".join(line)
 
     def get_seq(self, fasta: Fasta, sort=True):
