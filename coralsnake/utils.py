@@ -94,7 +94,7 @@ class Transcript:
                 str(self.stop_codon.start + 1) if self.stop_codon else "",
             ]
         if with_genename:
-            line.append(self.gene_name)
+            line.append(self.gene_name if self.gene_name is not None else "")
         return "\t".join(line)
 
     def get_seq(self, fasta: Fasta, sort=True):
