@@ -201,7 +201,10 @@ def parse_file(
         gtf_file, is_gff=gtf_file.endswith("gff") or gtf_file.endswith("gff3")
     )
     if seq_file is not None:
-        fasta = Fasta(fasta_file, read_ahead=100_000)
+        # fasta = Fasta(fasta_file, read_ahead=100_000)
+        import pysam
+
+        pysam.FastaFile(fasta_file)
         seq_writer = open(seq_file, "w")
     tsv_writer = open(output_file, "w")
     header = "gene_id\ttranscript_id\tchrom\tstrand\tspans"
