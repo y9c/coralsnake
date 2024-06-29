@@ -12,7 +12,7 @@ from collections import defaultdict
 from functools import lru_cache
 
 import pysam
-from rich.progress import track
+import rich.progress
 
 from .utils import Span, Transcript, get_logger
 
@@ -45,8 +45,8 @@ def read_gtf(gtf_file, is_gff=False):
 
     gene_dict = defaultdict(lambda: defaultdict(lambda: Transcript()))
 
-    with open(gtf_file, "r") as f:
-        for line in track(f, description="Parsing GTF..."):
+    with rich.progress.open(gtf_file, "r", description="Parsing...") as f:
+        for line in f:
             if line.startswith("#"):
                 continue
 
@@ -210,7 +210,7 @@ def parse_file(
     if with_genename:
         header += "\tgene_name"
     tsv_writer.write(header + "\n")
-    for tx in track(
+    for tx in rich.progress.track(
         top_transcript(gene_dict), total=len(gene_dict), description="Writing..."
     ):
         if sanitize:
