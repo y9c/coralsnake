@@ -114,14 +114,18 @@ class Transcript:
         return "\t".join(line)
 
     def get_seq(self, fasta: Fasta, sort=True):
+        # pysam.FastaFile
         if sort:
             self.sort_exons()
         seq = ""
-        for _, v in self.exons.items():
-            e = fasta[self.chrom][v.start : v.end]
-            if self.strand == "-":
-                e = e.reverse.complement
-            seq += e.seq
+        # for _, v in self.exons.items():
+        #     e = fasta[self.chrom][v.start : v.end]
+        #     if self.strand == "-":
+        #         e = e.reverse.complement
+        #     seq += e.seq
+        seq += fasta.fetch(
+            self.chrom, self.exons_forwards[0].start, self.exons_forwards[-1].end
+        )
         return seq.upper()
 
     @property
