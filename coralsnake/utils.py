@@ -10,7 +10,7 @@ import logging
 from collections import defaultdict
 from functools import lru_cache
 
-from pyfaidx import Fasta
+import pysam
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -113,19 +113,17 @@ class Transcript:
             line.append(self.gene_name if self.gene_name is not None else "")
         return "\t".join(line)
 
-    def get_seq(self, fasta: Fasta, sort=True):
-        # pysam.FastaFile
+    def get_seq(self, fasta: pysam.FastaFile, sort=True):
         if sort:
             self.sort_exons()
         seq = ""
-        # for _, v in self.exons.items():
-        #     e = fasta[self.chrom][v.start : v.end]
-        #     if self.strand == "-":
-        #         e = e.reverse.complement
-        #     seq += e.seq
-        seq += fasta.fetch(
-            self.chrom, self.exons_forwards[0].start, self.exons_forwards[-1].end
-        )
+        for _, v in self.exons.items():
+            e = fasta.fetch(
+                self.chrom, self.exons_forwards[0].start, self.exons_forwards[-1].end
+            )
+            if self.strand == "-":
+                e = reverse_complement(e)
+            seq += e
         return seq.upper()
 
     @property

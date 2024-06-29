@@ -11,7 +11,7 @@ import hashlib
 from collections import defaultdict
 from functools import lru_cache
 
-from pyfaidx import Fasta
+import pysam
 from rich.progress import track
 
 from .utils import Span, Transcript, get_logger
@@ -201,9 +201,6 @@ def parse_file(
         gtf_file, is_gff=gtf_file.endswith("gff") or gtf_file.endswith("gff3")
     )
     if seq_file is not None:
-        # fasta = Fasta(fasta_file, read_ahead=100_000)
-        import pysam
-
         fasta = pysam.FastaFile(fasta_file)
         seq_writer = open(seq_file, "w")
     tsv_writer = open(output_file, "w")
