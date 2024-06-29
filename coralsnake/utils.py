@@ -118,9 +118,7 @@ class Transcript:
             self.sort_exons()
         seq = ""
         for _, v in self.exons.items():
-            e = fasta.fetch(
-                self.chrom, self.exons_forwards[0].start, self.exons_forwards[-1].end
-            )
+            e = fasta.fetch(self.chrom, v.start, v.end)
             if self.strand == "-":
                 e = reverse_complement(e)
             seq += e
