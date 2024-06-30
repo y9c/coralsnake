@@ -14,7 +14,7 @@ click.rich_click.STYLE_OPTION = "bold green"
 
 @click.group(
     invoke_without_command=False,
-    help="Variant (genomic variant analysis in python)",
+    help="Coralsnake (transcriptome mapping utils)",
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
 @click.version_option(None, "-v", "--version")

@@ -1,10 +1,12 @@
 [tool.poetry]
 name = "coralsnake"
-version = "0.0.9"
-description = "MAPPING"
+version = "0.0.10"
+description = "Transcriptome mapping utils"
 authors = ["Chang Ye <yech1990@gmail.com>"]
 readme = "README.md"
 license = "GPL-3.0"
+keywords = ["transcriptome", "mapping"]
+repository = "https://github.com/y9c/coralsnake"
 
 [tool.poetry.dependencies]
 python = "^3.10"
