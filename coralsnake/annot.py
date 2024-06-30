@@ -90,10 +90,14 @@ def run_annot(
     cols=None,
     keep_na=True,
     collapse_annot=False,
+    add_count=False,
     skip_header=False,
 ):
     # TODO: add cache option
     cache = True
+    # if not collapse_annot, we can add a column of annotation count
+    if collapse_annot and add_count:
+        raise ValueError("--collapse-annot and --add-count cannot be both True")
     tree_by_chrom_strand, info = parse_annot_file(annot_file, cache)
     if cols is None:
         cols = [0, 1, 2]
@@ -133,10 +137,16 @@ def run_annot(
                     for gene_id, transcript_id, transcript_pos in annot_list:
                         fo.write(
                             f"{line}\t{gene_id}\t{transcript_id}\t{transcript_pos}\n"
+                            if not add_count
+                            else f"{line}\t{gene_id}\t{transcript_id}\t{transcript_pos}\t{len(annot_list)}\n"
                         )
             else:
                 if keep_na:
-                    fo.write(f"{line}\t.\t.\t.\n")
+                    fo.write(
+                        f"{line}\t.\t.\t.\n"
+                        if not add_count
+                        else f"{line}\t.\t.\t.\t0\n"
+                    )
 
 
 if __name__ == "__main__":

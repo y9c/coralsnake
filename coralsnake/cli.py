@@ -121,14 +121,29 @@ def map(ref_file, r1_file, r2_file, fwd_lib):
     help="Collapse annotation.",
     is_flag=True,
 )
+@click.option("--add-count", "-n", "add_count", help="Add count.", is_flag=True)
 @click.option("--skip-header", "-H", "skip_header", help="Skip header.", is_flag=True)
 def annot(
-    input_file, output_file, annot_file, cols, keep_na, collapse_annot, skip_header
+    input_file,
+    output_file,
+    annot_file,
+    cols,
+    keep_na,
+    collapse_annot,
+    add_count,
+    skip_header,
 ):
     from .annot import run_annot
 
     run_annot(
-        input_file, output_file, annot_file, cols, keep_na, collapse_annot, skip_header
+        input_file,
+        output_file,
+        annot_file,
+        cols,
+        keep_na,
+        collapse_annot,
+        add_count,
+        skip_header,
     )
 
 
