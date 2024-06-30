@@ -84,7 +84,13 @@ def parse_annot_file(tx_file, cache):
 
 
 def run_annot(
-    input_file, output_file, annot_file, cols=None, keep_na=True, skip_header=False
+    input_file,
+    output_file,
+    annot_file,
+    cols=None,
+    keep_na=True,
+    collapse_annot=False,
+    skip_header=False,
 ):
     # TODO: add cache option
     cache = True
@@ -102,23 +108,35 @@ def run_annot(
             chromosome, position, strand = [records[i] for i in cols]
             position = int(position) - 1
             tree = tree_by_chrom_strand.get((chromosome, strand))
-            founded = False
+            annot_list = []
             if tree:
                 for exon_start, exon_end, rid in tree.find_overlap(
                     position, position + 1
                 ):
                     if info.get(rid):
-                        founded = True
                         gene_id, transcript_id, exon_shift = info[rid]
                         if strand == "+":
                             transcript_pos = position - exon_start + exon_shift
                         else:
                             transcript_pos = exon_end - position + exon_shift
+                        annot_list.append((gene_id, transcript_id, transcript_pos))
+
+            if len(annot_list) > 0:
+                if collapse_annot:
+                    gene_id_join = ",".join([x[0] for x in annot_list])
+                    transcript_id_join = ",".join([x[1] for x in annot_list])
+                    transcript_pos_join = ",".join([str(x[2]) for x in annot_list])
+                    fo.write(
+                        f"{line}\t{gene_id_join}\t{transcript_id_join}\t{transcript_pos_join}\n"
+                    )
+                else:
+                    for gene_id, transcript_id, transcript_pos in annot_list:
                         fo.write(
                             f"{line}\t{gene_id}\t{transcript_id}\t{transcript_pos}\n"
                         )
-            if not founded and keep_na:
-                fo.write(f"{line}\t.\t.\t.\n")
+            else:
+                if keep_na:
+                    fo.write(f"{line}\t.\t.\t.\n")
 
 
 if __name__ == "__main__":
