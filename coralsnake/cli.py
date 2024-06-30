@@ -133,6 +133,11 @@ def annot(
     add_count,
     skip_header,
 ):
+    # --add-count is not compatible with --collapse-annot
+    if add_count and collapse_annot:
+        raise click.ClickException(
+            "Error: --add-count is not compatible with --collapse-annot"
+        )
     from .annot import run_annot
 
     run_annot(
