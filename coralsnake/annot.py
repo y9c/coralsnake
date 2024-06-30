@@ -17,7 +17,7 @@ from xopen import xopen
 
 
 # Function to parse exon data into a structured dictionary
-def parse_annot(tx_file, cache=True):
+def parse_annot_file(tx_file, cache):
     # check if pickle file exists, load it if it does
     if cache and os.path.exists(tx_file + ".pickle"):
         with open(tx_file + ".pickle", "rb") as f:
@@ -79,10 +79,12 @@ def parse_annot(tx_file, cache=True):
     return exon_tree_by_chrom_strand, info
 
 
-def annot_file(
+def run_annot(
     input_file, output_file, annot_file, cols=None, keep_na=True, skip_header=False
 ):
-    tree_by_chrom_strand, info = parse_annot(annot_file)
+    # TODO: add cache option
+    cache = True
+    tree_by_chrom_strand, info = parse_annot_file(annot_file, cache)
     if cols is None:
         cols = [0, 1, 2]
     else:
@@ -115,4 +117,4 @@ if __name__ == "__main__":
     ap.add_argument("output_file", help="output file")
     ap.add_argument("annot_file", help="annotation file")
     args = ap.parse_args()
-    annot_file(args.input_file, args.output_file, args.annot_file)
+    run_annot(args.input_file, args.output_file, args.annot_file)
