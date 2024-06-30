@@ -17,7 +17,7 @@ from xopen import xopen
 
 
 # Function to parse exon data into a structured dictionary
-def parse_data(tx_file, cache=True):
+def parse_annot(tx_file, cache=True):
     # check if pickle file exists, load it if it does
     if cache and os.path.exists(tx_file + ".pickle"):
         with open(tx_file + ".pickle", "rb") as f:
@@ -79,12 +79,17 @@ def parse_data(tx_file, cache=True):
     return exon_tree_by_chrom_strand, info
 
 
-def annot_file(input_file, output_file, annot_file, keep_na=True, cols=None):
-    tree_by_chrom_strand, info = parse_data(annot_file)
+def annot_file(
+    input_file, output_file, annot_file, cols=None, keep_na=True, skip_header=False
+):
+    tree_by_chrom_strand, info = parse_annot(annot_file)
     if cols is None:
         cols = [0, 1, 2]
+    else:
+        cols = [int(i) - 1 for i in cols.split(",")]
     with xopen(input_file, "rt") as fi, xopen(output_file, "wt") as fo:
-        next(fi)  # skip header
+        if skip_header:
+            next(fi)
         for line in track(fi, description="Processing sites"):
             line = line.strip("\n")
             records = line.split("\t")

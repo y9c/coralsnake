@@ -4,7 +4,7 @@ click.rich_click.COMMAND_GROUPS = {
     "coralsnake": [
         {
             "name": "Commands",
-            "commands": ["prepare", "map", "liftover"],
+            "commands": ["prepare", "map", "liftover", "annot"],
         },
     ]
 }
@@ -98,6 +98,27 @@ def map(ref_file, r1_file, r2_file, fwd_lib):
     from .mapping import map_file
 
     map_file(ref_file, r1_file, r2_file, fwd_lib)
+
+
+@cli.command(
+    help="Annotate tsv file.",
+    no_args_is_help=True,
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+@click.option("--input-file", "-i", "input_file", help="Input file.", required=True)
+@click.option("--output-file", "-o", "output_file", help="Output file.", required=True)
+@click.option(
+    "--annot-file", "-a", "annot_file", help="Annotation file.", required=True
+)
+@click.option(
+    "--cols", "-c", "cols", help="Columns of Chrom,Pos,Strand", default="1,2,3"
+)
+@click.option("--keep-na", "-k", "keep_na", help="Keep NA.", is_flag=True)
+@click.option("--skip-header", "-H", "skip_header", help="Skip header.", is_flag=True)
+def annot(input_file, output_file, annot_file, cols, keep_na, skip_header):
+    from .annot import annot_file
+
+    annot_file(input_file, output_file, annot_file, cols, keep_na, skip_header)
 
 
 if __name__ == "__main__":
