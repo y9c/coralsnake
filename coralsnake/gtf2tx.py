@@ -109,8 +109,22 @@ def read_gtf(gtf_file, is_gff=False):
             # do not need to check priority is set or not
             tx.priority = priority
             for k, v in zip(
-                ["gene_id", "transcript_id", "gene_name", "chrom", "strand"],
-                [gene_id, transcript_id, d.get("gene_name", None), line[0], line[6]],
+                [
+                    "gene_id",
+                    "transcript_id",
+                    "chrom",
+                    "strand",
+                    "gene_name",
+                    "transcript_biotype",
+                ],
+                [
+                    gene_id,
+                    transcript_id,
+                    line[0],
+                    line[6],
+                    d.get("gene_name", None),
+                    d.get("transcript_bio_type", None),
+                ],
             ):
                 if getattr(tx, k):
                     if v != getattr(tx, k):
@@ -196,6 +210,7 @@ def parse_file(
     sanitize=False,
     with_codon=False,
     with_genename=False,
+    filter_biotype=None,
 ):
     gene_dict = read_gtf(
         gtf_file, is_gff=gtf_file.endswith("gff") or gtf_file.endswith("gff3")
@@ -213,6 +228,8 @@ def parse_file(
     for tx in rich.progress.track(
         top_transcript(gene_dict), total=len(gene_dict), description="Writing..."
     ):
+        if filter_biotype and tx.transcript_biotype != filter_biotype:
+            continue
         if sanitize:
             tx.gene_id = sanitize_sequence_name(tx.gene_id)
         if seq_file is not None:

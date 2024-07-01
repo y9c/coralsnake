@@ -75,6 +75,7 @@ class Transcript:
         self._cum_exon_lens = None
         # extra feature
         self.gene_name: str | None = gene_name
+        self.transcript_biotype: str | None = None
         self.start_codon: Span | None = None
         self.stop_codon: Span | None = None
         self.priority: tuple[int, int] = (10, 0)
@@ -153,7 +154,6 @@ class Transcript:
         for key in [
             "gene_id",
             "transcript_id",
-            "gene_name",
             "chrom",
             "strand",
             # "exons_forwards",

@@ -53,13 +53,34 @@ def cli(ctx):
     help="Include gene name in the output.",
     is_flag=True,
 )
+@click.option(
+    "--filter-biotype",
+    "-b",
+    "filter_biotype",
+    help="Filter biotype.",
+    default=None,
+)
 def prepare(
-    gtf_file, fasta_file, output_file, seq_file, sanitize, with_codon, with_genename
+    gtf_file,
+    fasta_file,
+    output_file,
+    seq_file,
+    sanitize,
+    with_codon,
+    with_genename,
+    filter_biotype,
 ):
     from .gtf2tx import parse_file
 
     parse_file(
-        gtf_file, fasta_file, output_file, seq_file, sanitize, with_codon, with_genename
+        gtf_file,
+        fasta_file,
+        output_file,
+        seq_file,
+        sanitize,
+        with_codon,
+        with_genename,
+        filter_biotype,
     )
 
 
