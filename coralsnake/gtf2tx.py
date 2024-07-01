@@ -123,7 +123,7 @@ def read_gtf(gtf_file, is_gff=False):
                     line[0],
                     line[6],
                     d.get("gene_name", None),
-                    d.get("transcript_bio_type", None),
+                    d.get("transcript_biotype", None),
                 ],
             ):
                 if getattr(tx, k):
