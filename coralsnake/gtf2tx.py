@@ -126,7 +126,9 @@ def read_gtf(gtf_file, is_gff=False):
                     d.get("transcript_biotype", None),
                 ],
             ):
-                if getattr(tx, k) is not None and v is not None:
+                if v is None:
+                    continue
+                if getattr(tx, k):
                     if v != getattr(tx, k):
                         raise ValueError(f"{k} mismatch")
                 else:
