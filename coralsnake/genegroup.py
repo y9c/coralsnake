@@ -7,6 +7,8 @@
 # Created: 2024-07-04 23:20
 
 
+import re
+
 import numpy as np
 from pyfamsa import Aligner, Sequence
 from pysam import FastaFile
@@ -41,7 +43,7 @@ def run_msa(names, seqs):
 
 def show_msa(msa):
     for sequence in msa:
-        print(sequence.sequence)
+        print(sequence.sequence.decode())
 
 
 def msa_to_array(msa, mask_ratio=0.5):
@@ -54,7 +56,11 @@ def cluster_sequences(alignment_array, threshold=0.1):
     def hamming(u, v, **kwargs):
         # return np.sum(u != v) / len(u)
         # but do not calculate the distance of positions where both sequence is a gap
-        return np.sum((u != v) & (u != 45) & (v != 45)) / np.sum((u != 45) | (v != 45))
+        # note that if one sequence is a gap and the other is not, the distance is 1
+        mask = (u == 45) & (v == 45)
+        u1 = u[~mask]
+        v1 = v[~mask]
+        return np.sum(u1 != v1) / len(u1)
 
     distance_matrix = pdist(alignment_array, metric=hamming)
 
@@ -149,7 +155,7 @@ def map_genome_to_gap_open(genome_span_list, gap_open_list):
     return mapping
 
 
-def group_genes(fa_file, annot_file, out_file=None):
+def group_genes(fa_file, annot_file, out_file=None, gene_regex=None):
     fasta = FastaFile(fa_file)
     # if out_file is None write to stdout
     if out_file:
@@ -161,6 +167,9 @@ def group_genes(fa_file, annot_file, out_file=None):
     annot = load_annotation(annot_file)
     gene_dict = group_annot(annot)
     for gene_name, tx_list in gene_dict.items():
+        if gene_regex:
+            if not re.search(gene_regex, gene_name):
+                continue
         names = [tx.gene_id for tx in tx_list]
         seqs = [tx.get_seq(fasta) for tx in tx_list]
         exon_spans_list = [tx.exons.values() for tx in tx_list]
@@ -192,7 +201,7 @@ def group_genes(fa_file, annot_file, out_file=None):
             cluster_msa = run_msa(cluster_names, cluster_seqs)
             cluster_aligned_array = msa_to_array(cluster_msa)
             # show_msa(cluster_msa)
-            # print(consensus_sequence(cluster_aligned_array))
+            cluster_consensus = consensus_sequence(cluster_aligned_array)
 
             for i, mapping in enumerate(
                 get_position_mapping_from_aligned_array(cluster_aligned_array)
@@ -217,7 +226,7 @@ def group_genes(fa_file, annot_file, out_file=None):
                     ]
                 )
                 out.write(
-                    f"{gene_name}\t{cluster_id}\t{cluster_names[i]}\t{cluster_exon_chroms_list[i]}\t{exon_spans_str}\t{msa_spans_str}\n"
+                    f"{gene_name}\t{cluster_id}\t{len(cluster_names)}\t{cluster_consensus}\t{cluster_names[i]}\t{cluster_exon_chroms_list[i]}\t{exon_spans_str}\t{msa_spans_str}\n"
                 )
 
 
