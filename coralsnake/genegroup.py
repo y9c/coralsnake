@@ -191,7 +191,7 @@ def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None):
                 continue
             gene_name = transcript.gene_name
             # This a temporary fix for snRNA naming
-            rename_snRNA(gene_name)
+            gene_name = rename_snRNA(gene_name)
             if gene_name not in gene_dict_by_name:
                 gene_dict_by_name[gene_name] = []
             gene_dict_by_name[gene_name].append(transcript)
