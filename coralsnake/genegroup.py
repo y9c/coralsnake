@@ -10,6 +10,7 @@
 import re
 
 import numpy as np
+import rich.progress
 from pyfamsa import Aligner, Sequence
 from pysam import FastaFile
 from scipy.cluster.hierarchy import fcluster, linkage
@@ -187,8 +188,9 @@ def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None):
 
         out = sys.stdout
 
-    for gene_name, tx_list in gene_dict_by_name.items():
-        LOGGER.info(f"Processing gene {gene_name}")
+    for gene_name, tx_list in rich.progress.track(
+        gene_dict_by_name.items(), description="Processing genes..."
+    ):
         if gene_regex:
             if not re.search(gene_regex, gene_name):
                 continue
