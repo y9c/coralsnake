@@ -15,12 +15,13 @@ from pysam import FastaFile
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import pdist
 
-from .utils import get_logger, load_annotation
+from .gtf2tx import read_gtf, top_transcript
+from .utils import get_logger
 
 LOGGER = get_logger(__name__)
 
 
-def group_annot(annot):
+def group_annot_by_gene_name(annot):
     # annot is dict of dict of Transcript object
     gene_dict = {}
     for _, gene_info in annot.items():
@@ -157,18 +158,26 @@ def map_genome_to_gap_open(genome_span_list, gap_open_list):
     return mapping
 
 
-def group_genes(fa_file_list, annot_file_list, out_file=None, gene_regex=None):
+def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None):
     chrom_to_fa = {}
     LOGGER.info("Loading fasta files")
     for fa_file in fa_file_list:
         fasta = FastaFile(fa_file)
         chrom_to_fa.update({chrom: fasta for chrom in fasta.references})
 
-    LOGGER.info("Loading annotations")
-    gene_dict = {}
-    for annot_file in annot_file_list:
-        annot = load_annotation(annot_file)
-        gene_dict.update(group_annot(annot))
+    LOGGER.info("Loading annotations from gtf file")
+    gene_dict_by_name = {}
+    for gtf_file in gtf_file_list:
+        gene_dict = read_gtf(
+            gtf_file, is_gff=gtf_file.endswith("gff") or gtf_file.endswith("gff3")
+        )
+        for transcript in top_transcript(gene_dict):
+            if not transcript.gene_name:
+                continue
+            gene_name = transcript.gene_name
+            if gene_name not in gene_dict_by_name:
+                gene_dict_by_name[gene_name] = []
+            gene_dict_by_name[gene_name].append(transcript)
 
     # if out_file is None write to stdout
     if out_file:
@@ -178,7 +187,7 @@ def group_genes(fa_file_list, annot_file_list, out_file=None, gene_regex=None):
 
         out = sys.stdout
 
-    for gene_name, tx_list in gene_dict.items():
+    for gene_name, tx_list in gene_dict_by_name.items():
         LOGGER.info(f"Processing gene {gene_name}")
         if gene_regex:
             if not re.search(gene_regex, gene_name):

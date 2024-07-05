@@ -78,6 +78,7 @@ class Transcript:
         # calculated feature
         self._exons_forwards = None
         self._cum_exon_lens = None
+        self._seq = None
         # extra feature
         self.gene_name: str | None = gene_name
         self.transcript_biotype: str | None = None
@@ -89,6 +90,7 @@ class Transcript:
         self.exons[exon_id] = exon
         self._exons_forwards = None
         self._cum_exon_lens = None
+        self._seq = None
 
     def sort_exons(self) -> None:
         self.exons = dict(
@@ -98,6 +100,7 @@ class Transcript:
         )
         self._exons_forwards = None
         self._cum_exon_lens = None
+        self._seq = None
 
     def to_tsv(self, with_codon=False, with_genename=False) -> str:
         # convert into 1-based
@@ -133,19 +136,23 @@ class Transcript:
         return ",".join(gene_spans)
 
     def get_seq(self, fasta: pysam.FastaFile, sort=True, upper=True, wrap=0):
-        if sort:
-            self.sort_exons()
-        seq = ""
-        for _, v in self.exons.items():
-            e = fasta.fetch(self.chrom, v.start, v.end)
-            if self.strand == "-":
-                e = reverse_complement(e)
-            seq += e
+        if self._seq is None:
+            if sort:
+                self.sort_exons()
+            seq = ""
+            for _, v in self.exons.items():
+                e = fasta.fetch(self.chrom, v.start, v.end)
+                if self.strand == "-":
+                    e = reverse_complement(e)
+                seq += e
+            self._seq = seq
+
+        seq_out = self._seq
         if upper:
-            seq = seq.upper()
+            seq_out = seq_out.upper()
         if wrap > 0:
-            seq = textwrap.fill(seq, wrap)
-        return seq.upper()
+            seq_out = textwrap.fill(seq_out, wrap)
+        return seq_out
 
     @property
     def exons_forwards(self) -> list[Span]:
