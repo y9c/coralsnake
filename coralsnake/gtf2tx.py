@@ -213,6 +213,8 @@ def parse_file(
     with_codon=False,
     with_genename=False,
     filter_biotype=None,
+    seq_upper=False,
+    line_length=0,
 ):
     gene_dict = read_gtf(
         gtf_file, is_gff=gtf_file.endswith("gff") or gtf_file.endswith("gff3")
@@ -235,7 +237,9 @@ def parse_file(
         if sanitize:
             tx.gene_id = sanitize_sequence_name(tx.gene_id)
         if seq_file is not None:
-            seq_writer.write(f">{tx.gene_id}\n{tx.get_seq(fasta)}\n")
+            seq_writer.write(
+                f">{tx.gene_id}\n{tx.get_seq(fasta, upper=seq_upper, wrap = line_length)}\n"
+            )
         tsv_writer.write(tx.to_tsv(with_codon=with_codon, with_genename=with_genename))
         tsv_writer.write("\n")
     if seq_file is not None:

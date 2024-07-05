@@ -4,7 +4,7 @@ click.rich_click.COMMAND_GROUPS = {
     "coralsnake": [
         {
             "name": "Commands",
-            "commands": ["prepare", "map", "liftover", "annot"],
+            "commands": ["prepare", "map", "liftover", "annot", "group"],
         },
     ]
 }
@@ -60,6 +60,21 @@ def cli(ctx):
     help="Filter biotype.",
     default=None,
 )
+@click.option(
+    "--seq-upper/--seq-lower",
+    "-U/-u",
+    "seq_upper",
+    help="Convert sequence to uppercase.",
+    is_flag=True,
+    default=True,
+)
+@click.option(
+    "--line-length",
+    "-l",
+    "line_length",
+    help="Line length. (Default: 0, no wrap)",
+    default=0,
+)
 def prepare(
     gtf_file,
     fasta_file,
@@ -69,6 +84,8 @@ def prepare(
     with_codon,
     with_genename,
     filter_biotype,
+    seq_upper,
+    line_length,
 ):
     from .gtf2tx import parse_file
 
@@ -81,6 +98,8 @@ def prepare(
         with_codon,
         with_genename,
         filter_biotype,
+        seq_upper,
+        line_length,
     )
 
 
@@ -171,6 +190,22 @@ def annot(
         add_count,
         skip_header,
     )
+
+
+@cli.command(
+    help="Group and find consenus of gene.",
+    no_args_is_help=True,
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+@click.option("--fasta-file", "-f", "fasta_file", help="Fasta file.", required=True)
+@click.option(
+    "--annot-file", "-a", "annot_file", help="Annotation file.", required=True
+)
+@click.option("--output-file", "-o", "output_file", help="Output file.", required=False)
+def group(fasta_file, annot_file, output_file):
+    from .genegroup import group_genes
+
+    group_genes(fasta_file, annot_file, output_file)
 
 
 if __name__ == "__main__":

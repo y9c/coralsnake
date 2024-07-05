@@ -7,6 +7,7 @@
 # Created: 2024-06-25 14:21
 
 import logging
+import textwrap
 from collections import defaultdict
 from functools import lru_cache
 
@@ -50,6 +51,10 @@ class Span:
         # 0-based
         self.start = start
         self.end = end
+
+    def __iter__(self):
+        yield self.start
+        yield self.end
 
     def __repr__(self) -> str:
         return f"(start={self.start}, end={self.end})"
@@ -114,7 +119,20 @@ class Transcript:
             line.append(self.gene_name if self.gene_name is not None else "")
         return "\t".join(line)
 
-    def get_seq(self, fasta: pysam.FastaFile, sort=True):
+    def get_genome_spans(self) -> str:
+        # 1-based
+        return ",".join([f"{v.start + 1}-{v.end}" for v in self.exons.values()])
+
+    def get_gene_spans(self) -> str:
+        # 1-based
+        gene_spans = []
+        exon_start = 1
+        for exon_end in self.cum_exon_lens:
+            gene_spans.append(f"{exon_start}-{exon_end}")
+            exon_start = exon_end + 1
+        return ",".join(gene_spans)
+
+    def get_seq(self, fasta: pysam.FastaFile, sort=True, upper=True, wrap=0):
         if sort:
             self.sort_exons()
         seq = ""
@@ -123,6 +141,10 @@ class Transcript:
             if self.strand == "-":
                 e = reverse_complement(e)
             seq += e
+        if upper:
+            seq = seq.upper()
+        if wrap > 0:
+            seq = textwrap.fill(seq, wrap)
         return seq.upper()
 
     @property
@@ -168,12 +190,35 @@ def load_annotation(
     annot = defaultdict(dict)
     with open(annotation_file, "r") as f:
         if with_header:
-            next(f)  # Skip header
+            header = f.readline().strip("\n").split("\t")
+            gene_id_idx = header.index("gene_id")
+            transcript_id_idx = header.index("transcript_id")
+            chrom_idx = header.index("chrom")
+            strand_idx = header.index("strand")
+            spans_idx = header.index("spans")
+            if "gene_name" in header:
+                gene_name_idx = header.index("gene_name")
+            else:
+                gene_name_idx = None
+        else:
+            (
+                gene_id_idx,
+                transcript_id_idx,
+                chrom_idx,
+                strand_idx,
+                spans_idx,
+                gene_name_idx,
+            ) = 0, 1, 2, 3, 4, None
         for line in f:
-            fields = line.strip().split("\t")
-            if len(fields) < 6:
+            fields = line.strip("\n").split("\t")
+            if len(fields) < 5:
                 continue
-            gene_id, transcript_id, gene_name, chrom, strand, spans = fields[:6]
+            gene_id = fields[gene_id_idx]
+            transcript_id = fields[transcript_id_idx]
+            chrom = fields[chrom_idx]
+            strand = fields[strand_idx]
+            spans = fields[spans_idx]
+            gene_name = fields[gene_name_idx] if gene_name_idx is not None else None
             exons = {
                 idx: Span(int(start) - 1, int(end))
                 for idx, span in enumerate(spans.split(","), 1)
