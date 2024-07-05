@@ -15,7 +15,9 @@ from pysam import FastaFile
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import pdist
 
-from .utils import load_annotation
+from .utils import get_logger, load_annotation
+
+LOGGER = get_logger(__name__)
 
 
 def group_annot(annot):
@@ -157,10 +159,12 @@ def map_genome_to_gap_open(genome_span_list, gap_open_list):
 
 def group_genes(fa_file_list, annot_file_list, out_file=None, gene_regex=None):
     chrom_to_fa = {}
+    LOGGER.info("Loading fasta files")
     for fa_file in fa_file_list:
         fasta = FastaFile(fa_file)
         chrom_to_fa.update({chrom: fasta for chrom in fasta.references})
 
+    LOGGER.info("Loading annotations")
     gene_dict = {}
     for annot_file in annot_file_list:
         annot = load_annotation(annot_file)
@@ -175,6 +179,7 @@ def group_genes(fa_file_list, annot_file_list, out_file=None, gene_regex=None):
         out = sys.stdout
 
     for gene_name, tx_list in gene_dict.items():
+        LOGGER.info(f"Processing gene {gene_name}")
         if gene_regex:
             if not re.search(gene_regex, gene_name):
                 continue
