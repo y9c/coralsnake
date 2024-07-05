@@ -168,8 +168,8 @@ def rename_snRNA(gene_name):
     # RNU6ATAC7 -> U6ATAC
     # .., etc
     # meanwhile
-    gene_name = re.sub(r"RNU(\d+)-\d+.*?", r"U\1", gene_name)
-    gene_name = re.sub(r"RNU(\d+)ATAC.*?", r"U\1ATAC", gene_name)
+    gene_name = re.sub(r"RNU(\d+)-\d+.*", r"U\1", gene_name)
+    gene_name = re.sub(r"RNU(\d+)ATAC.*", r"U\1ATAC", gene_name)
     return gene_name
 
 
