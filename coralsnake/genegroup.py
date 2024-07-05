@@ -159,6 +159,20 @@ def map_genome_to_gap_open(genome_span_list, gap_open_list):
     return mapping
 
 
+def rename_snRNA(gene_name):
+    # This a temporary fix for snRNA naming
+    # RNU2-1 -> U2
+    # RNU2-27P -> U2
+    # RNU3-2 -> U3
+    # RNU4ATAC7 -> U4ATAC
+    # RNU6ATAC7 -> U6ATAC
+    # .., etc
+    # meanwhile
+    gene_name = re.sub(r"RNU(\d+)-(\d+P)?", r"U\1", gene_name)
+    gene_name = re.sub(r"RNU(\d+)ATAC", r"U\1ATAC", gene_name)
+    return gene_name
+
+
 def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None):
     chrom_to_fa = {}
     LOGGER.info("Loading fasta files")
@@ -176,6 +190,8 @@ def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None):
             if not transcript.gene_name:
                 continue
             gene_name = transcript.gene_name
+            # This a temporary fix for snRNA naming
+            rename_snRNA(gene_name)
             if gene_name not in gene_dict_by_name:
                 gene_dict_by_name[gene_name] = []
             gene_dict_by_name[gene_name].append(transcript)
