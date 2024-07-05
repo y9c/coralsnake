@@ -164,11 +164,14 @@ def rename_snRNA(gene_name):
     # RNU2-1 -> U2
     # RNU2-27P -> U2
     # RNU3-2 -> U3
+    # RNU5E-10P -> RN5E
+    # RNU5A-3P -> RN5E
     # RNU4ATAC7 -> U4ATAC
     # RNU6ATAC7 -> U6ATAC
     # .., etc
     # meanwhile
     gene_name = re.sub(r"RNU(\d+)-\d+.*", r"U\1", gene_name)
+    gene_name = re.sub(r"RNU(\d+[A-Z]+)-\d+.*", r"U\1", gene_name)
     gene_name = re.sub(r"RNU(\d+)ATAC.*", r"U\1ATAC", gene_name)
     return gene_name
 
