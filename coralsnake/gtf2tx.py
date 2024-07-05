@@ -45,7 +45,7 @@ def read_gtf(gtf_file, is_gff=False):
 
     gene_dict = defaultdict(lambda: defaultdict(lambda: Transcript()))
 
-    with rich.progress.open(gtf_file, "r", description="Parsing...") as f:
+    with rich.progress.open(gtf_file, "r", description="Parsing GTF...") as f:
         for line in f:
             if line.startswith("#"):
                 continue
