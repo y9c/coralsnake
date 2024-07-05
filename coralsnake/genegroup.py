@@ -155,8 +155,17 @@ def map_genome_to_gap_open(genome_span_list, gap_open_list):
     return mapping
 
 
-def group_genes(fa_file, annot_file, out_file=None, gene_regex=None):
-    fasta = FastaFile(fa_file)
+def group_genes(fa_file_list, annot_file_list, out_file=None, gene_regex=None):
+    chrom_to_fa = {}
+    for fa_file in fa_file_list:
+        fasta = FastaFile(fa_file)
+        chrom_to_fa.update({chrom: fasta for chrom in fasta.references})
+
+    gene_dict = {}
+    for annot_file in annot_file_list:
+        annot = load_annotation(annot_file)
+        gene_dict.update(group_annot(annot))
+
     # if out_file is None write to stdout
     if out_file:
         out = open(out_file, "w")
@@ -164,16 +173,14 @@ def group_genes(fa_file, annot_file, out_file=None, gene_regex=None):
         import sys
 
         out = sys.stdout
-    annot = load_annotation(annot_file)
-    gene_dict = group_annot(annot)
+
     for gene_name, tx_list in gene_dict.items():
         if gene_regex:
             if not re.search(gene_regex, gene_name):
                 continue
         names = [tx.gene_id for tx in tx_list]
-        seqs = [tx.get_seq(fasta) for tx in tx_list]
+        seqs = [tx.get_seq(chrom_to_fa[tx.chrom]) for tx in tx_list]
         exon_spans_list = [tx.exons.values() for tx in tx_list]
-        exon_chroms = [tx.chrom for tx in tx_list]
         if len(tx_list) < 2:
             cluster_ids = np.zeros(len(tx_list), dtype=int)
         else:
@@ -182,6 +189,9 @@ def group_genes(fa_file, annot_file, out_file=None, gene_regex=None):
             cluster_ids = cluster_sequences(aligned_array)
         # loop the cluster ids and redo the msa for each sub-group
         for cluster_id in np.unique(cluster_ids):
+            cluster_tx_list = [
+                tx for tx, cid in zip(tx_list, cluster_ids) if cid == cluster_id
+            ]
             cluster_names = [
                 name for name, cid in zip(names, cluster_ids) if cid == cluster_id
             ]
@@ -193,14 +203,8 @@ def group_genes(fa_file, annot_file, out_file=None, gene_regex=None):
                 for spans, cid in zip(exon_spans_list, cluster_ids)
                 if cid == cluster_id
             ]
-            cluster_exon_chroms_list = [
-                chrom
-                for chrom, cid in zip(exon_chroms, cluster_ids)
-                if cid == cluster_id
-            ]
             cluster_msa = run_msa(cluster_names, cluster_seqs)
             cluster_aligned_array = msa_to_array(cluster_msa)
-            # show_msa(cluster_msa)
             cluster_consensus = consensus_sequence(cluster_aligned_array)
 
             for i, mapping in enumerate(
@@ -225,8 +229,9 @@ def group_genes(fa_file, annot_file, out_file=None, gene_regex=None):
                         if start is not None and end is not None
                     ]
                 )
+                tx = cluster_tx_list[i]
                 out.write(
-                    f"{gene_name}\t{cluster_id}\t{len(cluster_names)}\t{cluster_consensus}\t{cluster_names[i]}\t{cluster_exon_chroms_list[i]}\t{exon_spans_str}\t{msa_spans_str}\n"
+                    f"{gene_name}\t{cluster_id}\t{len(cluster_names)}\t{cluster_consensus}\t{cluster_names[i]}\t{tx.chrom}\t{exon_spans_str}\t{tx.strand}\t{msa_spans_str}\n"
                 )
 
 

@@ -197,9 +197,16 @@ def annot(
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
-@click.option("--fasta-file", "-f", "fasta_file", help="Fasta file.", required=True)
 @click.option(
-    "--annot-file", "-a", "annot_file", help="Annotation file.", required=True
+    "--fasta-file", "-f", "fasta_file", help="Fasta file.", required=True, multiple=True
+)
+@click.option(
+    "--annot-file",
+    "-a",
+    "annot_file",
+    help="Annotation file.",
+    required=True,
+    multiple=True,
 )
 @click.option("--output-file", "-o", "output_file", help="Output file.", required=False)
 @click.option("--gene-regex", "-r", "gene_regex", help="Gene regex.", default=None)
