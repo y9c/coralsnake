@@ -210,10 +210,11 @@ def annot(
 )
 @click.option("--output-file", "-o", "output_file", help="Output file.", required=False)
 @click.option("--gene-regex", "-r", "gene_regex", help="Gene regex.", default=None)
-def group(fasta_file, gtf_file, output_file, gene_regex):
+@click.option("--threads", "-t", "threads", help="Threads.", default=8)
+def group(fasta_file, gtf_file, output_file, gene_regex, threads):
     from .genegroup import group_genes
 
-    group_genes(fasta_file, gtf_file, output_file, gene_regex)
+    group_genes(fasta_file, gtf_file, output_file, gene_regex, threads)
 
 
 if __name__ == "__main__":

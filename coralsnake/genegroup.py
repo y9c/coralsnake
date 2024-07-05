@@ -36,8 +36,8 @@ def group_annot_by_gene_name(annot):
     return gene_dict
 
 
-def run_msa(names, seqs):
-    aligner = Aligner(guide_tree="upgma")
+def run_msa(names, seqs, threads=8):
+    aligner = Aligner(guide_tree="upgma", threads=threads)
     seqs = [Sequence(n.encode(), s.encode()) for n, s in zip(names, seqs)]
     # tree = aligner.build_tree(seqs)
     # print(tree.dumps())
@@ -173,7 +173,7 @@ def rename_snRNA(gene_name):
     return gene_name
 
 
-def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None):
+def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None, threads=8):
     chrom_to_fa = {}
     LOGGER.info("Loading fasta files")
     for fa_file in fa_file_list:
@@ -235,7 +235,7 @@ def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None):
                 for spans, cid in zip(exon_spans_list, cluster_ids)
                 if cid == cluster_id
             ]
-            cluster_msa = run_msa(cluster_names, cluster_seqs)
+            cluster_msa = run_msa(cluster_names, cluster_seqs, threads)
             cluster_aligned_array = msa_to_array(cluster_msa)
             cluster_consensus = consensus_sequence(cluster_aligned_array)
 
