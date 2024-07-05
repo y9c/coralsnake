@@ -201,19 +201,19 @@ def annot(
     "--fasta-file", "-f", "fasta_file", help="Fasta file.", required=True, multiple=True
 )
 @click.option(
-    "--annot-file",
-    "-a",
-    "annot_file",
-    help="Annotation file.",
+    "--gtf-file",
+    "-g",
+    "gtf_file",
+    help="GTF file.",
     required=True,
     multiple=True,
 )
 @click.option("--output-file", "-o", "output_file", help="Output file.", required=False)
 @click.option("--gene-regex", "-r", "gene_regex", help="Gene regex.", default=None)
-def group(fasta_file, annot_file, output_file, gene_regex):
+def group(fasta_file, gtf_file, output_file, gene_regex):
     from .genegroup import group_genes
 
-    group_genes(fasta_file, annot_file, output_file, gene_regex)
+    group_genes(fasta_file, gtf_file, output_file, gene_regex)
 
 
 if __name__ == "__main__":
