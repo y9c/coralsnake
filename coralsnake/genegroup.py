@@ -187,7 +187,7 @@ def group_genes(fa_file_list, annot_file_list, out_file=None, gene_regex=None):
         seqs = [tx.get_seq(chrom_to_fa[tx.chrom]) for tx in tx_list]
         exon_spans_list = [tx.exons.values() for tx in tx_list]
         if len(tx_list) < 2:
-            cluster_ids = np.zeros(len(tx_list), dtype=int)
+            cluster_ids = np.arange(1, len(tx_list) + 1, dtype=int)
         else:
             msa = run_msa(names, seqs)
             aligned_array = msa_to_array(msa)
