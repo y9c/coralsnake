@@ -209,10 +209,15 @@ def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None, thr
             gene_name = transcript.gene_name
             # This a temporary fix for snRNA naming
             gene_name = rename_snRNA(gene_name)
-            if transcript.transcript_biotype == "snRNA" and not gene_name.startswith(
-                "U"
+            if gene_name.upper().startswith("7SK"):
+                gene_name = "7SK"
+            if (
+                transcript.transcript_biotype == "snRNA"
+                and not gene_name.startswith("U")
+                and gene_name != "7SK"
             ):
                 gene_name = "Ux"
+
             if gene_name not in gene_dict_by_name:
                 gene_dict_by_name[gene_name] = []
             gene_dict_by_name[gene_name].append(transcript)
