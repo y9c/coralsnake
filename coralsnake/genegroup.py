@@ -170,6 +170,10 @@ def rename_snRNA(gene_name):
     # RNU6ATAC7 -> U6ATAC
     # RNVU1-1 -> U1V
     # .., etc
+    # for drosophila, snRNA:U2:38ABb -> U2
+    if gene_name.startswith("snRNA:"):
+        gene_name = gene_name.split(":")[1]
+        return gene_name
     patterns = [
         (r"RNU(\d+)(?:-\d+.*)?$", r"U\1"),
         (r"RNU(\d+[A-Z]+)(?:-\d+.*)?$", r"U\1"),
