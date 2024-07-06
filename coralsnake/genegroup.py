@@ -171,6 +171,7 @@ def rename_snRNA(gene_name):
     # RNVU1-1 -> U1V
     # .., etc
     # meanwhile
+    gene_name = re.sub(r"RNU(\d+)$", r"U\1", gene_name)
     gene_name = re.sub(r"RNU(\d+)-\d+.*", r"U\1", gene_name)
     gene_name = re.sub(r"RNU(\d+[A-Z]+)-\d+.*", r"U\1", gene_name)
     gene_name = re.sub(r"RNU(\d+)ATAC.*", r"U\1ATAC", gene_name)
