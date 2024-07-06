@@ -58,7 +58,11 @@ def read_gtf(gtf_file, is_gff=False):
             if feature_type not in ["exon", "start_codon", "stop_codon"]:
                 continue
             d = parse_annot(line[8])
-            if "gene_id" in d and "transcript_id" in d:
+            if (
+                "gene_id" in d
+                and "transcript_id" in d
+                and ("exon_number" in d or "exon" in d)
+            ):
                 gene_id = d["gene_id"]
                 transcript_id = d["transcript_id"]
                 exon_id = d["exon_number"] if "exon_number" in d else d["exon"]
