@@ -217,6 +217,11 @@ def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None, thr
                 and gene_name != "7SK"
             ):
                 gene_name = "Ux"
+            # This is a temporary fix for the naming of the tRNA genes
+            if transcript.transcript_biotype == "tRNA" and not gene_name.startswith(
+                "tRNA"
+            ):
+                gene_name = "tRNA-" + gene_name
 
             if gene_name not in gene_dict_by_name:
                 gene_dict_by_name[gene_name] = []
