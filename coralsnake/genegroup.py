@@ -8,6 +8,7 @@
 
 
 import re
+from types import new_class
 
 import numpy as np
 import rich.progress
@@ -255,13 +256,18 @@ def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None, thr
             if not re.search(gene_regex, gene_name):
                 continue
 
-        names = [tx.gene_id for tx in tx_list]
-        seqs = [tx.get_seq(chrom_to_fa[tx.chrom]) for tx in tx_list]
         # only cluster short genes shorter than 300bp
         # temp solution for short genes
-        names = [name for name, seq in zip(names, seqs) if len(seq) < 300]
-        seqs = [seq for seq in seqs if len(seq) < 300]
-        # debug show name and length mapping
+        # filter tx list by length and also discard transcript_biotype is mRNA, miRNA, or protein_coding
+        tx_list = [
+            tx
+            for tx in tx_list
+            if tx.transcript_biotype not in ["mRNA", "miRNA", "protein_coding"]
+            and tx.length < 300
+        ]
+
+        names = [tx.gene_id for tx in tx_list]
+        seqs = [tx.get_seq(chrom_to_fa[tx.chrom]) for tx in tx_list]
         if len(names) == 0:
             continue
 
