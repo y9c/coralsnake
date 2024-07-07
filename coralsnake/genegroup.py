@@ -218,12 +218,20 @@ def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None, thr
             ):
                 gene_name = "Ux"
             # This is a temporary fix for the naming of the tRNA genes
+            if "_tRNA-" in gene_name:
+                gene_name = "tRNA-" + gene_name.split("_tRNA-", 1)[1]
             if transcript.transcript_biotype == "tRNA" and not gene_name.startswith(
                 "tRNA"
             ):
                 if gene_name == "":
                     gene_name = "unknown"
                 gene_name = "tRNA-" + gene_name
+            # Caenorhabditis_elegans_tRNA-Lys-CTT-1-7
+            # remove the number suffix "-1-7"
+            # loop from right to left and stop until reach a non-digit character
+            # rmove digits and "-"
+            if gene_name.startswith("tRNA-"):
+                gene_name = re.sub(r"-[0-9-]+$", "", gene_name)
 
             if gene_name not in gene_dict_by_name:
                 gene_dict_by_name[gene_name] = []
@@ -251,9 +259,6 @@ def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None, thr
         names = [name for name, seq in zip(names, seqs) if len(seq) < 300]
         seqs = [seq for seq in seqs if len(seq) < 300]
         # debug show name and length mapping
-        print("..................")
-        for name, seq in zip(names, seqs):
-            print(name, len(seq))
         if len(names) == 0:
             continue
 
