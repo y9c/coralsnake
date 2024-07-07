@@ -68,6 +68,9 @@ def cluster_sequences(alignment_array, threshold=0.1):
 
     distance_matrix = pdist(alignment_array, metric=hamming)
 
+    if len(distance_matrix) == 0:
+        return np.zeros(alignment_array.shape[0], dtype=int)
+
     # Perform hierarchical clustering using the 'average' method
     Z = linkage(distance_matrix, method="average")
 
