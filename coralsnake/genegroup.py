@@ -221,6 +221,8 @@ def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None, thr
             if transcript.transcript_biotype == "tRNA" and not gene_name.startswith(
                 "tRNA"
             ):
+                if gene_name == "":
+                    gene_name = "unknown"
                 gene_name = "tRNA-" + gene_name
 
             if gene_name not in gene_dict_by_name:
@@ -248,6 +250,10 @@ def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None, thr
         # temp solution for short genes
         names = [name for name, seq in zip(names, seqs) if len(seq) < 300]
         seqs = [seq for seq in seqs if len(seq) < 300]
+        # debug show name and length mapping
+        print("..................")
+        for name, seq in zip(names, seqs):
+            print(name, len(seq))
         if len(names) == 0:
             continue
 
