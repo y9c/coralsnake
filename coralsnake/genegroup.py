@@ -241,8 +241,16 @@ def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None, thr
         if gene_regex:
             if not re.search(gene_regex, gene_name):
                 continue
+
         names = [tx.gene_id for tx in tx_list]
         seqs = [tx.get_seq(chrom_to_fa[tx.chrom]) for tx in tx_list]
+        # only cluster short genes shorter than 300bp
+        # temp solution for short genes
+        names = [name for name, seq in zip(names, seqs) if len(seq) < 300]
+        seqs = [seq for seq in seqs if len(seq) < 300]
+        if len(names) == 0:
+            continue
+
         exon_spans_list = [tx.exons.values() for tx in tx_list]
         if len(tx_list) < 2:
             cluster_ids = np.arange(1, len(tx_list) + 1, dtype=int)
