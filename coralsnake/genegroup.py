@@ -235,7 +235,8 @@ def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None, thr
             # loop from right to left and stop until reach a non-digit character
             # rmove digits and "-"
             if gene_name.startswith("tRNA-"):
-                gene_name = re.sub(r"-[0-9-]+$", "", gene_name)
+                # gene_name = re.sub(r"-[0-9-]+$", "", gene_name)
+                gene_name = re.sub(r"[0-9-]+$", "", gene_name)
 
             if gene_name not in gene_dict_by_name:
                 gene_dict_by_name[gene_name] = []
