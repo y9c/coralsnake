@@ -54,6 +54,13 @@ def cli(ctx):
     is_flag=True,
 )
 @click.option(
+    "--with-biotype",
+    "-t",
+    "with_biotype",
+    help="Include biotype in the output.",
+    is_flag=True,
+)
+@click.option(
     "--filter-biotype",
     "-b",
     "filter_biotype",
@@ -83,6 +90,7 @@ def prepare(
     sanitize,
     with_codon,
     with_genename,
+    with_biotype,
     filter_biotype,
     seq_upper,
     line_length,
@@ -97,6 +105,7 @@ def prepare(
         sanitize,
         with_codon,
         with_genename,
+        with_biotype,
         filter_biotype,
         seq_upper,
         line_length,
