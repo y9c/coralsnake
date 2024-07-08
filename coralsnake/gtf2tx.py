@@ -216,6 +216,7 @@ def parse_file(
     sanitize=False,
     with_codon=False,
     with_genename=False,
+    with_biotype=False,
     filter_biotype=None,
     seq_upper=False,
     line_length=0,
@@ -244,7 +245,13 @@ def parse_file(
             seq_writer.write(
                 f">{tx.gene_id}\n{tx.get_seq(fasta, upper=seq_upper, wrap = line_length)}\n"
             )
-        tsv_writer.write(tx.to_tsv(with_codon=with_codon, with_genename=with_genename))
+        tsv_writer.write(
+            tx.to_tsv(
+                with_codon=with_codon,
+                with_genename=with_genename,
+                with_biotype=with_biotype,
+            )
+        )
         tsv_writer.write("\n")
     if seq_file is not None:
         seq_writer.close()
