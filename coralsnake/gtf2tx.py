@@ -228,11 +228,14 @@ def parse_file(
         fasta = pysam.FastaFile(fasta_file)
         seq_writer = open(seq_file, "w")
     tsv_writer = open(output_file, "w")
-    header = "gene_id\ttranscript_id\tchrom\tstrand\tspans"
+    header_name = ["gene_id", "transcript_id", "chrom", "strand", "spans"]
     if with_codon:
-        header += "\tstart_codon\tstop_codon"
+        header_name += ["start_codon", "stop_codon"]
     if with_genename:
-        header += "\tgene_name"
+        header_name.append("gene_name")
+    if with_biotype:
+        header_name.append("transcript_biotype")
+    header = "\t".join(header_name)
     tsv_writer.write(header + "\n")
     for tx in rich.progress.track(
         top_transcript(gene_dict), total=len(gene_dict), description="Writing..."
