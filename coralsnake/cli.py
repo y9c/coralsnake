@@ -29,7 +29,7 @@ def cli(ctx):
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
 @click.option("--gtf-file", "-g", "gtf_file", help="GTF file.", required=True)
-@click.option("--fasta-file", "-f", "fasta_file", help="Fasta file.", required=True)
+@click.option("--fasta-file", "-f", "fasta_file", help="Fasta file.")
 @click.option("--output-file", "-o", "output_file", help="Output file.", required=True)
 @click.option("--seq-file", "-s", "seq_file", help="Sequence file.")
 @click.option(
@@ -104,6 +104,11 @@ def prepare(
     line_length,
 ):
     from .gtf2tx import parse_file
+
+    if seq_file is not None and fasta_file is None:
+        raise click.ClickException(
+            "Error: requires --fasta-file when --seq-file is used."
+        )
 
     parse_file(
         gtf_file,
