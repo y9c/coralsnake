@@ -61,6 +61,13 @@ def cli(ctx):
     is_flag=True,
 )
 @click.option(
+    "--with-txpos",
+    "-x",
+    "with_txpos",
+    help="Include transcript position in the output.",
+    is_flag=True,
+)
+@click.option(
     "--filter-biotype",
     "-b",
     "filter_biotype",
