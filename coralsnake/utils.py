@@ -102,7 +102,13 @@ class Transcript:
         self._cum_exon_lens = None
         self._seq = None
 
-    def to_tsv(self, with_codon=False, with_genename=False, with_biotype=False) -> str:
+    def to_tsv(
+        self,
+        with_codon=False,
+        with_genename=False,
+        with_biotype=False,
+        with_txpos=False,
+    ) -> str:
         # convert into 1-based
         line = []
         for key in ["gene_id", "transcript_id", "chrom", "strand"]:
@@ -122,6 +128,13 @@ class Transcript:
             line.append(self.gene_name if self.gene_name is not None else "")
         if with_biotype:
             line.append(self.transcript_biotype if self.transcript_biotype else "")
+        # transcript start and end
+        if with_txpos:
+            if self.strand == "+":
+                line += [str(self.exons[0].start + 1), str(self.exons[-1].end)]
+            else:
+                line += [str(self.exons[0].end), str(self.exons[-1].start + 1)]
+
         return "\t".join(line)
 
     def get_genome_spans(self) -> str:

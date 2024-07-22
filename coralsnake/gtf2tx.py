@@ -217,6 +217,7 @@ def parse_file(
     with_codon=False,
     with_genename=False,
     with_biotype=False,
+    with_txpos=False,
     filter_biotype=None,
     seq_upper=False,
     line_length=0,
@@ -235,6 +236,8 @@ def parse_file(
         header_name.append("gene_name")
     if with_biotype:
         header_name.append("transcript_biotype")
+    if with_txpos:
+        header_name += ["transcript_start", "transcript_end"]
     header = "\t".join(header_name)
     tsv_writer.write(header + "\n")
     for tx in rich.progress.track(
@@ -253,6 +256,7 @@ def parse_file(
                 with_codon=with_codon,
                 with_genename=with_genename,
                 with_biotype=with_biotype,
+                with_txpos=with_txpos
             )
         )
         tsv_writer.write("\n")
