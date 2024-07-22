@@ -94,7 +94,7 @@ class Transcript:
 
     def sort_exons(self) -> None:
         self.exons = dict(
-            sorted(
+            soted(
                 self.exons.items(), key=lambda x: x[1].start, reverse=self.strand == "-"
             ),
         )
@@ -130,10 +130,12 @@ class Transcript:
             line.append(self.transcript_biotype if self.transcript_biotype else "")
         # transcript start and end
         if with_txpos:
+            _es = next(iter(self.exons.values()))
+            _ee = next(reversed(self.exons.values()))
             if self.strand == "+":
-                line += [str(self.exons[0].start + 1), str(self.exons[-1].end)]
+                line += [str(_es.start + 1), str(_ee.end)]
             else:
-                line += [str(self.exons[0].end), str(self.exons[-1].start + 1)]
+                line += [str(_es.end), str(_ee.start + 1)]
 
         return "\t".join(line)
 
