@@ -94,7 +94,7 @@ class Transcript:
 
     def sort_exons(self) -> None:
         self.exons = dict(
-            soted(
+            sorted(
                 self.exons.items(), key=lambda x: x[1].start, reverse=self.strand == "-"
             ),
         )
