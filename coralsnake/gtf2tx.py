@@ -8,6 +8,7 @@
 
 
 import hashlib
+import re
 from collections import defaultdict
 from functools import lru_cache
 
@@ -19,22 +20,36 @@ from .utils import Span, Transcript, get_logger
 LOGGER = get_logger(__name__)
 
 
-def parse_gtf_annot(annot):
-    annot = annot.rstrip("\n").rstrip(";").split("; ")
-    annot = [x.strip().split(" ", 1) for x in annot if x]
-    # if the key is duplicate, join the values
-    d = defaultdict(list)
-    for k, v in annot:
-        d[k].append(v.strip('"'))
+# Pre-compiled regex pattern for GTF attributes
+gtf_pattern = re.compile(r'(\w+)\s+"(.*?)"(?:;|$)')
+# Pre-compiled regex pattern for GFF attributes
+gff_pattern = re.compile(r"(\w+)=([^;]*)")
 
+
+def parse_gtf_annot(annot):
+    """Parse GTF attribute field and return a dictionary."""
+    matches = gtf_pattern.findall(annot.rstrip("\n").rstrip(";"))
+
+    # Handle duplicate keys by joining their values
+    d = defaultdict(list)
+    for k, v in matches:
+        d[k].append(v)
+
+    # Join multiple values with semicolon
     return {k: "; ".join(v) for k, v in d.items()}
 
 
 def parse_gff_annot(annot):
-    annot = annot.rstrip("\n").rstrip(";").split(";")
-    annot = [x.strip().split("=", 1) for x in annot if x]
-    # assume gff is unique
-    return {k: v for k, v in annot}
+    """Parse GFF attribute field and return a dictionary, joining values for duplicate keys."""
+    matches = gff_pattern.findall(annot.rstrip("\n").rstrip(";"))
+
+    # Handle duplicate keys by joining their values
+    d = defaultdict(list)
+    for k, v in matches:
+        d[k].append(v)
+
+    # Join multiple values with semicolon
+    return {k: "; ".join(v) for k, v in d.items()}
 
 
 def read_gtf(gtf_file, is_gff=False):
@@ -256,7 +271,7 @@ def parse_file(
                 with_codon=with_codon,
                 with_genename=with_genename,
                 with_biotype=with_biotype,
-                with_txpos=with_txpos
+                with_txpos=with_txpos,
             )
         )
         tsv_writer.write("\n")
