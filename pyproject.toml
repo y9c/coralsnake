@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "coralsnake"
-version = "0.0.39"
+version = "0.0.40"
 description = "Transcriptome mapping utils"
 authors = ["Chang Ye <yech1990@gmail.com>"]
 readme = "README.md"

@@ -79,7 +79,10 @@ def transcript_to_genome(
 
 
 def remap_to_genome(
-    align: pysam.AlignedSegment, transcript: Transcript, header: pysam.AlignmentHeader
+    align: pysam.AlignedSegment,
+    header: pysam.AlignmentHeader,
+    transcript: Transcript,
+    next_transcript: Transcript,
 ) -> pysam.AlignedSegment:
     new_align = pysam.AlignedSegment(header=header)
     new_align.query_name = align.query_name
@@ -108,6 +111,8 @@ def remap_to_genome(
 
     genome_pos, exon_index = transcript_to_genome(transcript_pos, transcript)
     new_align.reference_name = transcript.chrom
+    if next_transcript is not None:
+        new_align.next_reference_name = next_transcript.chrom
     new_align.reference_start = genome_pos
 
     new_cigar = []
@@ -159,7 +164,11 @@ def parse_alignment(
         return align
 
     transcript = next(iter(annot[align.reference_name].values()))
-    new_align = remap_to_genome(align, transcript, genome_header)
+    if align.next_reference_name in annot:
+        next_transcript = next(iter(annot[align.next_reference_name].values()))
+    else:
+        next_transcript = None
+    new_align = remap_to_genome(align, genome_header, transcript, next_transcript)
     return new_align
 
 
