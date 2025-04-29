@@ -165,12 +165,16 @@ def read_gtf(gtf_file, is_gff=False):
                 continue
 
     # remove conflict transcript
+    # ! RuntimeError: dictionary changed size during iteration
+    _gene_to_del = []
     for g, v in gene_dict.items():
         for t, tx in list(v.items()):
             if tx.conflict:
                 del v[t]
         if len(v) == 0:
-            del gene_dict[g]
+            _gene_to_del.append(g)
+    for g in _gene_to_del:
+        del gene_dict[g]
     return gene_dict
 
 
