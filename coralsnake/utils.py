@@ -85,6 +85,7 @@ class Transcript:
         self.start_codon: Span | None = None
         self.stop_codon: Span | None = None
         self.priority: tuple[int, int] = (10, 0)
+        self.conflict: bool = False
 
     def add_exon(self, exon_id: str | int, exon: Span) -> None:
         self.exons[exon_id] = exon

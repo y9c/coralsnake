@@ -106,6 +106,7 @@ def read_gtf(gtf_file, is_gff=False):
             if exon_id.isdigit():
                 exon_id = int(exon_id)
 
+            # infer transcript_support_level
             if "tag" in d:
                 tags = d["tag"].split("; ")
                 if "MANE_Select" in tags:
@@ -149,7 +150,8 @@ def read_gtf(gtf_file, is_gff=False):
                     continue
                 if getattr(tx, k):
                     if v != getattr(tx, k):
-                        raise ValueError(f"{k} mismatch")
+                        # raise ValueError(f"{k} mismatch")
+                        tx.conflict = True
                 else:
                     setattr(tx, k, v)
 
@@ -161,6 +163,12 @@ def read_gtf(gtf_file, is_gff=False):
                 tx.stop_codon = Span(int(line[3]) - 1, int(line[4]))
             else:
                 continue
+
+    # remove conflict transcript
+    for _, v in gene_dict.items():
+        for t, tx in list(v.items()):
+            if tx.conflict:
+                del v[t]
     return gene_dict
 
 
@@ -264,7 +272,7 @@ def parse_file(
             tx.gene_id = sanitize_sequence_name(tx.gene_id)
         if seq_file is not None:
             seq_writer.write(
-                f">{tx.gene_id}\n{tx.get_seq(fasta, upper=seq_upper, wrap = line_length)}\n"
+                f">{tx.gene_id}\n{tx.get_seq(fasta, upper=seq_upper, wrap=line_length)}\n"
             )
         tsv_writer.write(
             tx.to_tsv(
