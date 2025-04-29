@@ -165,10 +165,12 @@ def read_gtf(gtf_file, is_gff=False):
                 continue
 
     # remove conflict transcript
-    for _, v in gene_dict.items():
+    for g, v in gene_dict.items():
         for t, tx in list(v.items()):
             if tx.conflict:
                 del v[t]
+        if len(v) == 0:
+            del gene_dict[g]
     return gene_dict
 
 
