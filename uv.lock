@@ -25,7 +25,7 @@ wheels = [
 
 [[package]]
 name = "coralsnake"
-version = "0.0.43"
+version = "0.0.44"
 source = { editable = "." }
 dependencies = [
     { name = "dnaio" },
@@ -44,13 +44,13 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dnaio", specifier = ">=1.2.1,<2" },
-    { name = "ncls", specifier = ">=0.0.68,<0.0.69" },
-    { name = "numpy", specifier = ">=1.26.4,<2" },
-    { name = "pyfamsa", specifier = ">=0.4.0,<0.5" },
-    { name = "pysam", specifier = ">=0.22.1,<0.23" },
-    { name = "rich-click", specifier = ">=1.8.3,<2" },
-    { name = "scipy", specifier = ">=1.14.0,<2" },
+    { name = "dnaio", specifier = ">=1.2.1" },
+    { name = "ncls", specifier = ">=0.0.68" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "pyfamsa", specifier = ">=0.4" },
+    { name = "pysam", specifier = ">=0.22" },
+    { name = "rich-click", specifier = ">=1.8.3" },
+    { name = "scipy", specifier = ">=1.14" },
 ]
 
 [package.metadata.requires-dev]
