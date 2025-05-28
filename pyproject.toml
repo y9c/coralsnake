@@ -1,33 +1,31 @@
-[tool.poetry]
+[project]
 name = "coralsnake"
-version = "0.0.43"
+version = "0.0.44"
 description = "Transcriptome mapping utils"
-authors = ["Chang Ye <yech1990@gmail.com>"]
+authors = [{ name = "Chang Ye", email = "yech1990@gmail.com" }]
+requires-python = "~=3.10"
 readme = "README.md"
 license = "GPL-3.0"
 keywords = ["transcriptome", "mapping"]
-repository = "https://github.com/y9c/coralsnake"
+dependencies = [
+  "dnaio>=1.2.1",
+  "rich-click>=1.8.3",
+  "pysam>=0.22",
+  "numpy>=1.26",
+  "ncls>=0.0.68",
+  "pyfamsa>=0.4",
+  "scipy>=1.14",
+]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-dnaio = "^1.2.1"
-rich-click = "^1.8.3"
-pysam = "^0.22.1"
-numpy = "^1.26.4"
-ncls = "^0.0.68"
-pyfamsa = "^0.4.0"
-scipy = "^1.14.0"
+[project.urls]
+Repository = "https://github.com/y9c/coralsnake"
 
-[tool.poetry.scripts]
-coralsnake = 'coralsnake.cli:cli'
+[project.scripts]
+coralsnake = "coralsnake.cli:cli"
 
-[tool.poetry.group.dev.dependencies]
-setuptools = "^70.1.1"
+[dependency-groups]
+dev = ["setuptools>=70.1.1,<71"]
 
 [build-system]
-requires = ["poetry-core", "Cython", "setuptools"]
-build-backend = "poetry.core.masonry.api"
-
-[tool.poetry.build]
-generate-setup-file = false
-script = 'build_package.py'
+requires = ["hatchling"]
+build-backend = "hatchling.build"
