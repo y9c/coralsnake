@@ -285,7 +285,9 @@ def group_genes(
             ]
 
         if gene_biotype_list:
-            tx_list = [tx for tx in tx_list if tx.gene_biotype in gene_biotype_list]
+            tx_list = [
+                tx for tx in tx_list if tx.transcript_biotype in gene_biotype_list
+            ]
 
         # only cluster short genes shorter than 300bp
         if gene_length_limit:
