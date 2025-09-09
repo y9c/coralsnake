@@ -55,7 +55,7 @@ def msa_to_array(msa, mask_ratio=0.5):
     return arr
 
 
-def cluster_sequences(alignment_array, threshold=0.1):
+def cluster_sequences(alignment_array, threshold):
     # Calculate pairwise Hamming distances using scipy's pdist function
     def hamming(u, v, **kwargs):
         # return np.sum(u != v) / len(u)
@@ -200,6 +200,7 @@ def group_genes(
     gene_name_regex=None,
     gene_biotype_list=None,
     gene_length_limit=300,
+    cluster_threshold=0.1,
     threads=8,
 ):
     chrom_to_fa = {}
@@ -304,7 +305,7 @@ def group_genes(
         else:
             msa = run_msa(names, seqs)
             aligned_array = msa_to_array(msa)
-            cluster_ids = cluster_sequences(aligned_array)
+            cluster_ids = cluster_sequences(aligned_array, cluster_threshold)
         # loop the cluster ids and redo the msa for each sub-group
         for cluster_id in np.unique(cluster_ids):
             cluster_tx_list = [

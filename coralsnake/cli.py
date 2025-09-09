@@ -250,6 +250,14 @@ def annot(
     default=300,
     type=int,
 )
+@click.option(
+    "--cluster-threshold",
+    "-c",
+    "cluster_threshold",
+    help="Clustering threshold (0-1).",
+    default=0.1,
+    type=float,
+)
 @click.option("--threads", "-t", "threads", help="Threads.", default=8)
 def group(
     fasta_file,
@@ -258,6 +266,7 @@ def group(
     gene_name_regex,
     gene_biotype_list,
     gene_length_limit,
+    cluster_threshold,
     threads,
 ):
     from .genegroup import group_genes
@@ -269,6 +278,7 @@ def group(
         gene_name_regex,
         gene_biotype_list,
         gene_length_limit,
+        cluster_threshold,
         threads,
     )
 
