@@ -8,7 +8,6 @@
 
 
 import re
-from types import new_class
 
 import numpy as np
 import rich.progress
@@ -194,7 +193,15 @@ def rename_snRNA(gene_name):
     return gene_name
 
 
-def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None, threads=8):
+def group_genes(
+    fa_file_list,
+    gtf_file_list,
+    out_file=None,
+    gene_name_regex=None,
+    gene_biotype_list=None,
+    gene_length_limit=300,
+    threads=8,
+):
     chrom_to_fa = {}
     LOGGER.info("Loading fasta files")
     for fa_file in fa_file_list:
@@ -253,19 +260,36 @@ def group_genes(fa_file_list, gtf_file_list, out_file=None, gene_regex=None, thr
     for gene_name, tx_list in rich.progress.track(
         gene_dict_by_name.items(), description="Processing genes..."
     ):
-        if gene_regex:
-            if not re.search(gene_regex, gene_name):
+        if gene_name_regex:
+            if not re.search(gene_name_regex, gene_name):
                 continue
 
+        # by default miRNA, tRNA, snoRNA, ...
+        if gene_biotype_list is None:
+            gene_biotype_list = [
+                "tRNA",
+                "rRNA",
+                "Mt_rRNA",
+                "Mt_tRNA",
+                "ribozyme",
+                "vault_RNA",
+                "scaRNA",
+                "rRNA",
+                "processed_pseudogene",
+                "miRNA",
+                "Y_RNA",
+                "snoRNA",
+                "snRNA",
+                "misc_RNA",
+                "pseudogene",
+            ]
+
+        if gene_biotype_list:
+            tx_list = [tx for tx in tx_list if tx.gene_biotype in gene_biotype_list]
+
         # only cluster short genes shorter than 300bp
-        # temp solution for short genes
-        # filter tx list by length and also discard transcript_biotype is mRNA, miRNA, or protein_coding
-        tx_list = [
-            tx
-            for tx in tx_list
-            if tx.transcript_biotype not in ["mRNA", "miRNA", "protein_coding"]
-            and tx.length < 300
-        ]
+        if gene_length_limit:
+            tx_list = [tx for tx in tx_list if tx.length <= gene_length_limit]
 
         names = [tx.gene_id for tx in tx_list]
         seqs = [tx.get_seq(chrom_to_fa[tx.chrom]) for tx in tx_list]

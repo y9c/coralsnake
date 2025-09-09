@@ -232,12 +232,45 @@ def annot(
     multiple=True,
 )
 @click.option("--output-file", "-o", "output_file", help="Output file.", required=False)
-@click.option("--gene-regex", "-r", "gene_regex", help="Gene regex.", default=None)
+@click.option(
+    "--gene-name-regex", "-r", "gene_name_regex", help="Gene name regex.", default=None
+)
+@click.option(
+    "--gene-biotype-list",
+    "-b",
+    "gene_biotype_list",
+    help="Gene biotype list.",
+    default=None,
+)
+@click.option(
+    "--gene-length-limit",
+    "-l",
+    "gene_length_limit",
+    help="Gene length limit.",
+    default=300,
+    type=int,
+)
 @click.option("--threads", "-t", "threads", help="Threads.", default=8)
-def group(fasta_file, gtf_file, output_file, gene_regex, threads):
+def group(
+    fasta_file,
+    gtf_file,
+    output_file,
+    gene_name_regex,
+    gene_biotype_list,
+    gene_length_limit,
+    threads,
+):
     from .genegroup import group_genes
 
-    group_genes(fasta_file, gtf_file, output_file, gene_regex, threads)
+    group_genes(
+        fasta_file,
+        gtf_file,
+        output_file,
+        gene_name_regex,
+        gene_biotype_list,
+        gene_length_limit,
+        threads,
+    )
 
 
 if __name__ == "__main__":
