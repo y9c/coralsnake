@@ -348,8 +348,11 @@ def group_genes(
                     ]
                 )
                 tx = cluster_tx_list[i]
+                tx_seq = tx.get_seq(chrom_to_fa[tx.chrom])
                 out.write(
-                    f"{gene_name}\t{cluster_id}\t{len(cluster_names)}\t{cluster_consensus}\t{cluster_names[i]}\t{tx.chrom}\t{exon_spans_str}\t{tx.strand}\t{msa_spans_str}\n"
+                    f"{gene_name}\t{cluster_id}\t{len(cluster_names)}\t{cluster_consensus}\t"
+                    f"{cluster_names[i]}\t{tx.chrom}\t{exon_spans_str}\t{tx.strand}\t{tx_seq}\t"
+                    f"{msa_spans_str}\n"
                 )
 
 
