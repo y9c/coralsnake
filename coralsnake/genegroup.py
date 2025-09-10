@@ -304,7 +304,7 @@ def group_genes(
 
             # This is a temporary fix for the naming of the snoRNA genes
             # eg, SNORD115-1 and SNORD115-2 are the same gene
-            if tx_biotype == "snoRNA" and not gene_name.startswith("SNOR"):
+            if tx_biotype == "snoRNA" and gene_name.startswith("SNOR"):
                 gene_name = gene_name.rsplit("-")[0]
 
             # This is a temporary fix for the naming of the tRNA genes

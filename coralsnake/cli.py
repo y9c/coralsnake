@@ -240,7 +240,7 @@ def annot(
     required=False,
 )
 @click.option(
-    "--gene-name-regex", "-r", "gene_name_regex", help="Gene name regex.", default=None
+    "--gene-name-regex", "-r", "gene_name_regex", help="Gene name regex.", default=None, type=str
 )
 @click.option(
     "--gene-biotype-list",
