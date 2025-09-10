@@ -297,7 +297,7 @@ def group_genes(
                 gene_name = "7SK"
             if (
                 transcript.transcript_biotype == "snRNA"
-                and not gene_name.startswith("U")
+                and not gene_name.upper().startswith("U")
                 and gene_name != "7SK"
             ):
                 gene_name = "Ux"
@@ -305,18 +305,18 @@ def group_genes(
             # This is a temporary fix for the naming of the snoRNA genes
             # eg, SNORD115-1 and SNORD115-2 are the same gene
             if tx_biotype == "snoRNA":
-                if gene_name.startswith("SNOR"):
+                if gene_name.upper().startswith("SNOR"):
                     gene_name = gene_name.rsplit("-")[0]
                     # todo:
                     # SNORD109A and SNORD109B are the same gene
                     # SNORD62A and SNORD62B are the same gene
-                elif gene_name.startswith("U"):
+                elif gene_name.upper().startswith("U"):
                     pass
                 else:
                     gene_name = "SNORx"
 
             # This is a temporary fix for the naming of the miRNA genes
-            if tx_biotype == "miRNA" and gene_name.startswith("MIR"):
+            if tx_biotype == "miRNA" and gene_name.upper().startswith("MIR"):
                 gene_name = gene_name.rsplit("-")[0]
                 # todo:
                 # MIR4436B1 and MIR4436B2 are the same gene
