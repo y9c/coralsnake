@@ -291,6 +291,12 @@ def group_genes(
 
             tx_biotype = transcript.transcript_biotype
 
+            # # This is a temporary fix for misc_RNA naming
+            # if tx_biotype == "misc_RNA":
+            #     # for mouse reference, there are too many unknown genes
+            #     if re.match(r"^Gm\d+$", gene_name):
+            #         continue
+
             # This a temporary fix for snRNA naming
             gene_name = rename_snRNA(gene_name)
             if gene_name.upper().startswith("7SK"):
