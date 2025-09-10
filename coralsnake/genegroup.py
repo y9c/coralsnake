@@ -316,10 +316,15 @@ def group_genes(
                     gene_name = "SNORx"
 
             # This is a temporary fix for the naming of the miRNA genes
-            if tx_biotype == "miRNA" and gene_name.upper().startswith("MIR"):
-                gene_name = gene_name.rsplit("-")[0]
-                # todo:
-                # MIR4436B1 and MIR4436B2 are the same gene
+            if tx_biotype == "miRNA":
+                if gene_name.upper().startswith("MIR"):
+                    gene_name = gene_name.rsplit("-")[0]
+                    # todo:
+                    # MIR4436B1 and MIR4436B2 are the same gene
+                elif "LET" in gene_name.upper() or "MIR" in gene_name.upper():
+                    pass
+                else:
+                    gene_name = "MIRx"
 
             # This is a temporary fix for the naming of the tRNA genes
             if "_tRNA-" in gene_name:
