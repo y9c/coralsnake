@@ -235,7 +235,7 @@ def annot(
 @click.option(
     "--output-consensus",
     "-c",
-    "output_fasta",
+    "output_consensus",
     help="Output artifical fasta file containing consenus sequences.",
     required=False,
 )
