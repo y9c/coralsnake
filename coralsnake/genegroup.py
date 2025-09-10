@@ -307,6 +307,10 @@ def group_genes(
             if tx_biotype == "snoRNA" and gene_name.startswith("SNOR"):
                 gene_name = gene_name.rsplit("-")[0]
 
+            # This is a temporary fix for the naming of the miRNA genes
+            if tx_biotype == "miRNA" and gene_name.startswith("MIR"):
+                gene_name = gene_name.rsplit("-")[0]
+
             # This is a temporary fix for the naming of the tRNA genes
             if "_tRNA-" in gene_name:
                 gene_name = "tRNA-" + gene_name.split("_tRNA-", 1)[1]
