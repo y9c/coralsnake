@@ -379,7 +379,7 @@ def group_genes(
             # write artificial fasta file for the consensus sequences
             # header: >transcript_biotype-gene_name-cluster_id N={number of sequences in the cluster} list_of_gene_id_joined_by"|"
             # only output cluster_id less than or equal to 5, or the cluster size is greater than or equal to 3
-            if out_fa:
+            if consensus_fa:
                 if cluster_id <= 5 or len(cluster_names) >= 3:
                     out_fa.write(
                         f">{tx_biotype}-{gene_name}-cluster{cluster_id} N={len(cluster_names)} members={'|'.join(cluster_names)}\n"
