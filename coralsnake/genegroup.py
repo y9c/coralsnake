@@ -331,6 +331,8 @@ def group_genes(
                 # "processed_pseudogene",
                 "pseudogene",
             ]
+        else:
+            gene_biotype_list = gene_biotype_list.split(",")
 
         if gene_biotype_list:
             if tx_biotype not in gene_biotype_list:
