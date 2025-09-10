@@ -233,6 +233,13 @@ def annot(
 )
 @click.option("--output-file", "-o", "output_file", help="Output file.", required=False)
 @click.option(
+    "--output-consensus",
+    "-c",
+    "output_fasta",
+    help="Output artifical fasta file containing consenus sequences.",
+    required=False,
+)
+@click.option(
     "--gene-name-regex", "-r", "gene_name_regex", help="Gene name regex.", default=None
 )
 @click.option(
@@ -263,6 +270,7 @@ def group(
     fasta_file,
     gtf_file,
     output_file,
+    output_consensus,
     gene_name_regex,
     gene_biotype_list,
     gene_length_limit,
@@ -275,6 +283,7 @@ def group(
         fasta_file,
         gtf_file,
         output_file,
+        output_consensus,
         gene_name_regex,
         gene_biotype_list,
         gene_length_limit,

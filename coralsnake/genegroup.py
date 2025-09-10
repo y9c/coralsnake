@@ -198,6 +198,7 @@ def group_genes(
     fa_file_list,
     gtf_file_list,
     out_file=None,
+    consensus_fa=None,
     gene_name_regex=None,
     gene_biotype_list=None,
     gene_length_limit=300,
@@ -299,6 +300,9 @@ def group_genes(
         import sys
 
         out = sys.stdout
+    # if consensus_fa is not None, write to the file
+    if consensus_fa:
+        out_fa = open(consensus_fa, "w")
 
     for (tx_biotype, gene_name), tx_list in rich.progress.track(
         sorted(list(gene_dict_by_name.items()), key=lambda x: (x[0][0], x[0][1])),
@@ -372,6 +376,16 @@ def group_genes(
             cluster_aligned_array = msa_to_array(cluster_msa)
             cluster_consensus = consensus_sequence(cluster_aligned_array)
 
+            # write artificial fasta file for the consensus sequences
+            # header: >transcript_biotype-gene_name-cluster_id N={number of sequences in the cluster} list_of_gene_id_joined_by"|"
+            # only output cluster_id less than or equal to 5, or the cluster size is greater than or equal to 3
+            if out_fa:
+                if cluster_id <= 5 or len(cluster_names) >= 3:
+                    out_fa.write(
+                        f">{tx_biotype}-{gene_name}-cluster{cluster_id} N={len(cluster_names)} members={'|'.join(cluster_names)}\n"
+                        f"{cluster_consensus.replace('-', '').upper()}\n"
+                    )
+
             for i, mapping in enumerate(
                 get_position_mapping_from_aligned_array(cluster_aligned_array)
             ):
@@ -401,6 +415,10 @@ def group_genes(
                     f"{tx_biotype}\t{cluster_names[i]}\t{tx.chrom}\t{exon_spans_str}\t{tx.strand}\t{tx_seq}\t"
                     f"{msa_spans_str}\n"
                 )
+    if out_file:
+        out.close()
+    if consensus_fa:
+        out_fa.close()
 
 
 if __name__ == "__main__":
