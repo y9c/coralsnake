@@ -259,7 +259,7 @@ def annot(
 )
 @click.option(
     "--cluster-threshold",
-    "-c",
+    "-s",
     "cluster_threshold",
     help="Clustering threshold (0-1).",
     default=0.1,
