@@ -205,6 +205,32 @@ def group_genes(
     cluster_threshold=0.1,
     threads=8,
 ):
+    # by default miRNA, tRNA, snoRNA, ...
+    if gene_biotype_list is None:
+        gene_biotype_list = [
+            "tRNA",
+            "rRNA",
+            "Mt_rRNA",
+            "Mt_tRNA",
+            "ribozyme",
+            "vault_RNA",
+            "7SL_RNA",
+            "7SK_RNA",
+            "Y_RNA",
+            "miRNA",
+            "scaRNA",
+            "snoRNA",
+            "snRNA",
+            "misc_RNA",
+            "vault_RNA_pseudogene",
+            "7SL_pseudogene",
+            "7SK_pseudogene",
+            # "processed_pseudogene",
+            "pseudogene",
+        ]
+    else:
+        gene_biotype_list = gene_biotype_list.split(",")
+
     chrom_to_fa = {}
     LOGGER.info("Loading fasta files")
     for fa_file in fa_file_list:
@@ -308,32 +334,6 @@ def group_genes(
         sorted(list(gene_dict_by_name.items()), key=lambda x: (x[0][0], x[0][1])),
         description="Processing genes...",
     ):
-        # by default miRNA, tRNA, snoRNA, ...
-        if gene_biotype_list is None:
-            gene_biotype_list = [
-                "tRNA",
-                "rRNA",
-                "Mt_rRNA",
-                "Mt_tRNA",
-                "ribozyme",
-                "vault_RNA",
-                "7SL_RNA",
-                "7SK_RNA",
-                "Y_RNA",
-                "miRNA",
-                "scaRNA",
-                "snoRNA",
-                "snRNA",
-                "misc_RNA",
-                "vault_RNA_pseudogene",
-                "7SL_pseudogene",
-                "7SK_pseudogene",
-                # "processed_pseudogene",
-                "pseudogene",
-            ]
-        else:
-            gene_biotype_list = gene_biotype_list.split(",")
-
         if gene_biotype_list:
             if tx_biotype not in gene_biotype_list:
                 continue
