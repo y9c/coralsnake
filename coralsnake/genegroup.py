@@ -247,8 +247,10 @@ def group_genes(
                 gene_name = re.sub(r"[0-9-]+$", "", gene_name)
 
             if gene_name not in gene_dict_by_name:
-                gene_dict_by_name[gene_name] = []
-            gene_dict_by_name[gene_name].append(transcript)
+                gene_dict_by_name[(transcript.transcript_biotype, gene_name)] = []
+            gene_dict_by_name[(transcript.transcript_biotype, gene_name)].append(
+                transcript
+            )
 
     # if out_file is None write to stdout
     if out_file:
@@ -258,13 +260,10 @@ def group_genes(
 
         out = sys.stdout
 
-    for gene_name, tx_list in rich.progress.track(
-        gene_dict_by_name.items(), description="Processing genes..."
+    for (tx_biotype, gene_name), tx_list in rich.progress.track(
+        sorted(list(gene_dict_by_name.items()), key=lambda x: (x[0][0], x[0][1])),
+        description="Processing genes...",
     ):
-        if gene_name_regex:
-            if not re.search(gene_name_regex, gene_name):
-                continue
-
         # by default miRNA, tRNA, snoRNA, ...
         if gene_biotype_list is None:
             gene_biotype_list = [
@@ -286,9 +285,12 @@ def group_genes(
             ]
 
         if gene_biotype_list:
-            tx_list = [
-                tx for tx in tx_list if tx.transcript_biotype in gene_biotype_list
-            ]
+            if tx_biotype not in gene_biotype_list:
+                continue
+
+        if gene_name_regex:
+            if not re.search(gene_name_regex, gene_name):
+                continue
 
         # only cluster short genes shorter than 300bp
         if gene_length_limit:
@@ -352,7 +354,7 @@ def group_genes(
                 tx_seq = tx.get_seq(chrom_to_fa[tx.chrom])
                 out.write(
                     f"{gene_name}\t{cluster_id}\t{len(cluster_names)}\t{cluster_consensus}\t"
-                    f"{cluster_names[i]}\t{tx.chrom}\t{exon_spans_str}\t{tx.strand}\t{tx_seq}\t"
+                    f"{tx_biotype}\t{cluster_names[i]}\t{tx.chrom}\t{exon_spans_str}\t{tx.strand}\t{tx_seq}\t"
                     f"{msa_spans_str}\n"
                 )
 
