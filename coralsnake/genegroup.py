@@ -260,7 +260,7 @@ def group_genes(
 
                 # Functional Vault RNA (so far, only "Vault" is observed)
                 elif gene_name == "Vault":
-                    transcript.transcript_biotype = "Vault_RNA"
+                    transcript.transcript_biotype = "vault_RNA"
 
             tx_biotype = transcript.transcript_biotype
 
@@ -313,14 +313,18 @@ def group_genes(
                 "Mt_tRNA",
                 "ribozyme",
                 "vault_RNA",
-                "scaRNA",
-                "rRNA",
-                "processed_pseudogene",
-                "miRNA",
+                "7SL_RNA",
+                "7SK_RNA",
                 "Y_RNA",
+                "miRNA",
+                "scaRNA",
                 "snoRNA",
                 "snRNA",
                 "misc_RNA",
+                "vault_RNA_pseudogene",
+                "7SL_pseudogene",
+                "7SK_pseudogene",
+                # "processed_pseudogene",
                 "pseudogene",
             ]
 
