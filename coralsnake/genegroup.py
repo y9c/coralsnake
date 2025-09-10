@@ -8,6 +8,7 @@
 
 
 import re
+from collections import defaultdict
 
 import numpy as np
 import rich.progress
@@ -210,7 +211,7 @@ def group_genes(
         chrom_to_fa.update({chrom: fasta for chrom in fasta.references})
 
     LOGGER.info("Loading annotations from gtf file")
-    gene_dict_by_name = {}
+    gene_dict_by_name = defaultdict(list)
     for gtf_file in gtf_file_list:
         gene_dict = read_gtf(
             gtf_file, is_gff=gtf_file.endswith("gff") or gtf_file.endswith("gff3")
@@ -246,8 +247,6 @@ def group_genes(
                 # gene_name = re.sub(r"-[0-9-]+$", "", gene_name)
                 gene_name = re.sub(r"[0-9-]+$", "", gene_name)
 
-            if gene_name not in gene_dict_by_name:
-                gene_dict_by_name[(transcript.transcript_biotype, gene_name)] = []
             gene_dict_by_name[(transcript.transcript_biotype, gene_name)].append(
                 transcript
             )
