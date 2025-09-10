@@ -217,9 +217,53 @@ def group_genes(
             gtf_file, is_gff=gtf_file.endswith("gff") or gtf_file.endswith("gff3")
         )
         for transcript in top_transcript(gene_dict):
-            if not transcript.gene_name:
+            if not transcript.gene_name or not transcript.transcript_biotype:
                 continue
             gene_name = transcript.gene_name
+
+            # This is a patch to fix misc_RNA gene names
+            # eg, 4       ensembl gene    88330176        88330278        .       -       .       gene_id "ENSG00000207480"; gene_version "1"; gene_name "Y_RNA"; gene_source "ensembl"; gene_biotype "misc_RNA";
+            if transcript.transcript_biotype == "misc_RNA":
+                # --- Step 1: Prioritize matching specific pseudogene patterns ---
+                # Vault RNA pseudogene (e.g., "VTRNA3-1P")
+                if gene_name.startswith("VTRNA") and "P" in gene_name:
+                    transcript.transcript_biotype = "Vault_RNA_pseudogene"
+
+                # 7SL pseudogene (e.g., "RN7SL521P")
+                elif gene_name.startswith("RN7SL") and gene_name.endswith("P"):
+                    transcript.transcript_biotype = "7SL_pseudogene"
+
+                # 7SK pseudogene (e.g., "RN7SKP27")
+                elif gene_name.startswith("RN7SKP"):
+                    transcript.transcript_biotype = "7SK_pseudogene"
+
+                # Y_RNA pseudogene (e.g., "RNY4P28", "RNY1P4")
+                elif gene_name.startswith("RNY") and "P" in gene_name:
+                    transcript.transcript_biotype = "Y_RNA_pseudogene"
+
+                # --- Step 2: Match the broader functional RNA patterns ---
+
+                # Functional 7SL RNA (e.g., "Metazoa_SRP", "RN7SL2", "7SL")
+                elif gene_name.startswith("RN7SL") or gene_name in [
+                    "Metazoa_SRP",
+                    "7SL",
+                ]:
+                    transcript.transcript_biotype = "7SL_RNA"
+
+                # Functional Y_RNA (e.g., "Y_RNA", "RNY3", "RNY4")
+                elif gene_name.startswith("RNY") or gene_name == "Y_RNA":
+                    transcript.transcript_biotype = "Y_RNA"
+
+                # Functional 7SK RNA (now checks for "RN7SK" or "7SK")
+                elif gene_name in ["RN7SK", "7SK"]:
+                    transcript.transcript_biotype = "7SK_RNA"
+
+                # Functional Vault RNA (so far, only "Vault" is observed)
+                elif gene_name == "Vault":
+                    transcript.transcript_biotype = "Vault_RNA"
+
+            tx_biotype = transcript.transcript_biotype
+
             # This a temporary fix for snRNA naming
             gene_name = rename_snRNA(gene_name)
             if gene_name.upper().startswith("7SK"):
@@ -230,12 +274,11 @@ def group_genes(
                 and gene_name != "7SK"
             ):
                 gene_name = "Ux"
+
             # This is a temporary fix for the naming of the tRNA genes
             if "_tRNA-" in gene_name:
                 gene_name = "tRNA-" + gene_name.split("_tRNA-", 1)[1]
-            if transcript.transcript_biotype == "tRNA" and not gene_name.startswith(
-                "tRNA"
-            ):
+            if tx_biotype == "tRNA" and not gene_name.startswith("tRNA"):
                 if gene_name == "":
                     gene_name = "unknown"
                 gene_name = "tRNA-" + gene_name
@@ -247,9 +290,7 @@ def group_genes(
                 # gene_name = re.sub(r"-[0-9-]+$", "", gene_name)
                 gene_name = re.sub(r"[0-9-]+$", "", gene_name)
 
-            gene_dict_by_name[(transcript.transcript_biotype, gene_name)].append(
-                transcript
-            )
+            gene_dict_by_name[(tx_biotype, gene_name)].append(transcript)
 
     # if out_file is None write to stdout
     if out_file:
