@@ -308,6 +308,11 @@ def group_genes(
             ):
                 gene_name = "Ux"
 
+            # This is a temporary fix for the naming of the Y_RNA genes
+            if tx_biotype == "Y_RNA":
+                if gene_name.upper() == "Y_RNA":
+                    gene_name = "RNYx"
+
             # This is a temporary fix for the naming of the snoRNA genes
             # eg, SNORD115-1 and SNORD115-2 are the same gene
             if tx_biotype == "snoRNA":
@@ -415,7 +420,7 @@ def group_genes(
                 if (
                     cluster_id <= 5
                     or len(cluster_names) >= 3
-                    or gene_name in ["SNORx", "MIRx", "Ux"]
+                    or gene_name in ["SNORx", "MIRx", "Ux", "RNYx"]
                 ):
                     out_fa.write(
                         f">{tx_biotype}-{gene_name}-cluster{cluster_id} N={len(cluster_names)} members={'|'.join(cluster_names)}\n"

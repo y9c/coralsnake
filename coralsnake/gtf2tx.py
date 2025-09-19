@@ -59,6 +59,8 @@ def read_gtf(gtf_file, is_gff=False):
         parse_annot = parse_gtf_annot
 
     gene_dict = defaultdict(lambda: defaultdict(lambda: Transcript()))
+    # temp fix
+    gene_info = defaultdict(dict)
 
     with rich.progress.open(gtf_file, "r", description="Parsing GTF...") as f:
         for line in f:
@@ -70,6 +72,13 @@ def read_gtf(gtf_file, is_gff=False):
                 continue
 
             feature_type = line[2]
+
+            if feature_type == "gene":
+                d = parse_annot(line[8])
+                if "gene_id" in d:
+                    gene_id = d["gene_id"]
+                    gene_info[gene_id] = d
+                continue
             if feature_type not in ["exon", "start_codon", "stop_codon"]:
                 continue
             d = parse_annot(line[8])
@@ -124,6 +133,15 @@ def read_gtf(gtf_file, is_gff=False):
                 priority = (1, int(sl))
             else:
                 priority = (10, 0)
+
+            # update transcript biotype
+            if "transcript_biotype" not in d and "gene_biotype" in gene_info[gene_id]:
+                d["transcript_biotype"] = gene_info[gene_id]["gene_biotype"]
+            elif (
+                d.get("transcript_biotype", "") == "primary_transcript"
+                and "gene_biotype" in gene_info[gene_id]
+            ):
+                d["transcript_biotype"] = gene_info[gene_id]["gene_biotype"]
 
             tx = gene_dict[gene_id][transcript_id]
             # do not need to check priority is set or not
