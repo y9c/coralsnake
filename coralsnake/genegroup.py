@@ -330,8 +330,11 @@ def group_genes(
             if tx_biotype == "miRNA":
                 if gene_name.upper().startswith("MIR"):
                     gene_name = gene_name.rsplit("-")[0]
-                    # todo:
-                    # MIR4436B1 and MIR4436B2 are the same gene
+                    # todo: MIR4436B1 and MIR4436B2 are the same gene
+                    # patch: Mir3535 is snoRNA
+                    if gene_name == "Mir3535":
+                        tx_biotype = "snoRNA"
+                        gene_name = "SNORx"
                 elif "LET" in gene_name.upper() or "MIR" in gene_name.upper():
                     pass
                 else:
@@ -369,6 +372,7 @@ def group_genes(
         sorted(list(gene_dict_by_name.items()), key=lambda x: (x[0][0], x[0][1])),
         description="Processing genes...",
     ):
+        print(tx_biotype, gene_name)
         if gene_biotype_list:
             if tx_biotype not in gene_biotype_list:
                 continue

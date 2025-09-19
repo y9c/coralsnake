@@ -135,13 +135,12 @@ def read_gtf(gtf_file, is_gff=False):
                 priority = (10, 0)
 
             # update transcript biotype
-            if "transcript_biotype" not in d and "gene_biotype" in gene_info[gene_id]:
-                d["transcript_biotype"] = gene_info[gene_id]["gene_biotype"]
-            elif (
-                d.get("transcript_biotype", "") == "primary_transcript"
-                and "gene_biotype" in gene_info[gene_id]
-            ):
-                d["transcript_biotype"] = gene_info[gene_id]["gene_biotype"]
+            if (
+                gene_biotype := gene_info[gene_id].get("gene_biotype", "")
+            ) != "" and d.get(
+                "transcript_biotype", "primary_transcript"
+            ) == "primary_transcript":
+                d["transcript_biotype"] = gene_biotype
 
             tx = gene_dict[gene_id][transcript_id]
             # do not need to check priority is set or not
