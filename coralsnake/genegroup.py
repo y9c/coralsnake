@@ -214,17 +214,18 @@ def group_genes(
             "Mt_tRNA",
             "ribozyme",
             "vault_RNA",
-            "7SL_RNA",
-            "7SK_RNA",
+            # "7SL_RNA", --> scRNA
+            # "7SK_RNA", --> snRNA
             "Y_RNA",
             "miRNA",
             "scaRNA",
             "snoRNA",
             "snRNA",
+            "scRNA",
             "misc_RNA",
             "vault_RNA_pseudogene",
-            "7SL_pseudogene",
-            "7SK_pseudogene",
+            # "7SL_pseudogene",--> scRNA
+            # "7SK_pseudogene", --> snRNA
             # "processed_pseudogene",
             "pseudogene",
         ]
@@ -258,11 +259,11 @@ def group_genes(
 
                 # 7SL pseudogene (e.g., "RN7SL521P")
                 elif gene_name.startswith("RN7SL") and gene_name.endswith("P"):
-                    transcript.transcript_biotype = "7SL_pseudogene"
+                    transcript.transcript_biotype = "scRNA"  # "scRNA_pseudogene"
 
                 # 7SK pseudogene (e.g., "RN7SKP27")
                 elif gene_name.startswith("RN7SKP"):
-                    transcript.transcript_biotype = "7SK_pseudogene"
+                    transcript.transcript_biotype = "snRNA"  # "snRNA_pseudogene"
 
                 # Y_RNA pseudogene (e.g., "RNY4P28", "RNY1P4")
                 elif gene_name.startswith("RNY") and "P" in gene_name:
@@ -275,7 +276,7 @@ def group_genes(
                     "Metazoa_SRP",
                     "7SL",
                 ]:
-                    transcript.transcript_biotype = "7SL_RNA"
+                    transcript.transcript_biotype = "scRNA"
 
                 # Functional Y_RNA (e.g., "Y_RNA", "RNY3", "RNY4")
                 elif gene_name.startswith("RNY") or gene_name == "Y_RNA":
@@ -283,7 +284,7 @@ def group_genes(
 
                 # Functional 7SK RNA (now checks for "RN7SK" or "7SK")
                 elif gene_name in ["RN7SK", "7SK"]:
-                    transcript.transcript_biotype = "7SK_RNA"
+                    transcript.transcript_biotype = "snRNA"
 
                 # Functional Vault RNA (so far, only "Vault" is observed)
                 elif gene_name == "Vault":
