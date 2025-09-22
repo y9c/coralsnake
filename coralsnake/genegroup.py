@@ -381,8 +381,7 @@ def group_genes(
             description=f"Preprocessing genes ({tx_biotype})...",
         ):
             for tx in tx_list:
-                if not hasattr(tx, "_seq"):
-                    tx._seq = tx.get_seq(chrom_to_fa[tx.chrom])
+                tx._seq = tx.get_seq(chrom_to_fa[tx.chrom])
         # 2. for each biotype, loop tx in gene_name in ["SNORx", "MIRx", "Ux", "RNYx"]
         unnamed_gene = tx_to_unname[tx_biotype]
         for tx in tx_dict[unnamed_gene]:
@@ -390,7 +389,6 @@ def group_genes(
                 if target_gene == unnamed_gene:
                     continue
                 for tx2 in tx_list:
-                    print(tx2._seq)
                     if tx._seq in tx2._seq or (
                         tx2._seq in tx.seq and len(tx2._seq) > 0.9 * len(tx._seq)
                     ):
