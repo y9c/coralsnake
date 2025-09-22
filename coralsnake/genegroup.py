@@ -374,11 +374,11 @@ def group_genes(
         gene_dict_by_name.items(),
         description="Preprocessing genes...",
     ):
-        if tx_biotype not in ["snoRNA", "miRNA", "snRNA", "Y_RNA"]:
+        if all(x not in tx_dict.keys() for x in tx_to_unname.values()):
             continue
         for gene_name, tx_list in rich.progress.track(
             tx_dict.items(),
-            description=f"  Preprocessing genes ({tx_biotype})...",
+            description=f"Preprocessing genes ({tx_biotype})...",
         ):
             for tx in tx_list:
                 if not hasattr(tx, "_seq"):
@@ -417,7 +417,7 @@ def group_genes(
     ):
         for gene_name, tx_list in rich.progress.track(
             tx_dict.items(),
-            description=f"  Groupping genes ({tx_biotype})...",
+            description=f"Groupping genes ({tx_biotype})...",
         ):
             if gene_biotype_list:
                 if tx_biotype not in gene_biotype_list:
