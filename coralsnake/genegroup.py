@@ -369,12 +369,7 @@ def group_genes(
     # within each biotype, if the gene_name is one of ["SNORx", "MIRx", "Ux", "RNYx"]
     # iter the transcript list of this gene_name, and compare with other genes
     # 1. get the seq for each transcript (storge into tx._seq by default)
-    tx_to_unname = {
-        "snoRNA": "SNORx",
-        "miRNA": "MIRx",
-        "snRNA": "Ux",
-        "Y_RNA": "RNYx",
-    }
+    tx_to_unname = {"snoRNA": "SNORx", "miRNA": "MIRx", "snRNA": "Ux", "Y_RNA": "RNYx"}
     for tx_biotype, tx_dict in rich.progress.track(
         gene_dict_by_name.items(),
         description="Preprocessing genes...",
