@@ -374,7 +374,7 @@ def group_genes(
         gene_dict_by_name.items(),
         description="Preprocessing genes...",
     ):
-        if all(x not in tx_dict.keys() for x in tx_to_unname.values()):
+        if all(not (x == tx_biotype and y in tx_dict) for x, y in tx_to_unname.items()):
             continue
         for gene_name, tx_list in rich.progress.track(
             tx_dict.items(),
