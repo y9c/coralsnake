@@ -353,12 +353,18 @@ def group_genes(
                     # eg:
                     # small nucleolar RNA SNORD51
                     # small nucleolar SNORD12/SNORD106
-                    gene_name = (
+                    _gene_name = (
                         gene_product.replace("small nucleolar RNA", "")
                         .replace("small nucleolar", "")
                         .strip()
                         .split()[0]
                     )
+                    if gene_name.startswith("Gm"):
+                        gene_name = _gene_name.replace("SNORD", "Snord").replace(
+                            "SNORA", "Snora"
+                        )
+                    else:
+                        gene_name = _gene_name
                 else:
                     gene_name = "SNORx"
 
