@@ -181,12 +181,12 @@ def rename_snRNA(gene_name):
     patterns = [
         (r"RNU(\d+)(?:-\d+.*)?$", r"U\1"),
         (r"RNU(\d+[A-Z]+)(?:-\d+.*)?$", r"U\1"),
-        (r"RNU(\d+)ATAC.*", r"U\1ATAC"),
+        (r"RNU(\d+)ATAC.*", r"U\1atac"),
         (r"Rnu(\d+)(?:-\d+.*)?$", r"U\1"),
         (r"Rnu(\d+[a-z]+)(?:-\d+.*)?$", r"U\1"),
-        (r"Rnu(\d+)atac.*", r"U\1ATAC"),
+        (r"Rnu(\d+)atac.*", r"U\1atac"),
         (r"RNVU(\d+)-\d+.*", r"U\1V"),
-        (r"U(\d+)ATAC$", r"U\1atac$"),
+        (r"U(\d+)ATAC$", r"U\1atac"),
     ]
 
     # Apply each pattern and replacement
