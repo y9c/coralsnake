@@ -222,6 +222,7 @@ def group_genes(
             "snoRNA",
             "snRNA",
             "scRNA",
+            "ncRNA",
             "misc_RNA",
             "vault_RNA_pseudogene",
             # "7SL_pseudogene",--> scRNA
@@ -290,6 +291,13 @@ def group_genes(
                 elif gene_name == "Vault":
                     transcript.transcript_biotype = "vault_RNA"
 
+                # small Cajal body-specific RNA
+                elif gene_name.startswith("SCARNA") or (
+                    hasattr(transcript, "product")
+                    and "small cajal body" in transcript.product.lower()
+                ):
+                    transcript.transcript_biotype = "scaRNA"
+
             tx_biotype = transcript.transcript_biotype
 
             # # This is a temporary fix for misc_RNA naming
@@ -345,6 +353,21 @@ def group_genes(
                     )
                 else:
                     gene_name = "SNORx"
+
+            # This is a temporary fix for the naming of the scaRNA genes
+            if tx_biotype == "scaRNA":
+                if (
+                    hasattr(transcript, "product")
+                    and "small cajal body" in transcript.product.lower()
+                ) and not gene_name.upper().startswith("SCARNA"):
+                    gene_name = (
+                        "SCARNA"
+                        + transcript.product.replace(
+                            "small Cajal body-specific RNA", ""
+                        )
+                        .strip()
+                        .split()[0]
+                    )
 
             # This is a temporary fix for the naming of the miRNA genes
             if tx_biotype == "miRNA":
