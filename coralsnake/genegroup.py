@@ -325,6 +325,19 @@ def group_genes(
                     # SNORD62A and SNORD62B are the same gene
                 elif gene_name.upper().startswith("U"):
                     pass
+                # get product attribute if exists
+                elif hasattr(transcript, "product") and transcript.product:
+                    # eg:
+                    # U6 spliceosomal RNA
+                    # U7 small nuclear RNA
+                    # small nucleolar RNA SNORD51
+                    gene_name = (
+                        transcript.product.replace("small nuclear RNA", "")
+                        .replace("spliceosomal RNA", "")
+                        .replace("nucleolar RNA SNORD51", "")
+                        .strip()
+                        .split()[0]
+                    )
                 else:
                     gene_name = "SNORx"
 
