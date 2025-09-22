@@ -317,9 +317,11 @@ def group_genes(
                     pass
                 elif hasattr(transcript, "product") and transcript.product:
                     # eg:
-                    # small nucleolar RNA SNORD51
+                    # U6 spliceosomal RNA
+                    # U7 small nuclear RNA
                     gene_name = (
-                        transcript.product.replace("small nucleolar RNA", "")
+                        transcript.product.replace("small nuclear RNA", "")
+                        .replace("spliceosomal RNA", "")
                         .strip()
                         .split()[0]
                     )
@@ -343,11 +345,9 @@ def group_genes(
                     pass
                 elif hasattr(transcript, "product") and transcript.product:
                     # eg:
-                    # U6 spliceosomal RNA
-                    # U7 small nuclear RNA
+                    # small nucleolar RNA SNORD51
                     gene_name = (
-                        transcript.product.replace("small nuclear RNA", "")
-                        .replace("spliceosomal RNA", "")
+                        transcript.product.replace("small nucleolar RNA", "")
                         .strip()
                         .split()[0]
                     )
