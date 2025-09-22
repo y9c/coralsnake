@@ -170,8 +170,8 @@ def rename_snRNA(gene_name):
     # RNU3-2 -> U3
     # RNU5E-10P -> RN5E
     # RNU5A-3P -> RN5E
-    # RNU4ATAC7 -> U4ATAC
-    # RNU6ATAC7 -> U6ATAC
+    # RNU4ATAC7 -> U4ATAC -> U4atac
+    # RNU6ATAC7 -> U6ATAC -> U6atac
     # RNVU1-1 -> U1V
     # .., etc
     # for drosophila, snRNA:U2:38ABb -> U2
@@ -186,6 +186,7 @@ def rename_snRNA(gene_name):
         (r"Rnu(\d+[a-z]+)(?:-\d+.*)?$", r"U\1"),
         (r"Rnu(\d+)atac.*", r"U\1ATAC"),
         (r"RNVU(\d+)-\d+.*", r"U\1V"),
+        (r"U(\d+)ATAC$", r"U\1atac$"),
     ]
 
     # Apply each pattern and replacement
