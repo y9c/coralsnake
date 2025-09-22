@@ -349,11 +349,13 @@ def group_genes(
                     # SNORD62A and SNORD62B are the same gene
                 elif gene_name.upper().startswith("U"):
                     pass
-                elif "small nucleolar RNA" in gene_product:
+                elif "small nucleolar" in gene_product:
                     # eg:
                     # small nucleolar RNA SNORD51
+                    # small nucleolar SNORD12/SNORD106
                     gene_name = (
                         gene_product.replace("small nucleolar RNA", "")
+                        .replace("small nucleolar", "")
                         .strip()
                         .split()[0]
                     )
