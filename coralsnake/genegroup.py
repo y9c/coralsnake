@@ -297,7 +297,7 @@ def group_genes(
                 # small Cajal body-specific RNA
                 elif gene_name.startswith("SCARNA") or (
                     hasattr(transcript, "product")
-                    and "small cajal body" in transcript.product.lower()
+                    and "small cajal body" in gene_product.lower()
                 ):
                     transcript.transcript_biotype = "scaRNA"
 
@@ -326,7 +326,7 @@ def group_genes(
                     # U6 spliceosomal RNA
                     # U7 small nuclear RNA
                     gene_name = (
-                        transcript.product.replace("small nuclear RNA", "")
+                        gene_product.replace("small nuclear RNA", "")
                         .replace("spliceosomal RNA", "")
                         .strip()
                         .split()[0]
@@ -353,7 +353,7 @@ def group_genes(
                     # eg:
                     # small nucleolar RNA SNORD51
                     gene_name = (
-                        transcript.product.replace("small nucleolar RNA", "")
+                        gene_product.replace("small nucleolar RNA", "")
                         .strip()
                         .split()[0]
                     )
@@ -368,9 +368,7 @@ def group_genes(
                 ):
                     gene_name = (
                         "SCARNA"
-                        + transcript.product.replace(
-                            "small Cajal body-specific RNA", ""
-                        )
+                        + gene_product.replace("small Cajal body-specific RNA", "")
                         .strip()
                         .split()[0]
                     )
