@@ -461,14 +461,13 @@ def group_genes(
         gene_dict_by_name.items(),
         description="Groupping genes...",
     ):
+        if gene_biotype_list:
+            if tx_biotype not in gene_biotype_list:
+                continue
         for gene_name, tx_list in rich.progress.track(
             tx_dict.items(),
             description=f"Groupping genes ({tx_biotype})...",
         ):
-            if gene_biotype_list:
-                if tx_biotype not in gene_biotype_list:
-                    continue
-
             if gene_name_regex:
                 if not re.search(gene_name_regex, gene_name):
                     continue
