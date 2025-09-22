@@ -239,7 +239,7 @@ def group_genes(
         chrom_to_fa.update({chrom: fasta for chrom in fasta.references})
 
     LOGGER.info("Loading annotations from gtf file")
-    gene_dict_by_name = defaultdict(list)
+    gene_dict_by_name = defaultdict(lambda: defaultdict(list))
     for gtf_file in gtf_file_list:
         gene_dict = read_gtf(
             gtf_file, is_gff=gtf_file.endswith("gff") or gtf_file.endswith("gff3")
@@ -357,7 +357,53 @@ def group_genes(
                 # gene_name = re.sub(r"-[0-9-]+$", "", gene_name)
                 gene_name = re.sub(r"[0-9-]+$", "", gene_name)
 
-            gene_dict_by_name[(tx_biotype, gene_name)].append(transcript)
+            gene_dict_by_name[tx_biotype][gene_name].append(transcript)
+
+    # sort the 1st level and 2nd level of gene_dict_by_name
+    gene_dict_by_name = {
+        k: dict(sorted(v.items(), key=lambda item: item[0]))
+        for k, v in sorted(gene_dict_by_name.items(), key=lambda item: item[0])
+    }
+
+    # adjust gene dict, rule:
+    # within each biotype, if the gene_name is one of ["SNORx", "MIRx", "Ux", "RNYx"]
+    # iter the transcript list of this gene_name, and compare with other genes
+    # 1. get the seq for each transcript (storge into tx._seq by default)
+    tx_to_unname = {
+        "snoRNA": "SNORx",
+        "miRNA": "MIRx",
+        "snRNA": "Ux",
+        "Y_RNA": "RNYx",
+    }
+    for tx_biotype, tx_dict in rich.progress.track(
+        gene_dict_by_name.items(),
+        description="Preprocessing genes...",
+    ):
+        if tx_biotype not in ["snoRNA", "miRNA", "snRNA", "Y_RNA"]:
+            continue
+        for gene_name, tx_list in rich.progress.track(
+            tx_dict.items(),
+            description=f"  Preprocessing genes ({tx_biotype})...",
+        ):
+            for tx in tx_list:
+                if not hasattr(tx, "_seq"):
+                    tx._seq = tx.get_seq(chrom_to_fa[tx.chrom])
+        # 2. for each biotype, loop tx in gene_name in ["SNORx", "MIRx", "Ux", "RNYx"]
+        unnamed_gene = tx_to_unname[tx_biotype]
+        for tx in tx_dict[unnamed_gene]:
+            for target_gene, tx_list in tx_dict.items():
+                if target_gene == unnamed_gene:
+                    continue
+                for tx2 in tx_list:
+                    if tx._seq in tx2._seq or (
+                        tx2._seq in tx.seq and len(tx2._seq) > 0.9 * len(tx._seq)
+                    ):
+                        tx_dict[unnamed_gene].remove(tx)
+                        tx_dict[target_gene].append(tx)
+                        break
+                else:
+                    continue
+                break
 
     # if out_file is None write to stdout
     if out_file:
@@ -370,97 +416,101 @@ def group_genes(
     if consensus_fa:
         out_fa = open(consensus_fa, "w")
 
-    for (tx_biotype, gene_name), tx_list in rich.progress.track(
-        sorted(list(gene_dict_by_name.items()), key=lambda x: (x[0][0], x[0][1])),
-        description="Processing genes...",
+    for tx_biotype, tx_dict in rich.progress.track(
+        gene_dict_by_name.items(),
+        description="Groupping genes...",
     ):
-        if gene_biotype_list:
-            if tx_biotype not in gene_biotype_list:
+        for gene_name, tx_list in rich.progress.track(
+            tx_dict.items(),
+            description=f"  Groupping genes ({tx_biotype})...",
+        ):
+            if gene_biotype_list:
+                if tx_biotype not in gene_biotype_list:
+                    continue
+
+            if gene_name_regex:
+                if not re.search(gene_name_regex, gene_name):
+                    continue
+
+            # only cluster short genes shorter than 300bp
+            if gene_length_limit:
+                tx_list = [tx for tx in tx_list if tx.length <= gene_length_limit]
+
+            names = [tx.gene_id for tx in tx_list]
+            seqs = [tx.get_seq(chrom_to_fa[tx.chrom]) for tx in tx_list]
+            if len(names) == 0:
                 continue
 
-        if gene_name_regex:
-            if not re.search(gene_name_regex, gene_name):
-                continue
+            exon_spans_list = [tx.exons.values() for tx in tx_list]
+            if len(tx_list) < 2:
+                cluster_ids = np.arange(1, len(tx_list) + 1, dtype=int)
+            else:
+                msa = run_msa(names, seqs)
+                aligned_array = msa_to_array(msa)
+                cluster_ids = cluster_sequences(aligned_array, cluster_threshold)
+            # loop the cluster ids and redo the msa for each sub-group
+            for cluster_id in np.unique(cluster_ids):
+                cluster_tx_list = [
+                    tx for tx, cid in zip(tx_list, cluster_ids) if cid == cluster_id
+                ]
+                cluster_names = [
+                    name for name, cid in zip(names, cluster_ids) if cid == cluster_id
+                ]
+                cluster_seqs = [
+                    seq for seq, cid in zip(seqs, cluster_ids) if cid == cluster_id
+                ]
+                cluster_exon_spans_list = [
+                    spans
+                    for spans, cid in zip(exon_spans_list, cluster_ids)
+                    if cid == cluster_id
+                ]
+                cluster_msa = run_msa(cluster_names, cluster_seqs, threads)
+                cluster_aligned_array = msa_to_array(cluster_msa)
+                cluster_consensus = consensus_sequence(cluster_aligned_array)
 
-        # only cluster short genes shorter than 300bp
-        if gene_length_limit:
-            tx_list = [tx for tx in tx_list if tx.length <= gene_length_limit]
+                # write artificial fasta file for the consensus sequences
+                # header: >transcript_biotype-gene_name-cluster_id N={number of sequences in the cluster} list_of_gene_id_joined_by"|"
+                # only output cluster_id less than or equal to 5, or the cluster size is greater than or equal to 3
+                if consensus_fa:
+                    if (
+                        cluster_id <= 5
+                        or len(cluster_names) >= 3
+                        or gene_name in ["SNORx", "MIRx", "Ux", "RNYx"]
+                    ):
+                        out_fa.write(
+                            f">{tx_biotype}-{gene_name}-cluster{cluster_id} N={len(cluster_names)} members={'|'.join(cluster_names)}\n"
+                            f"{cluster_consensus.replace('-', '').upper()}\n"
+                        )
 
-        names = [tx.gene_id for tx in tx_list]
-        seqs = [tx.get_seq(chrom_to_fa[tx.chrom]) for tx in tx_list]
-        if len(names) == 0:
-            continue
-
-        exon_spans_list = [tx.exons.values() for tx in tx_list]
-        if len(tx_list) < 2:
-            cluster_ids = np.arange(1, len(tx_list) + 1, dtype=int)
-        else:
-            msa = run_msa(names, seqs)
-            aligned_array = msa_to_array(msa)
-            cluster_ids = cluster_sequences(aligned_array, cluster_threshold)
-        # loop the cluster ids and redo the msa for each sub-group
-        for cluster_id in np.unique(cluster_ids):
-            cluster_tx_list = [
-                tx for tx, cid in zip(tx_list, cluster_ids) if cid == cluster_id
-            ]
-            cluster_names = [
-                name for name, cid in zip(names, cluster_ids) if cid == cluster_id
-            ]
-            cluster_seqs = [
-                seq for seq, cid in zip(seqs, cluster_ids) if cid == cluster_id
-            ]
-            cluster_exon_spans_list = [
-                spans
-                for spans, cid in zip(exon_spans_list, cluster_ids)
-                if cid == cluster_id
-            ]
-            cluster_msa = run_msa(cluster_names, cluster_seqs, threads)
-            cluster_aligned_array = msa_to_array(cluster_msa)
-            cluster_consensus = consensus_sequence(cluster_aligned_array)
-
-            # write artificial fasta file for the consensus sequences
-            # header: >transcript_biotype-gene_name-cluster_id N={number of sequences in the cluster} list_of_gene_id_joined_by"|"
-            # only output cluster_id less than or equal to 5, or the cluster size is greater than or equal to 3
-            if consensus_fa:
-                if (
-                    cluster_id <= 5
-                    or len(cluster_names) >= 3
-                    or gene_name in ["SNORx", "MIRx", "Ux", "RNYx"]
+                for i, mapping in enumerate(
+                    get_position_mapping_from_aligned_array(cluster_aligned_array)
                 ):
-                    out_fa.write(
-                        f">{tx_biotype}-{gene_name}-cluster{cluster_id} N={len(cluster_names)} members={'|'.join(cluster_names)}\n"
-                        f"{cluster_consensus.replace('-', '').upper()}\n"
+                    msa_spans = []
+                    for _, aligned_span in mapping:
+                        msa_spans.append(aligned_span)
+                    # d = map_genome_to_gap_open(cluster_exon_spans_list[i], msa_spans)
+                    # d_str = ",".join([f"{k}:{v}" for k, v in d.items()])
+                    # out.write(f"{gene_name}\t{cluster_id}\t{cluster_names[i]}\t{d_str}\n")
+                    exon_spans_str = ",".join(
+                        [
+                            f"{start + 1}-{end + 1}"
+                            for start, end in cluster_exon_spans_list[i]
+                        ]
                     )
-
-            for i, mapping in enumerate(
-                get_position_mapping_from_aligned_array(cluster_aligned_array)
-            ):
-                msa_spans = []
-                for _, aligned_span in mapping:
-                    msa_spans.append(aligned_span)
-                # d = map_genome_to_gap_open(cluster_exon_spans_list[i], msa_spans)
-                # d_str = ",".join([f"{k}:{v}" for k, v in d.items()])
-                # out.write(f"{gene_name}\t{cluster_id}\t{cluster_names[i]}\t{d_str}\n")
-                exon_spans_str = ",".join(
-                    [
-                        f"{start + 1}-{end + 1}"
-                        for start, end in cluster_exon_spans_list[i]
-                    ]
-                )
-                msa_spans_str = ",".join(
-                    [
-                        f"{start + 1}-{end + 1}"
-                        for start, end in msa_spans
-                        if start is not None and end is not None
-                    ]
-                )
-                tx = cluster_tx_list[i]
-                tx_seq = tx.get_seq(chrom_to_fa[tx.chrom])
-                out.write(
-                    f"{gene_name}\t{cluster_id}\t{len(cluster_names)}\t{cluster_consensus}\t"
-                    f"{tx_biotype}\t{cluster_names[i]}\t{tx.chrom}\t{exon_spans_str}\t{tx.strand}\t{tx_seq}\t"
-                    f"{msa_spans_str}\n"
-                )
+                    msa_spans_str = ",".join(
+                        [
+                            f"{start + 1}-{end + 1}"
+                            for start, end in msa_spans
+                            if start is not None and end is not None
+                        ]
+                    )
+                    tx = cluster_tx_list[i]
+                    tx_seq = tx.get_seq(chrom_to_fa[tx.chrom])
+                    out.write(
+                        f"{gene_name}\t{cluster_id}\t{len(cluster_names)}\t{cluster_consensus}\t"
+                        f"{tx_biotype}\t{cluster_names[i]}\t{tx.chrom}\t{exon_spans_str}\t{tx.strand}\t{tx_seq}\t"
+                        f"{msa_spans_str}\n"
+                    )
     if out_file:
         out.close()
     if consensus_fa:
