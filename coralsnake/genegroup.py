@@ -300,14 +300,15 @@ def group_genes(
 
             # This a temporary fix for snRNA naming
             gene_name = rename_snRNA(gene_name)
-            if gene_name.upper().startswith("7SK"):
-                gene_name = "7SK"
-            if (
-                transcript.transcript_biotype == "snRNA"
-                and not gene_name.upper().startswith("U")
-                and gene_name != "7SK"
-            ):
-                gene_name = "Ux"
+            if transcript.transcript_biotype == "snRNA":
+                if gene_name.upper().startswith("7SK"):
+                    gene_name = "7SK"
+                elif gene_name.upper().startswith("SNAR-"):
+                    gene_name = re.sub(r"[0-9-]+$", "", gene_name)
+                elif gene_name.upper().startswith("U"):
+                    pass
+                else:
+                    gene_name = "Ux"
 
             # This is a temporary fix for the naming of the Y_RNA genes
             if tx_biotype == "Y_RNA":
@@ -373,7 +374,6 @@ def group_genes(
         sorted(list(gene_dict_by_name.items()), key=lambda x: (x[0][0], x[0][1])),
         description="Processing genes...",
     ):
-        print(tx_biotype, gene_name)
         if gene_biotype_list:
             if tx_biotype not in gene_biotype_list:
                 continue
