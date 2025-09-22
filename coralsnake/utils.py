@@ -86,6 +86,7 @@ class Transcript:
         self.stop_codon: Span | None = None
         self.priority: tuple[int, int] = (10, 0)
         self.conflict: bool = False
+        self._annotations: dict = {}
 
     def add_exon(self, exon_id: str | int, exon: Span) -> None:
         self.exons[exon_id] = exon

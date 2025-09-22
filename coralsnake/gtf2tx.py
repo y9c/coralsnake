@@ -52,7 +52,7 @@ def parse_gff_annot(annot):
     return {k: "; ".join(v) for k, v in d.items()}
 
 
-def read_gtf(gtf_file, is_gff=False):
+def read_gtf(gtf_file, is_gff=False, keep_annotation=False):
     if is_gff:
         parse_annot = parse_gff_annot
     else:
@@ -145,6 +145,11 @@ def read_gtf(gtf_file, is_gff=False):
             tx = gene_dict[gene_id][transcript_id]
             # do not need to check priority is set or not
             tx.priority = priority
+
+            # keep annotation info
+            if keep_annotation:
+                tx._annotations |= d
+
             for k, v in zip(
                 [
                     "gene_id",

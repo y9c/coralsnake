@@ -243,12 +243,15 @@ def group_genes(
     gene_dict_by_name = defaultdict(lambda: defaultdict(list))
     for gtf_file in gtf_file_list:
         gene_dict = read_gtf(
-            gtf_file, is_gff=gtf_file.endswith("gff") or gtf_file.endswith("gff3")
+            gtf_file,
+            is_gff=gtf_file.endswith("gff") or gtf_file.endswith("gff3"),
+            keep_annotation=True,
         )
         for transcript in top_transcript(gene_dict):
             if not transcript.gene_name or not transcript.transcript_biotype:
                 continue
             gene_name = transcript.gene_name
+            gene_product = transcript._annotations.get("product", "")
 
             # This is a patch to fix misc_RNA gene names
             # eg, 4       ensembl gene    88330176        88330278        .       -       .       gene_id "ENSG00000207480"; gene_version "1"; gene_name "Y_RNA"; gene_source "ensembl"; gene_biotype "misc_RNA";
@@ -315,7 +318,10 @@ def group_genes(
                     gene_name = re.sub(r"[0-9-]+$", "", gene_name)
                 elif gene_name.upper().startswith("U"):
                     pass
-                elif hasattr(transcript, "product") and transcript.product:
+                elif (
+                    "small nuclear RNA" in gene_product
+                    or "spliceosomal RNA" in gene_product
+                ):
                     # eg:
                     # U6 spliceosomal RNA
                     # U7 small nuclear RNA
@@ -343,7 +349,7 @@ def group_genes(
                     # SNORD62A and SNORD62B are the same gene
                 elif gene_name.upper().startswith("U"):
                     pass
-                elif hasattr(transcript, "product") and transcript.product:
+                elif "small nucleolar RNA" in gene_product:
                     # eg:
                     # small nucleolar RNA SNORD51
                     gene_name = (
@@ -357,9 +363,9 @@ def group_genes(
             # This is a temporary fix for the naming of the scaRNA genes
             if tx_biotype == "scaRNA":
                 if (
-                    hasattr(transcript, "product")
-                    and "small cajal body" in transcript.product.lower()
-                ) and not gene_name.upper().startswith("SCARNA"):
+                    "small Cajal body-specific RNA" in gene_product
+                    and not gene_name.upper().startswith("SCARNA")
+                ):
                     gene_name = (
                         "SCARNA"
                         + transcript.product.replace(
