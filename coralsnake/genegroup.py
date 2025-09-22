@@ -515,6 +515,12 @@ def group_genes(
                         cluster_id <= 5
                         or len(cluster_names) >= 3
                         or gene_name in ["SNORx", "MIRx", "Ux", "RNYx"]
+                        or not all(
+                            n.startswith("ENS")
+                            or n.startswith("LOC")
+                            or n.startswith("Gm")
+                            for n in cluster_names
+                        )
                     ):
                         out_fa.write(
                             f">{tx_biotype}-{gene_name}-cluster{cluster_id} N={len(cluster_names)} members={'|'.join(cluster_names)}\n"
