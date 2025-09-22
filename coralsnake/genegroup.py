@@ -359,10 +359,15 @@ def group_genes(
                         .strip()
                         .split()[0]
                     )
-                    if gene_name.startswith("Gm"):
+                    if (
+                        gene_name.startswith("Gm")
+                        or gene_name.startswith("AF")
+                        or gene_name.startswith("DQ")
+                    ):
                         gene_name = _gene_name.replace("SNORD", "Snord").replace(
                             "SNORA", "Snora"
                         )
+
                     else:
                         gene_name = _gene_name
                 else:
