@@ -389,8 +389,8 @@ def group_genes(
                 if target_gene == unnamed_gene:
                     continue
                 for tx2 in tx_list:
-                    if tx._seq in tx2._seq or (
-                        tx2._seq in tx.seq and len(tx2._seq) > 0.9 * len(tx._seq)
+                    if (tx._seq in tx2._seq and len(tx._seq) > 0.5 * len(tx2._seq)) or (
+                        tx2._seq in tx._seq and len(tx2._seq) > 0.9 * len(tx._seq)
                     ):
                         tx_dict[unnamed_gene].remove(tx)
                         tx_dict[target_gene].append(tx)
