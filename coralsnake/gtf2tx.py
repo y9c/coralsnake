@@ -153,6 +153,7 @@ def read_gtf(gtf_file, is_gff=False):
                     "strand",
                     "gene_name",
                     "transcript_biotype",
+                    "product",
                 ],
                 [
                     gene_id,
@@ -161,6 +162,7 @@ def read_gtf(gtf_file, is_gff=False):
                     line[6],
                     d.get("gene_name", None),
                     d.get("transcript_biotype", None),
+                    d.get("product", None),
                 ],
             ):
                 if v is None:
