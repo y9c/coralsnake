@@ -390,6 +390,7 @@ def group_genes(
                 if target_gene == unnamed_gene:
                     continue
                 for tx2 in tx_list:
+                    print(tx2._seq)
                     if tx._seq in tx2._seq or (
                         tx2._seq in tx.seq and len(tx2._seq) > 0.9 * len(tx._seq)
                     ):
