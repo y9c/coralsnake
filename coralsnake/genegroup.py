@@ -368,7 +368,10 @@ def group_genes(
                         gene_name = _gene_name.replace("SNORD", "Snord").replace(
                             "SNORA", "Snora"
                         )
-
+                    elif not _gene_name.upper().startswith(
+                        "SNOR"
+                    ) and not _gene_name.upper().startswith("U3"):
+                        gene_name = "SNORx"
                     else:
                         gene_name = _gene_name
                 else:
