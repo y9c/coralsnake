@@ -362,6 +362,7 @@ def group_genes(
                         .strip()
                         .split()[0]
                     )
+                    gene_name = rename_snRNA(gene_name)
                 else:
                     gene_name = "Ux"
 
