@@ -186,7 +186,8 @@ def rename_snRNA(gene_name):
         (r"Rnu(\d+[a-z]+)(?:-\d+.*)?$", r"U\1"),
         (r"Rnu(\d+)atac.*", r"U\1atac"),
         (r"RNVU(\d+)-\d+.*", r"U\1V"),
-        (r"U(\d+)ATAC$", r"U\1atac"),
+        (r"[Uu](\d+)ATAC$", r"U\1atac"),
+        (r"u(\d+)$", r"U\1"),
     ]
 
     # Apply each pattern and replacement
