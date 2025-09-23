@@ -195,6 +195,25 @@ def rename_snRNA(gene_name):
     return gene_name
 
 
+def rename_snoRNA(gene_name):
+    # replace rule:
+    # replace U3 with SNORD3A
+    # replace U3b1 with SNORD3B-1
+    # replace U8 with SNORD118
+    if gene_name.upper().startswith("U3"):
+        # regex to extract the suffix after U3, the letter for the type and the number for the copy
+        match = re.match(r"U3([A-Z]?)-?(\d?)", gene_name.upper())
+        if match:
+            letter, number = match.groups()
+            if letter == "":
+                letter = "A"
+            # ignore the copy number
+            return f"SNORD3{letter}"
+    elif gene_name.upper().startswith("U8"):
+        return "SNORD118"
+    return gene_name
+
+
 def group_genes(
     fa_file_list,
     gtf_file_list,
@@ -348,8 +367,10 @@ def group_genes(
                     # todo:
                     # SNORD109A and SNORD109B are the same gene
                     # SNORD62A and SNORD62B are the same gene
-                elif gene_name.upper().startswith("U"):
-                    pass
+                elif gene_name.upper().startswith("U") or gene_name.upper().startswith(
+                    "RNU"
+                ):
+                    gene_name = rename_snoRNA(gene_name)
                 elif "small nucleolar" in gene_product:
                     # eg:
                     # small nucleolar RNA SNORD51
@@ -368,10 +389,10 @@ def group_genes(
                         gene_name = _gene_name.replace("SNORD", "Snord").replace(
                             "SNORA", "Snora"
                         )
-                    elif not _gene_name.upper().startswith(
-                        "SNOR"
-                    ) and not _gene_name.upper().startswith("U3"):
-                        gene_name = "SNORx"
+                    elif not _gene_name.upper().startswith("SNOR"):
+                        gene_name = rename_snoRNA(_gene_name)
+                        if not gene_name.startswith("SNOR"):
+                            gene_name = "SNORx"
                     else:
                         gene_name = _gene_name
                 else:
