@@ -201,6 +201,7 @@ def rename_snoRNA(gene_name):
     # replace U3b1 with SNORD3B-1
     # replace U8 with SNORD118
     # replace small nucleolar RNA ACA64 with SNORA64
+    # replace Z6
     if gene_name.upper().startswith("ACA"):
         match = re.match(r"ACA(\d+)([A-Z]?)-?(\d*)", gene_name.upper())
         if match:
@@ -217,6 +218,8 @@ def rename_snoRNA(gene_name):
             if letter == "":
                 letter = "A"
             return f"SNORD{number}{letter}"
+    elif gene_name.upper() == "Z6":
+        return "Z6"
     return gene_name
 
 
