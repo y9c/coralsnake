@@ -200,17 +200,16 @@ def rename_snoRNA(gene_name):
     # replace U3 with SNORD3A
     # replace U3b1 with SNORD3B-1
     # replace U8 with SNORD118
-    if gene_name.upper().startswith("U3"):
-        # regex to extract the suffix after U3, the letter for the type and the number for the copy
-        match = re.match(r"U3([A-Z]?)-?(\d?)", gene_name.upper())
+    if gene_name.upper().startswith("U8"):
+        return "SNORD118"
+    elif gene_name.upper().startswith("U"):
+        # match all other U RNA (WARNING: all snoRD? are there some SNORA?)
+        match = re.match(r"U(\d+)([A-Z]?)-?(\d*)", gene_name.upper())
         if match:
-            letter, number = match.groups()
+            number, letter, copy = match.groups()
             if letter == "":
                 letter = "A"
-            # ignore the copy number
-            return f"SNORD3{letter}"
-    elif gene_name.upper().startswith("U8"):
-        return "SNORD118"
+            return f"SNORD{number}{letter}"
     return gene_name
 
 
