@@ -39,6 +39,7 @@ def process_chunk(
     Process a single chunk of FASTQ files.
     
     This function is designed to be called for each chunk.
+    Returns: (chunk_output, read_count)
     """
     # Load indices
     idx0 = mp.Aligner(fn_idx_in=idx0_file, preset="sr", n_threads=threads)
@@ -50,6 +51,7 @@ def process_chunk(
         header["SQ"].append({"SN": name, "LN": len(seq)})
     
     # Process reads and write to BAM
+    read_count = 0
     with pysam.AlignmentFile(chunk_output, "wb", header=header) as bam_out:
         if chunk_r2 is None:
             # Single-end
@@ -72,6 +74,8 @@ def process_chunk(
                     map1 = item[1]
                     a1 = create_bam_record(bam_out.header, map1, is_secondary=(i > 0))
                     bam_out.write(a1)
+                
+                read_count += 1
         else:
             # Paired-end
             for (name1, seq1, qua1), (name2, seq2, qua2) in zip(
@@ -100,8 +104,10 @@ def process_chunk(
                     a2 = create_bam_record(bam_out.header, map2, is_secondary=(i > 0))
                     bam_out.write(a1)
                     bam_out.write(a2)
+                
+                read_count += 1
     
-    return chunk_output
+    return chunk_output, read_count
 
 
 def find_properly_paired_hits(hits, fwd=True):
@@ -778,16 +784,18 @@ def map_file(
                         
                         # Collect results as they complete
                         completed = 0
+                        total_reads = 0
                         for future in as_completed(future_to_chunk):
                             idx, chunk_bam = future_to_chunk[future]
                             try:
-                                future.result()  # Raises exception if chunk processing failed
+                                _, read_count = future.result()  # Returns (chunk_output, read_count)
                                 chunk_bams.append(chunk_bam)
                                 completed += 1
+                                total_reads += read_count
                                 progress.update(
                                     process_task,
                                     advance=1,
-                                    description=f"🔄 Processing chunks... ({completed}/{len(chunk_files)} done)"
+                                    description=f"🔄 Processing chunks... ({completed}/{len(chunk_files)} done, {total_reads:,} reads)"
                                 )
                             except Exception as e:
                                 raise RuntimeError(f"Chunk {idx} failed: {e}")
