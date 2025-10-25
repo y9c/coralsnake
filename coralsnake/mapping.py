@@ -11,6 +11,7 @@ import os
 import random
 import tempfile
 import shutil
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import mappy as mp
 import pysam
@@ -751,33 +752,48 @@ def map_file(
             chunks_dir = tempfile.mkdtemp(prefix="coralsnake_chunks_")
             try:
                 with Progress() as progress:
-                    # Split FASTQ files using C implementation
+                    # Split FASTQ files using C implementation (R1 and R2 together)
                     split_task = progress.add_task(f"📦 Splitting into {num_chunks} chunks...", total=None)
-                    r1_chunks = seqops.fast_split_fastq(r1_file, chunks_dir, num_chunks, False)
-                    if r2_file:
-                        r2_chunks = seqops.fast_split_fastq(r2_file, chunks_dir, num_chunks, True)
-                        chunk_files = list(zip(r1_chunks, r2_chunks))
-                    else:
-                        chunk_files = [(r1_chunk, None) for r1_chunk in r1_chunks]
+                    chunk_files = seqops.fast_split_fastq_paired(r1_file, r2_file, chunks_dir, num_chunks)
                     progress.update(split_task, description=f"✓ Created {len(chunk_files)} chunks")
                     
-                    # Process chunks sequentially with progress tracking
+                    # Process chunks in parallel with progress tracking
                     chunk_bams = []
                     process_task = progress.add_task("🔄 Processing chunks...", total=len(chunk_files))
                     
-                    for idx, (chunk_r1, chunk_r2) in enumerate(chunk_files):
-                        chunk_bam = os.path.join(chunks_dir, f"chunk_{idx}.bam")
-                        progress.update(process_task, description=f"🔄 Processing chunk {idx + 1}/{len(chunk_files)}...")
+                    # Use ProcessPoolExecutor for parallel processing
+                    with ProcessPoolExecutor(max_workers=num_chunks) as executor:
+                        # Submit all chunk processing jobs
+                        future_to_chunk = {}
+                        for idx, (chunk_r1, chunk_r2) in enumerate(chunk_files):
+                            chunk_bam = os.path.join(chunks_dir, f"chunk_{idx}.bam")
+                            future = executor.submit(
+                                process_chunk,
+                                chunk_r1, chunk_r2, chunk_bam,
+                                idx0_file, idx_mk_file, ref_file,
+                                fwd_lib, max_mismatches, threads,
+                                min_alignment_length, min_mapping_ratio, idx,
+                            )
+                            future_to_chunk[future] = (idx, chunk_bam)
                         
-                        process_chunk(
-                            chunk_r1, chunk_r2, chunk_bam,
-                            idx0_file, idx_mk_file, ref_file,
-                            fwd_lib, max_mismatches, threads,
-                            min_alignment_length, min_mapping_ratio, idx,
-                        )
-                        chunk_bams.append(chunk_bam)
-                        progress.update(process_task, advance=1)
+                        # Collect results as they complete
+                        completed = 0
+                        for future in as_completed(future_to_chunk):
+                            idx, chunk_bam = future_to_chunk[future]
+                            try:
+                                future.result()  # Raises exception if chunk processing failed
+                                chunk_bams.append(chunk_bam)
+                                completed += 1
+                                progress.update(
+                                    process_task,
+                                    advance=1,
+                                    description=f"🔄 Processing chunks... ({completed}/{len(chunk_files)} done)"
+                                )
+                            except Exception as e:
+                                raise RuntimeError(f"Chunk {idx} failed: {e}")
                     
+                    # Sort chunk BAMs by index to maintain order
+                    chunk_bams.sort()
                     progress.update(process_task, description=f"✓ All {len(chunk_files)} chunks processed")
                     
                     # Merge BAM files

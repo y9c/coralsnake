@@ -370,153 +370,259 @@ static PyObject* fast_calculate_directional_score(PyObject* self, PyObject* args
     return Py_BuildValue("(iii)", score, wrong_conversions, total_bad_mismatches);
 }
 
-// Fast FASTQ file splitting (supports .fq and .fq.gz)
-static PyObject* fast_split_fastq(PyObject* self, PyObject* args) {
-    const char* input_path;
+// Fast FASTQ file splitting for paired-end (supports .fq and .fq.gz)
+// Splits R1 and R2 together at exactly the same read positions
+static PyObject* fast_split_fastq_paired(PyObject* self, PyObject* args) {
+    const char* r1_path;
+    const char* r2_path;  // Can be NULL for single-end
     const char* output_dir;
     int num_chunks;
-    int is_r2;  // 0 for R1, 1 for R2
     
-    if (!PyArg_ParseTuple(args, "ssip", &input_path, &output_dir, &num_chunks, &is_r2)) {
+    if (!PyArg_ParseTuple(args, "szsi", &r1_path, &r2_path, &output_dir, &num_chunks)) {
         return NULL;
     }
     
-    // Check if gzipped by file extension
-    int is_gzipped = 0;
-    size_t path_len = strlen(input_path);
-    if (path_len > 3 && strcmp(input_path + path_len - 3, ".gz") == 0) {
-        is_gzipped = 1;
+    // Check if R1 is gzipped
+    int r1_is_gzipped = 0;
+    size_t r1_path_len = strlen(r1_path);
+    if (r1_path_len > 3 && strcmp(r1_path + r1_path_len - 3, ".gz") == 0) {
+        r1_is_gzipped = 1;
     }
     
-    // Get file size to estimate number of reads
-    FILE* size_file = fopen(input_path, "rb");
+    // Check if R2 is gzipped (if provided)
+    int r2_is_gzipped = 0;
+    if (r2_path) {
+        size_t r2_path_len = strlen(r2_path);
+        if (r2_path_len > 3 && strcmp(r2_path + r2_path_len - 3, ".gz") == 0) {
+            r2_is_gzipped = 1;
+        }
+    }
+    
+    // Get R1 file size to estimate number of reads
+    FILE* size_file = fopen(r1_path, "rb");
     if (!size_file) {
-        PyErr_SetString(PyExc_IOError, "Cannot open input file");
+        PyErr_SetString(PyExc_IOError, "Cannot open R1 file");
         return NULL;
     }
     fseek(size_file, 0, SEEK_END);
     long file_size = ftell(size_file);
     fclose(size_file);
     
-    // Estimate reads per chunk
+    // Estimate reads per chunk based on R1 file size
     // Assume average read length ~150bp, with quality and headers ~400 bytes per read
     // For gzipped files, assume 3-4x compression
-    long estimated_reads = is_gzipped ? (file_size * 3 / 400) : (file_size / 400);
+    long estimated_reads = r1_is_gzipped ? (file_size * 3 / 400) : (file_size / 400);
     long reads_per_chunk = (estimated_reads + num_chunks - 1) / num_chunks;
     
-    // Buffer for reading lines
-    char* line_buffer = (char*)malloc(65536);  // 64KB buffer
-    if (!line_buffer) {
+    // Buffers for reading lines
+    char* r1_line_buffer = (char*)malloc(65536);  // 64KB buffer for R1
+    char* r2_line_buffer = r2_path ? (char*)malloc(65536) : NULL;  // 64KB buffer for R2 if needed
+    if (!r1_line_buffer || (r2_path && !r2_line_buffer)) {
+        free(r1_line_buffer);
+        free(r2_line_buffer);
         return PyErr_NoMemory();
     }
     
-    // Create output file handles
-    FILE** output_files = (FILE**)malloc(num_chunks * sizeof(FILE*));
-    if (!output_files) {
-        free(line_buffer);
+    // Create output file handles for R1
+    FILE** r1_output_files = (FILE**)malloc(num_chunks * sizeof(FILE*));
+    FILE** r2_output_files = r2_path ? (FILE**)malloc(num_chunks * sizeof(FILE*)) : NULL;
+    
+    if (!r1_output_files || (r2_path && !r2_output_files)) {
+        free(r1_line_buffer);
+        free(r2_line_buffer);
+        free(r1_output_files);
+        free(r2_output_files);
         return PyErr_NoMemory();
     }
     
-    // Open all output files
-    const char* suffix = is_r2 ? "_R2.fq" : "_R1.fq";
+    // Open all R1 output files
     for (int i = 0; i < num_chunks; i++) {
         char output_path[1024];
-        snprintf(output_path, sizeof(output_path), "%s/chunk_%d%s", output_dir, i, suffix);
-        output_files[i] = fopen(output_path, "w");
-        if (!output_files[i]) {
-            // Clean up opened files
+        snprintf(output_path, sizeof(output_path), "%s/chunk_%d_R1.fq", output_dir, i);
+        r1_output_files[i] = fopen(output_path, "w");
+        if (!r1_output_files[i]) {
             for (int j = 0; j < i; j++) {
-                fclose(output_files[j]);
+                fclose(r1_output_files[j]);
             }
-            free(output_files);
-            free(line_buffer);
-            PyErr_SetString(PyExc_IOError, "Cannot open output file");
+            free(r1_output_files);
+            free(r2_output_files);
+            free(r1_line_buffer);
+            free(r2_line_buffer);
+            PyErr_SetString(PyExc_IOError, "Cannot open R1 output file");
             return NULL;
         }
     }
     
-    // Read and distribute reads
+    // Open all R2 output files if needed
+    if (r2_path) {
+        for (int i = 0; i < num_chunks; i++) {
+            char output_path[1024];
+            snprintf(output_path, sizeof(output_path), "%s/chunk_%d_R2.fq", output_dir, i);
+            r2_output_files[i] = fopen(output_path, "w");
+            if (!r2_output_files[i]) {
+                for (int j = 0; j < i; j++) {
+                    fclose(r2_output_files[j]);
+                }
+                for (int j = 0; j < num_chunks; j++) {
+                    fclose(r1_output_files[j]);
+                }
+                free(r1_output_files);
+                free(r2_output_files);
+                free(r1_line_buffer);
+                free(r2_line_buffer);
+                PyErr_SetString(PyExc_IOError, "Cannot open R2 output file");
+                return NULL;
+            }
+        }
+    }
+    
+    // Open R1 file
+    void* r1_file;
+    if (r1_is_gzipped) {
+        r1_file = gzopen(r1_path, "rb");
+        if (!r1_file) {
+            // Cleanup and error
+            for (int i = 0; i < num_chunks; i++) {
+                fclose(r1_output_files[i]);
+                if (r2_path) fclose(r2_output_files[i]);
+            }
+            free(r1_output_files);
+            free(r2_output_files);
+            free(r1_line_buffer);
+            free(r2_line_buffer);
+            PyErr_SetString(PyExc_IOError, "Cannot open R1 file");
+            return NULL;
+        }
+    } else {
+        r1_file = fopen(r1_path, "r");
+        if (!r1_file) {
+            // Cleanup and error
+            for (int i = 0; i < num_chunks; i++) {
+                fclose(r1_output_files[i]);
+                if (r2_path) fclose(r2_output_files[i]);
+            }
+            free(r1_output_files);
+            free(r2_output_files);
+            free(r1_line_buffer);
+            free(r2_line_buffer);
+            PyErr_SetString(PyExc_IOError, "Cannot open R1 file");
+            return NULL;
+        }
+    }
+    
+    // Open R2 file if provided
+    void* r2_file = NULL;
+    if (r2_path) {
+        if (r2_is_gzipped) {
+            r2_file = gzopen(r2_path, "rb");
+        } else {
+            r2_file = fopen(r2_path, "r");
+        }
+        if (!r2_file) {
+            // Cleanup and error
+            if (r1_is_gzipped) gzclose(r1_file);
+            else fclose(r1_file);
+            for (int i = 0; i < num_chunks; i++) {
+                fclose(r1_output_files[i]);
+                fclose(r2_output_files[i]);
+            }
+            free(r1_output_files);
+            free(r2_output_files);
+            free(r1_line_buffer);
+            free(r2_line_buffer);
+            PyErr_SetString(PyExc_IOError, "Cannot open R2 file");
+            return NULL;
+        }
+    }
+    
+    // Read and distribute reads (R1 and R2 together)
     int current_chunk = 0;
     long reads_in_current_chunk = 0;
-    int line_in_read = 0;  // 0-3 for the 4 lines of a FASTQ read
+    int line_in_read = 0;
     
-    if (is_gzipped) {
-        // Use zlib for gzipped files
-        gzFile gz_file = gzopen(input_path, "rb");
-        if (!gz_file) {
-            for (int i = 0; i < num_chunks; i++) {
-                fclose(output_files[i]);
-            }
-            free(output_files);
-            free(line_buffer);
-            PyErr_SetString(PyExc_IOError, "Cannot open gzipped input file");
-            return NULL;
+    while (1) {
+        // Read one line from R1
+        char* r1_line;
+        if (r1_is_gzipped) {
+            r1_line = gzgets((gzFile)r1_file, r1_line_buffer, 65536);
+        } else {
+            r1_line = fgets(r1_line_buffer, 65536, (FILE*)r1_file);
         }
         
-        while (gzgets(gz_file, line_buffer, 65536)) {
-            // Write line to current chunk
-            fputs(line_buffer, output_files[current_chunk]);
+        if (!r1_line) break;  // End of R1 file
+        
+        // Write R1 line to current chunk
+        fputs(r1_line_buffer, r1_output_files[current_chunk]);
+        
+        // Read and write corresponding R2 line if paired-end
+        if (r2_path) {
+            char* r2_line;
+            if (r2_is_gzipped) {
+                r2_line = gzgets((gzFile)r2_file, r2_line_buffer, 65536);
+            } else {
+                r2_line = fgets(r2_line_buffer, 65536, (FILE*)r2_file);
+            }
             
-            line_in_read++;
-            if (line_in_read == 4) {
-                // Completed one read (4 lines)
-                line_in_read = 0;
-                reads_in_current_chunk++;
-                
-                // Move to next chunk if current is full (except for last chunk)
-                if (reads_in_current_chunk >= reads_per_chunk && current_chunk < num_chunks - 1) {
-                    current_chunk++;
-                    reads_in_current_chunk = 0;
-                }
+            if (r2_line) {
+                fputs(r2_line_buffer, r2_output_files[current_chunk]);
             }
-        }
-        gzclose(gz_file);
-    } else {
-        // Use regular fopen for uncompressed files
-        FILE* input_file = fopen(input_path, "r");
-        if (!input_file) {
-            for (int i = 0; i < num_chunks; i++) {
-                fclose(output_files[i]);
-            }
-            free(output_files);
-            free(line_buffer);
-            PyErr_SetString(PyExc_IOError, "Cannot open input file");
-            return NULL;
         }
         
-        while (fgets(line_buffer, 65536, input_file)) {
-            // Write line to current chunk
-            fputs(line_buffer, output_files[current_chunk]);
+        line_in_read++;
+        if (line_in_read == 4) {
+            // Completed one read (4 lines)
+            line_in_read = 0;
+            reads_in_current_chunk++;
             
-            line_in_read++;
-            if (line_in_read == 4) {
-                // Completed one read (4 lines)
-                line_in_read = 0;
-                reads_in_current_chunk++;
-                
-                // Move to next chunk if current is full (except for last chunk)
-                if (reads_in_current_chunk >= reads_per_chunk && current_chunk < num_chunks - 1) {
-                    current_chunk++;
-                    reads_in_current_chunk = 0;
-                }
+            // Move to next chunk if current is full (except for last chunk)
+            if (reads_in_current_chunk >= reads_per_chunk && current_chunk < num_chunks - 1) {
+                current_chunk++;
+                reads_in_current_chunk = 0;
             }
         }
-        fclose(input_file);
     }
     
-    // Close all files
+    // Close input files
+    if (r1_is_gzipped) gzclose((gzFile)r1_file);
+    else fclose((FILE*)r1_file);
+    
+    if (r2_path) {
+        if (r2_is_gzipped) gzclose((gzFile)r2_file);
+        else fclose((FILE*)r2_file);
+    }
+    
+    // Close all output files
     for (int i = 0; i < num_chunks; i++) {
-        fclose(output_files[i]);
+        fclose(r1_output_files[i]);
+        if (r2_path) fclose(r2_output_files[i]);
     }
-    free(output_files);
-    free(line_buffer);
     
-    // Return list of output file paths
+    // Cleanup
+    free(r1_output_files);
+    free(r2_output_files);
+    free(r1_line_buffer);
+    free(r2_line_buffer);
+    
+    // Return list of tuples: [(r1_chunk0, r2_chunk0), ...] or [(r1_chunk0, None), ...] for single-end
     PyObject* result = PyList_New(num_chunks);
     for (int i = 0; i < num_chunks; i++) {
-        char output_path[1024];
-        snprintf(output_path, sizeof(output_path), "%s/chunk_%d%s", output_dir, i, suffix);
-        PyList_SetItem(result, i, PyUnicode_FromString(output_path));
+        char r1_path_out[1024];
+        snprintf(r1_path_out, sizeof(r1_path_out), "%s/chunk_%d_R1.fq", output_dir, i);
+        
+        if (r2_path) {
+            char r2_path_out[1024];
+            snprintf(r2_path_out, sizeof(r2_path_out), "%s/chunk_%d_R2.fq", output_dir, i);
+            PyObject* tuple = PyTuple_Pack(2, 
+                PyUnicode_FromString(r1_path_out),
+                PyUnicode_FromString(r2_path_out));
+            PyList_SetItem(result, i, tuple);
+        } else {
+            PyObject* tuple = PyTuple_Pack(2,
+                PyUnicode_FromString(r1_path_out),
+                Py_None);
+            Py_INCREF(Py_None);
+            PyList_SetItem(result, i, tuple);
+        }
     }
     
     return result;
@@ -529,7 +635,7 @@ static PyMethodDef SeqOpsMethods[] = {
     {"fast_cal_md_and_tag", fast_cal_md_and_tag, METH_VARARGS, "Fast MD tag and conversion stats calculation"},
     {"fast_calculate_directional_score", fast_calculate_directional_score, METH_VARARGS, "Fast directional score calculation"},
     {"fast_convert_fasta_file", fast_convert_fasta_file, METH_VARARGS, "Fast FASTA file conversion (line-by-line)"},
-    {"fast_split_fastq", fast_split_fastq, METH_VARARGS, "Fast FASTQ file splitting (supports .fq and .fq.gz)"},
+    {"fast_split_fastq_paired", fast_split_fastq_paired, METH_VARARGS, "Fast paired-end FASTQ file splitting (supports .fq and .fq.gz)"},
     {NULL, NULL, 0, NULL}
 };
 
