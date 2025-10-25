@@ -15,6 +15,7 @@ import pysam
 from rich.progress import Progress
 
 from .utils import format_duration, mk_conversion, km_conversion
+from . import seqops
 
 
 def find_properly_paired_hits(hits, fwd=True):
@@ -87,66 +88,12 @@ def cal_md_and_tag(cigar, seq, ref, fwd):
     
     CIGAR operations:
         M (0): Alignment match/mismatch
-        I (1): Insertion to the reference
-        D (2): Deletion from the reference
-        S (4): Soft clipping
+    I (1): Insertion to the reference
+    D (2): Deletion from the reference
+    S (4): Soft clipping
     """
-    yf = 0
-    zf = 0
-    yc = 0
-    zc = 0
-    ns = 0
-    nc = 0
-    md_tag = []
-    ref_index = 0
-    query_index = 0
-    match_count = 0
-
-    if fwd:
-        b1, b2, b3, b4 = "A", "G", "C", "T"
-    else:
-        b1, b2, b3, b4 = "T", "C", "G", "A"
-
-    for length, operation in cigar:
-        if operation == 0:  # Match or Mismatch
-            for i in range(length):
-                if ref[ref_index] == seq[query_index]:
-                    match_count += 1
-                    if seq[query_index] == b1:
-                        zf += 1
-                    elif seq[query_index] == b3:
-                        zc += 1
-                else:
-                    # For mismatches, always add match_count (even if 0)
-                    md_tag.append(str(match_count))
-                    match_count = 0
-                    md_tag.append(ref[ref_index])
-                    if seq[query_index] == b2:
-                        yf += 1
-                    elif seq[query_index] == b4:
-                        yc += 1
-                    else:
-                        ns += 1
-                ref_index += 1
-                query_index += 1
-        elif operation == 1:  # Insertion to the reference (ignored in MD tag)
-            query_index += length
-            nc += length
-        elif operation == 4:  # Soft clipping
-            query_index += length
-            nc += length
-        elif operation == 2:  # Deletion from the reference
-            # Always add match_count before deletion (even if 0)
-            md_tag.append(str(match_count))
-            match_count = 0
-            md_tag.append("^" + ref[ref_index : ref_index + length])
-            ref_index += length
-            nc += length
-
-    # Always append match_count at the end (even if 0)
-    md_tag.append(str(match_count))
-
-    return "".join(md_tag), yf, zf, yc, zc, ns, nc
+    # Use optimized C implementation
+    return seqops.fast_cal_md_and_tag(cigar, seq, ref, fwd)
 
 
 def calculate_directional_score(cigar, seq, ref, is_orientation1):
@@ -179,62 +126,10 @@ def calculate_directional_score(cigar, seq, ref, is_orientation1):
     Returns:
         score: alignment score (matches + expected_conversions - wrong_conversions - other_mismatches - indels)
         wrong_conversions: number of wrong-direction conversions
+        total_bad_mismatches: wrong_conversions + other_mismatches
     """
-    ref_index = 0
-    query_index = 0
-    matches = 0
-    expected_conversions = 0  # Chemistry worked (good)
-    wrong_conversions = 0      # Wrong chemistry (bad)
-    other_mismatches = 0       # Sequencing errors (bad)
-    indels = 0
-    
-    for length, operation in cigar:
-        if operation == 0:  # Match or Mismatch
-            for i in range(length):
-                ref_base = ref[ref_index]
-                read_base = seq[query_index]
-                
-                if ref_base == read_base:
-                    # Perfect match (includes unconverted bases like C->C, A->A)
-                    matches += 1
-                else:
-                    # Mismatch - classify it
-                    if is_orientation1:
-                        # Orientation 1: MK conversion applied (C->T, A->G expected)
-                        if (ref_base == 'C' and read_base == 'T') or (ref_base == 'A' and read_base == 'G'):
-                            expected_conversions += 1  # Good: chemistry worked
-                        elif (ref_base == 'T' and read_base == 'C') or (ref_base == 'G' and read_base == 'A'):
-                            wrong_conversions += 1  # Bad: wrong chemistry
-                        else:
-                            other_mismatches += 1  # Bad: sequencing error
-                    else:
-                        # Orientation 2: KM conversion applied (G->A, T->C expected)
-                        if (ref_base == 'G' and read_base == 'A') or (ref_base == 'T' and read_base == 'C'):
-                            expected_conversions += 1  # Good: chemistry worked
-                        elif (ref_base == 'A' and read_base == 'G') or (ref_base == 'C' and read_base == 'T'):
-                            wrong_conversions += 1  # Bad: wrong chemistry
-                        else:
-                            other_mismatches += 1  # Bad: sequencing error
-                
-                ref_index += 1
-                query_index += 1
-        elif operation == 1:  # Insertion
-            query_index += length
-            indels += length
-        elif operation == 2:  # Deletion
-            ref_index += length
-            indels += length
-        elif operation == 4:  # Soft clipping
-            query_index += length
-    
-    # Score: good things - bad things
-    # Good: matches (including unconverted) + expected conversions
-    # Bad: wrong conversions + other mismatches + indels
-    score = matches + expected_conversions - wrong_conversions - other_mismatches - indels
-    
-    # Return both wrong conversions and total bad mismatches (for filtering)
-    total_bad_mismatches = wrong_conversions + other_mismatches
-    return score, wrong_conversions, total_bad_mismatches
+    # Use optimized C implementation
+    return seqops.fast_calculate_directional_score(cigar, seq, ref, is_orientation1)
 
 
 def filter_hits(hits, seq1, seq2):
@@ -314,7 +209,7 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
             # Paired-end mapping
             for hit1, hit2 in find_properly_paired_hits(
                 filter_hits(
-                    idx.map(seq1_conv, seq2=seq2_conv, cs=False, MD=False), seq1, seq2
+                idx.map(seq1_conv, seq2=seq2_conv, cs=False, MD=False), seq1, seq2
                 ),
                 fwd=True,  # Always use forward for MK reference
             ):
