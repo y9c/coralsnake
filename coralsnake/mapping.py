@@ -595,8 +595,9 @@ def map_file(
             task = progress.add_task("Converting reference...", total=None)
             # Convert reference to MK (A->G, C->T) using fast C implementation
             convert_file_realtime(ref_file, mk_file, "AC", "GT")
-            progress.update(task, description="Reference converted")
+            progress.update(task, description="✓ Reference converted")
             # Load original reference and save index
+            progress.update(task, description="Indexing original reference...")
             idx0 = mp.Aligner(
                 fn_idx_in=ref_file,
                 preset="sr",
@@ -608,8 +609,9 @@ def map_file(
                 best_n=50,
                 fn_idx_out=idx0_file,
             )
-            progress.update(task, description="Original reference indexed")
+            progress.update(task, description="✓ Original reference indexed")
             # Load MK converted reference and save index
+            progress.update(task, description="Indexing converted reference...")
             idx_mk = mp.Aligner(
                 fn_idx_in=mk_file,
                 preset="sr",
@@ -621,7 +623,7 @@ def map_file(
                 best_n=50,
                 fn_idx_out=idx_mk_file,
             )
-            progress.update(task, description="MK reference indexed")
+            progress.update(task, description="✓ Converted reference indexed")
 
             # Remove MK FASTA file after indexing (index file is sufficient)
             if os.path.exists(mk_file):
