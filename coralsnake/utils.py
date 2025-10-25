@@ -41,6 +41,38 @@ def km_conversion(seq: str) -> str:
     return seqops.fast_base_conversion(seq, "GT", "AC")
 
 
+def convert_file_realtime(
+    input_file: str,
+    output_file: str,
+    base_from: str,
+    base_to: str,
+):
+    """
+    Convert FASTA file using fast C implementation (line-by-line, memory efficient).
+    
+    This function is optimized for large genome reference files. It reads and writes
+    line-by-line without loading the entire file into memory, making it much faster
+    and more memory-efficient than dnaio-based conversion.
+    
+    Args:
+        input_file: Path to input FASTA file
+        output_file: Path to output converted FASTA file
+        base_from: Bases to convert from (e.g., "AC" for MK conversion)
+        base_to: Bases to convert to (e.g., "GT" for MK conversion)
+    
+    Examples:
+        MK conversion (A->G, C->T): convert_file_realtime(in, out, "AC", "GT")
+        KM conversion (G->A, T->C): convert_file_realtime(in, out, "GT", "AC")
+    
+    Note:
+        - Only works with FASTA format (not FASTQ)
+        - Does not add YS:Z tags
+        - Header lines (starting with '>') are written directly
+        - Sequence lines are converted base-by-base
+    """
+    seqops.fast_convert_fasta_file(input_file, output_file, base_from, base_to)
+
+
 class Span:
     def __init__(self, start: int, end: int):
         # 0-based

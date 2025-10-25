@@ -15,9 +15,8 @@ import shutil
 import mappy as mp
 import pysam
 from rich.progress import Progress
-from .conversion import convert_file
 
-from .utils import format_duration, mk_conversion, km_conversion
+from .utils import format_duration, mk_conversion, km_conversion, convert_file_realtime
 from . import seqops
 
 
@@ -594,8 +593,8 @@ def map_file(
         # Create MK converted reference and index files in temp directory
         with Progress(transient=True) as progress:
             task = progress.add_task("Converting reference...", total=None)
-            # Convert reference to MK (A->G, C->T)
-            convert_file(ref_file, mk_file, "AC", "GT", include_ys_tag=False)
+            # Convert reference to MK (A->G, C->T) using fast C implementation
+            convert_file_realtime(ref_file, mk_file, "AC", "GT")
             progress.update(task, description="Reference converted")
             # Load original reference and save index
             idx0 = mp.Aligner(

@@ -201,6 +201,80 @@ static PyObject* fast_cal_md_and_tag(PyObject* self, PyObject* args) {
     return Py_BuildValue("(Oiiiiii)", md_tag, yf, zf, yc, zc, ns, nc);
 }
 
+// Fast FASTA file conversion (line-by-line, memory efficient)
+static PyObject* fast_convert_fasta_file(PyObject* self, PyObject* args) {
+    const char* input_path;
+    const char* output_path;
+    const char* from_bases;
+    const char* to_bases;
+    
+    if (!PyArg_ParseTuple(args, "ssss", &input_path, &output_path, &from_bases, &to_bases)) {
+        return NULL;
+    }
+    
+    // Open input and output files
+    FILE* input_file = fopen(input_path, "r");
+    if (!input_file) {
+        PyErr_SetString(PyExc_IOError, "Cannot open input file");
+        return NULL;
+    }
+    
+    FILE* output_file = fopen(output_path, "w");
+    if (!output_file) {
+        fclose(input_file);
+        PyErr_SetString(PyExc_IOError, "Cannot open output file");
+        return NULL;
+    }
+    
+    // Create lookup table for conversion
+    char lookup[256];
+    memset(lookup, 0, 256);
+    
+    // Build lookup table
+    for (int i = 0; from_bases[i] && to_bases[i]; i++) {
+        lookup[(unsigned char)from_bases[i]] = to_bases[i];
+        // Also handle lowercase
+        if (from_bases[i] >= 'A' && from_bases[i] <= 'Z') {
+            lookup[(unsigned char)from_bases[i] + 32] = to_bases[i] + 32;
+        } else if (from_bases[i] >= 'a' && from_bases[i] <= 'z') {
+            lookup[(unsigned char)from_bases[i] - 32] = to_bases[i] - 32;
+        }
+    }
+    
+    // Buffer for reading lines (large enough for typical FASTA lines)
+    char* line_buffer = (char*)malloc(1048576);  // 1MB buffer
+    if (!line_buffer) {
+        fclose(input_file);
+        fclose(output_file);
+        return PyErr_NoMemory();
+    }
+    
+    // Process file line by line
+    while (fgets(line_buffer, 1048576, input_file)) {
+        if (line_buffer[0] == '>') {
+            // Header line - write directly
+            fputs(line_buffer, output_file);
+        } else {
+            // Sequence line - convert bases
+            size_t len = strlen(line_buffer);
+            for (size_t i = 0; i < len; i++) {
+                unsigned char c = (unsigned char)line_buffer[i];
+                if (lookup[c]) {
+                    line_buffer[i] = lookup[c];
+                }
+            }
+            fputs(line_buffer, output_file);
+        }
+    }
+    
+    // Clean up
+    free(line_buffer);
+    fclose(input_file);
+    fclose(output_file);
+    
+    Py_RETURN_NONE;
+}
+
 // Fast directional score calculation
 static PyObject* fast_calculate_directional_score(PyObject* self, PyObject* args) {
     PyObject* cigar_list;
@@ -301,6 +375,7 @@ static PyMethodDef SeqOpsMethods[] = {
     {"fast_reverse_complement", fast_reverse_complement, METH_VARARGS, "Fast reverse complement"},
     {"fast_cal_md_and_tag", fast_cal_md_and_tag, METH_VARARGS, "Fast MD tag and conversion stats calculation"},
     {"fast_calculate_directional_score", fast_calculate_directional_score, METH_VARARGS, "Fast directional score calculation"},
+    {"fast_convert_fasta_file", fast_convert_fasta_file, METH_VARARGS, "Fast FASTA file conversion (line-by-line)"},
     {NULL, NULL, 0, NULL}
 };
 

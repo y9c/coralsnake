@@ -1,6 +1,6 @@
 [project]
 name = "coralsnake"
-version = "0.0.104"
+version = "0.0.105"
 description = "Transcriptome mapping utils"
 authors = [{ name = "Chang Ye", email = "yech1990@gmail.com" }]
 requires-python = ">=3.10"
@@ -8,7 +8,6 @@ readme = "README.md"
 license = {text = "GPL-3.0"}
 keywords = ["transcriptome", "mapping"]
 dependencies = [
-  "dnaio>=1.2.1",
   "rich-click>=1.8.3",
   "rich>=13.0.0",
   "pysam>=0.22",
