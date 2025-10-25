@@ -20,6 +20,120 @@ from .utils import format_duration, mk_conversion, km_conversion, convert_file_r
 from . import seqops
 
 
+def split_fastq_files(r1_file, r2_file, num_chunks, output_dir):
+    """
+    Split FASTQ file(s) into chunks for parallel processing using fast C implementation.
+    
+    Supports both .fq and .fq.gz files. Automatically estimates reads per chunk based on file size.
+    
+    Args:
+        r1_file: Path to read 1 FASTQ file (.fq or .fq.gz)
+        r2_file: Path to read 2 FASTQ file (None for single-end, .fq or .fq.gz)
+        num_chunks: Number of chunks to split into
+        output_dir: Directory to write chunk files
+        
+    Returns:
+        List of tuples: [(r1_chunk1, r2_chunk1), (r1_chunk2, r2_chunk2), ...]
+        For single-end: [(r1_chunk1, None), (r1_chunk2, None), ...]
+    """
+    # Split R1 file using fast C implementation
+    r1_chunks = seqops.fast_split_fastq(r1_file, output_dir, num_chunks, False)
+    
+    if r2_file:
+        # Split R2 file for paired-end
+        r2_chunks = seqops.fast_split_fastq(r2_file, output_dir, num_chunks, True)
+        # Pair up R1 and R2 chunks
+        chunk_files = list(zip(r1_chunks, r2_chunks))
+    else:
+        # Single-end: pair with None
+        chunk_files = [(r1_chunk, None) for r1_chunk in r1_chunks]
+    
+    return chunk_files
+
+
+def process_chunk(
+    chunk_r1,
+    chunk_r2,
+    chunk_output,
+    idx0_file,
+    idx_mk_file,
+    ref_file,
+    fwd_lib,
+    max_mismatches,
+    threads,
+    min_alignment_length,
+    min_mapping_ratio,
+    chunk_id,
+):
+    """
+    Process a single chunk of FASTQ files.
+    
+    This function is designed to be called for each chunk.
+    """
+    # Load indices
+    idx0 = mp.Aligner(fn_idx_in=idx0_file, preset="sr", n_threads=threads)
+    idx_mk = mp.Aligner(fn_idx_in=idx_mk_file, preset="sr", n_threads=threads)
+    
+    # Create BAM header
+    header = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": []}
+    for name, seq, *_ in mp.fastx_read(ref_file):
+        header["SQ"].append({"SN": name, "LN": len(seq)})
+    
+    # Process reads and write to BAM
+    with pysam.AlignmentFile(chunk_output, "wb", header=header) as bam_out:
+        if chunk_r2 is None:
+            # Single-end
+            for name1, seq1, qua1 in mp.fastx_read(chunk_r1):
+                mapped = run_mapping(
+                    name1,
+                    seq1,
+                    None,
+                    qua1,
+                    None,
+                    idx0,
+                    idx_mk,
+                    fwd_lib,
+                    max_mismatches,
+                    min_alignment_length,
+                    min_mapping_ratio,
+                )
+                
+                for i, item in enumerate(mapped):
+                    map1 = item[1]
+                    a1 = create_bam_record(bam_out.header, map1, is_secondary=(i > 0))
+                    bam_out.write(a1)
+        else:
+            # Paired-end
+            for (name1, seq1, qua1), (name2, seq2, qua2) in zip(
+                mp.fastx_read(chunk_r1), mp.fastx_read(chunk_r2)
+            ):
+                if name1 != name2:
+                    raise ValueError("r1 and r2 not in the same order")
+                
+                mapped = run_mapping(
+                    name1,
+                    seq1,
+                    seq2,
+                    qua1,
+                    qua2,
+                    idx0,
+                    idx_mk,
+                    fwd_lib,
+                    max_mismatches,
+                    min_alignment_length,
+                    min_mapping_ratio,
+                )
+                
+                for i, item in enumerate(mapped):
+                    map1, map2 = item[1], item[2]
+                    a1 = create_bam_record(bam_out.header, map1, is_secondary=(i > 0))
+                    a2 = create_bam_record(bam_out.header, map2, is_secondary=(i > 0))
+                    bam_out.write(a1)
+                    bam_out.write(a2)
+    
+    return chunk_output
+
+
 def find_properly_paired_hits(hits, fwd=True):
     """
     # find properly paired hits

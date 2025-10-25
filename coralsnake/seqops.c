@@ -1,5 +1,6 @@
 #include <Python.h>
 #include <string.h>
+#include <zlib.h>
 
 // Fast base conversion function
 static PyObject* fast_base_conversion(PyObject* self, PyObject* args) {
@@ -369,6 +370,158 @@ static PyObject* fast_calculate_directional_score(PyObject* self, PyObject* args
     return Py_BuildValue("(iii)", score, wrong_conversions, total_bad_mismatches);
 }
 
+// Fast FASTQ file splitting (supports .fq and .fq.gz)
+static PyObject* fast_split_fastq(PyObject* self, PyObject* args) {
+    const char* input_path;
+    const char* output_dir;
+    int num_chunks;
+    int is_r2;  // 0 for R1, 1 for R2
+    
+    if (!PyArg_ParseTuple(args, "ssip", &input_path, &output_dir, &num_chunks, &is_r2)) {
+        return NULL;
+    }
+    
+    // Check if gzipped by file extension
+    int is_gzipped = 0;
+    size_t path_len = strlen(input_path);
+    if (path_len > 3 && strcmp(input_path + path_len - 3, ".gz") == 0) {
+        is_gzipped = 1;
+    }
+    
+    // Get file size to estimate number of reads
+    FILE* size_file = fopen(input_path, "rb");
+    if (!size_file) {
+        PyErr_SetString(PyExc_IOError, "Cannot open input file");
+        return NULL;
+    }
+    fseek(size_file, 0, SEEK_END);
+    long file_size = ftell(size_file);
+    fclose(size_file);
+    
+    // Estimate reads per chunk
+    // Assume average read length ~150bp, with quality and headers ~400 bytes per read
+    // For gzipped files, assume 3-4x compression
+    long estimated_reads = is_gzipped ? (file_size * 3 / 400) : (file_size / 400);
+    long reads_per_chunk = (estimated_reads + num_chunks - 1) / num_chunks;
+    
+    // Buffer for reading lines
+    char* line_buffer = (char*)malloc(65536);  // 64KB buffer
+    if (!line_buffer) {
+        return PyErr_NoMemory();
+    }
+    
+    // Create output file handles
+    FILE** output_files = (FILE**)malloc(num_chunks * sizeof(FILE*));
+    if (!output_files) {
+        free(line_buffer);
+        return PyErr_NoMemory();
+    }
+    
+    // Open all output files
+    const char* suffix = is_r2 ? "_R2.fq" : "_R1.fq";
+    for (int i = 0; i < num_chunks; i++) {
+        char output_path[1024];
+        snprintf(output_path, sizeof(output_path), "%s/chunk_%d%s", output_dir, i, suffix);
+        output_files[i] = fopen(output_path, "w");
+        if (!output_files[i]) {
+            // Clean up opened files
+            for (int j = 0; j < i; j++) {
+                fclose(output_files[j]);
+            }
+            free(output_files);
+            free(line_buffer);
+            PyErr_SetString(PyExc_IOError, "Cannot open output file");
+            return NULL;
+        }
+    }
+    
+    // Read and distribute reads
+    int current_chunk = 0;
+    long reads_in_current_chunk = 0;
+    int line_in_read = 0;  // 0-3 for the 4 lines of a FASTQ read
+    
+    if (is_gzipped) {
+        // Use zlib for gzipped files
+        gzFile gz_file = gzopen(input_path, "rb");
+        if (!gz_file) {
+            for (int i = 0; i < num_chunks; i++) {
+                fclose(output_files[i]);
+            }
+            free(output_files);
+            free(line_buffer);
+            PyErr_SetString(PyExc_IOError, "Cannot open gzipped input file");
+            return NULL;
+        }
+        
+        while (gzgets(gz_file, line_buffer, 65536)) {
+            // Write line to current chunk
+            fputs(line_buffer, output_files[current_chunk]);
+            
+            line_in_read++;
+            if (line_in_read == 4) {
+                // Completed one read (4 lines)
+                line_in_read = 0;
+                reads_in_current_chunk++;
+                
+                // Move to next chunk if current is full (except for last chunk)
+                if (reads_in_current_chunk >= reads_per_chunk && current_chunk < num_chunks - 1) {
+                    current_chunk++;
+                    reads_in_current_chunk = 0;
+                }
+            }
+        }
+        gzclose(gz_file);
+    } else {
+        // Use regular fopen for uncompressed files
+        FILE* input_file = fopen(input_path, "r");
+        if (!input_file) {
+            for (int i = 0; i < num_chunks; i++) {
+                fclose(output_files[i]);
+            }
+            free(output_files);
+            free(line_buffer);
+            PyErr_SetString(PyExc_IOError, "Cannot open input file");
+            return NULL;
+        }
+        
+        while (fgets(line_buffer, 65536, input_file)) {
+            // Write line to current chunk
+            fputs(line_buffer, output_files[current_chunk]);
+            
+            line_in_read++;
+            if (line_in_read == 4) {
+                // Completed one read (4 lines)
+                line_in_read = 0;
+                reads_in_current_chunk++;
+                
+                // Move to next chunk if current is full (except for last chunk)
+                if (reads_in_current_chunk >= reads_per_chunk && current_chunk < num_chunks - 1) {
+                    current_chunk++;
+                    reads_in_current_chunk = 0;
+                }
+            }
+        }
+        fclose(input_file);
+    }
+    
+    // Close all files
+    for (int i = 0; i < num_chunks; i++) {
+        fclose(output_files[i]);
+    }
+    free(output_files);
+    free(line_buffer);
+    
+    // Return list of output file paths
+    PyObject* result = PyList_New(num_chunks);
+    for (int i = 0; i < num_chunks; i++) {
+        char output_path[1024];
+        snprintf(output_path, sizeof(output_path), "%s/chunk_%d%s", output_dir, i, suffix);
+        PyList_SetItem(result, i, PyUnicode_FromString(output_path));
+    }
+    
+    return result;
+}
+
 // Method definitions
 static PyMethodDef SeqOpsMethods[] = {
     {"fast_base_conversion", fast_base_conversion, METH_VARARGS, "Fast base conversion"},
@@ -376,6 +529,7 @@ static PyMethodDef SeqOpsMethods[] = {
     {"fast_cal_md_and_tag", fast_cal_md_and_tag, METH_VARARGS, "Fast MD tag and conversion stats calculation"},
     {"fast_calculate_directional_score", fast_calculate_directional_score, METH_VARARGS, "Fast directional score calculation"},
     {"fast_convert_fasta_file", fast_convert_fasta_file, METH_VARARGS, "Fast FASTA file conversion (line-by-line)"},
+    {"fast_split_fastq", fast_split_fastq, METH_VARARGS, "Fast FASTQ file splitting (supports .fq and .fq.gz)"},
     {NULL, NULL, 0, NULL}
 };
 
