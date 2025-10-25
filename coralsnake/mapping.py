@@ -533,14 +533,14 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
     """
     # Only need MK converted reference for directional mapping
     mk_file = ref_file + ".mk.fa"
+    km_file = ref_file + ".km.fa"  # Temporary file, will be removed
     if not os.path.exists(mk_file):
         from .conversion import convert_file
-        # Only create MK converted reference (no need for KM)
-        convert_file(ref_file, mk_file, mk_file + ".tmp", "AC", "GT", include_ys_tag=False)
-        # Remove temporary KM file
-        import os as _os
-        if _os.path.exists(mk_file + ".tmp"):
-            _os.remove(mk_file + ".tmp")
+        # Create both files (convert_file requires both), then remove KM
+        convert_file(ref_file, mk_file, km_file, "AC", "GT", include_ys_tag=False)
+        # Remove KM file (not needed)
+        if os.path.exists(km_file):
+            os.remove(km_file)
 
     # Load original reference for extracting unconverted sequences
     idx0 = mp.Aligner(
@@ -613,7 +613,7 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
                         bam_out.write(a1)
                     
                     count += 1
-                    if count % 100 == 0:
+                    if count % 10 == 0:
                         progress.update(task, description=f"Mapping reads: {count} ({format_duration(progress.tasks[task].elapsed)})")
         else:
             # Paired-end
@@ -686,5 +686,5 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
                         bam_out.write(a2)
                     
                     count += 1
-                    if count % 100 == 0:
+                    if count % 10 == 0:
                         progress.update(task, description=f"Mapping reads: {count} ({format_duration(progress.tasks[task].elapsed)})")
