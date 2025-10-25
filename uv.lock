@@ -29,7 +29,7 @@ wheels = [
 
 [[package]]
 name = "coralsnake"
-version = "0.0.109"
+version = "0.0.111"
 source = { editable = "." }
 dependencies = [
     { name = "mappy" },

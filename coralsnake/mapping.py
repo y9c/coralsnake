@@ -20,37 +20,6 @@ from .utils import format_duration, mk_conversion, km_conversion, convert_file_r
 from . import seqops
 
 
-def split_fastq_files(r1_file, r2_file, num_chunks, output_dir):
-    """
-    Split FASTQ file(s) into chunks for parallel processing using fast C implementation.
-    
-    Supports both .fq and .fq.gz files. Automatically estimates reads per chunk based on file size.
-    
-    Args:
-        r1_file: Path to read 1 FASTQ file (.fq or .fq.gz)
-        r2_file: Path to read 2 FASTQ file (None for single-end, .fq or .fq.gz)
-        num_chunks: Number of chunks to split into
-        output_dir: Directory to write chunk files
-        
-    Returns:
-        List of tuples: [(r1_chunk1, r2_chunk1), (r1_chunk2, r2_chunk2), ...]
-        For single-end: [(r1_chunk1, None), (r1_chunk2, None), ...]
-    """
-    # Split R1 file using fast C implementation
-    r1_chunks = seqops.fast_split_fastq(r1_file, output_dir, num_chunks, False)
-    
-    if r2_file:
-        # Split R2 file for paired-end
-        r2_chunks = seqops.fast_split_fastq(r2_file, output_dir, num_chunks, True)
-        # Pair up R1 and R2 chunks
-        chunk_files = list(zip(r1_chunks, r2_chunks))
-    else:
-        # Single-end: pair with None
-        chunk_files = [(r1_chunk, None) for r1_chunk in r1_chunks]
-    
-    return chunk_files
-
-
 def process_chunk(
     chunk_r1,
     chunk_r2,
@@ -779,44 +748,44 @@ def map_file(
 
         # Handle chunked processing if num_chunks > 1
         if num_chunks > 1:
-            # Create temporary directory for chunks
             chunks_dir = tempfile.mkdtemp(prefix="coralsnake_chunks_")
             try:
-                # Split FASTQ files into chunks
-                print(f"\n📦 Splitting input files into {num_chunks} chunks...")
-                chunk_files = split_fastq_files(r1_file, r2_file, num_chunks, chunks_dir)
-                print(f"✓ Created {len(chunk_files)} chunks")
-                
-                # Process chunks sequentially
-                chunk_bams = []
-                for idx, (chunk_r1, chunk_r2) in enumerate(chunk_files):
-                    chunk_bam = os.path.join(chunks_dir, f"chunk_{idx}.bam")
-                    print(f"\n🔄 Processing chunk {idx + 1}/{len(chunk_files)}...")
+                with Progress() as progress:
+                    # Split FASTQ files using C implementation
+                    split_task = progress.add_task(f"📦 Splitting into {num_chunks} chunks...", total=None)
+                    r1_chunks = seqops.fast_split_fastq(r1_file, chunks_dir, num_chunks, False)
+                    if r2_file:
+                        r2_chunks = seqops.fast_split_fastq(r2_file, chunks_dir, num_chunks, True)
+                        chunk_files = list(zip(r1_chunks, r2_chunks))
+                    else:
+                        chunk_files = [(r1_chunk, None) for r1_chunk in r1_chunks]
+                    progress.update(split_task, description=f"✓ Created {len(chunk_files)} chunks")
                     
-                    process_chunk(
-                        chunk_r1,
-                        chunk_r2,
-                        chunk_bam,
-                        idx0_file,
-                        idx_mk_file,
-                        ref_file,
-                        fwd_lib,
-                        max_mismatches,
-                        threads,
-                        min_alignment_length,
-                        min_mapping_ratio,
-                        idx,
-                    )
-                    chunk_bams.append(chunk_bam)
-                    print(f"✓ Chunk {idx + 1} completed")
-                
-                # Merge all chunk BAMs into final output
-                print(f"\n🔗 Merging {len(chunk_bams)} BAM files...")
-                pysam.cat("-o", output_file, *chunk_bams)
-                print(f"✓ Merged BAM saved to: {output_file}")
+                    # Process chunks sequentially with progress tracking
+                    chunk_bams = []
+                    process_task = progress.add_task("🔄 Processing chunks...", total=len(chunk_files))
+                    
+                    for idx, (chunk_r1, chunk_r2) in enumerate(chunk_files):
+                        chunk_bam = os.path.join(chunks_dir, f"chunk_{idx}.bam")
+                        progress.update(process_task, description=f"🔄 Processing chunk {idx + 1}/{len(chunk_files)}...")
+                        
+                        process_chunk(
+                            chunk_r1, chunk_r2, chunk_bam,
+                            idx0_file, idx_mk_file, ref_file,
+                            fwd_lib, max_mismatches, threads,
+                            min_alignment_length, min_mapping_ratio, idx,
+                        )
+                        chunk_bams.append(chunk_bam)
+                        progress.update(process_task, advance=1)
+                    
+                    progress.update(process_task, description=f"✓ All {len(chunk_files)} chunks processed")
+                    
+                    # Merge BAM files
+                    merge_task = progress.add_task(f"🔗 Merging {len(chunk_bams)} BAM files...", total=None)
+                    pysam.cat("-o", output_file, *chunk_bams)
+                    progress.update(merge_task, description=f"✓ Merged BAM saved to: {output_file}")
                 
             finally:
-                # Clean up chunks directory
                 if os.path.exists(chunks_dir):
                     shutil.rmtree(chunks_dir)
             
