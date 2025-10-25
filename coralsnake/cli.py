@@ -169,11 +169,18 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     default=10,
     help="Maximum allowed bad mismatches (wrong conversions + sequencing errors) for paired-end reads. Single-end uses half this value. (default: 10)",
 )
-def map(ref_file, r1_file, r2_file, output_file, strand, max_mismatches):
+@click.option(
+    "--threads",
+    "-t",
+    type=int,
+    default=8,
+    help="Number of threads for parallel processing (default: 8)",
+)
+def map(ref_file, r1_file, r2_file, output_file, strand, max_mismatches, threads):
     from .mapping import map_file
 
     fwd_lib = (strand.lower() == "forward")
-    map_file(ref_file, r1_file, r2_file, output_file, fwd_lib, max_mismatches)
+    map_file(ref_file, r1_file, r2_file, output_file, fwd_lib, max_mismatches, threads)
     
     print(f"\n✅ Mapping completed! Output saved to: {output_file}")
 

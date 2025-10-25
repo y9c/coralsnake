@@ -401,7 +401,7 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
     return mapped
 
 
-def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatches=10):
+def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatches=10, threads=8):
     """
     Map FASTQ reads to reference genome using dual-base conversion chemistry.
     
@@ -415,6 +415,7 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
         output_file: Path to output BAM file
         fwd_lib: True for forward library, False for reverse library
         max_mismatches: Maximum allowed bad mismatches for filtering
+        threads: Number of threads for indexing and mapping (default: 8)
     
     Output BAM tags:
         - MD:Z: Mismatch/deletion string (standard SAM tag)
@@ -441,7 +442,7 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
     idx0 = mp.Aligner(
         fn_idx_in=ref_file,
         preset="sr",
-        n_threads=8,
+        n_threads=threads,
         k=10,
         w=10,
         min_cnt=0,
@@ -453,7 +454,7 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
     idx_mk = mp.Aligner(
         fn_idx_in=mk_file,
         preset="sr",
-        n_threads=8,
+        n_threads=threads,
         k=10,
         w=10,
         min_cnt=0,
