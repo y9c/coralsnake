@@ -174,7 +174,7 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     "-t",
     type=int,
     default=8,
-    help="Number of threads for parallel processing (default: 8)",
+    help="Number of threads for minimap2 indexing (default: 8). Note: Currently only used for index loading. Parallel read mapping is planned for future versions.",
 )
 def map(ref_file, r1_file, r2_file, output_file, strand, max_mismatches, threads):
     from .mapping import map_file
