@@ -29,7 +29,7 @@ wheels = [
 
 [[package]]
 name = "coralsnake"
-version = "0.0.101"
+version = "0.0.102"
 source = { editable = "." }
 dependencies = [
     { name = "dnaio" },

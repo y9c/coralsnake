@@ -192,11 +192,31 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     default=0.5,
     help="Minimum mapping length ratio (mapped length / query length) for filtering hits (default: 0.5)",
 )
-def map(ref_file, r1_file, r2_file, output_file, strand, max_mismatches, threads, min_alignment_length, min_mapping_ratio):
+def map(
+    ref_file,
+    r1_file,
+    r2_file,
+    output_file,
+    strand,
+    max_mismatches,
+    threads,
+    min_alignment_length,
+    min_mapping_ratio,
+):
     from .mapping import map_file
 
     fwd_lib = strand.lower() == "forward"
-    map_file(ref_file, r1_file, r2_file, output_file, fwd_lib, max_mismatches, threads, min_alignment_length, min_mapping_ratio)
+    map_file(
+        ref_file,
+        r1_file,
+        r2_file,
+        output_file,
+        fwd_lib,
+        max_mismatches,
+        threads,
+        min_alignment_length,
+        min_mapping_ratio,
+    )
 
     print(f"\n✅ Mapping completed! Output saved to: {output_file}")
 

@@ -63,21 +63,21 @@ def find_properly_paired_hits(hits, fwd=True):
 def cal_md_and_tag(cigar, seq, ref, fwd):
     """
     Calculate MD tag and custom tags for dual-base conversion chemistry.
-    
+
     This function generates the MD tag (mismatch/deletion string) and calculates
     custom tags for tracking conversion statistics in dual-base conversion sequencing.
-    
+
     Dual-base conversion chemistry (not standard bisulfite):
     - MK conversion: C->T AND A->G simultaneously
     - KM conversion: G->A AND T->C simultaneously
-    
+
     Args:
         cigar: List of CIGAR operations [(length, operation), ...]
         seq: Query sequence (read)
         ref: Reference sequence
         fwd: If True, expect MK conversions (C->T, A->G)
              If False, expect KM conversions (G->A, T->C)
-    
+
     Returns:
         Tuple of (md_tag, yf, zf, yc, zc, ns, nc) where:
         - md_tag: MD tag string for SAM/BAM format
@@ -87,7 +87,7 @@ def cal_md_and_tag(cigar, seq, ref, fwd):
         - zc: Number of C->C matches (MK) or G->G matches (KM)
         - ns: Number of non-conversion mismatches (sequencing errors)
         - nc: Number of clipped bases and indels
-    
+
     CIGAR operations:
         M (0): Alignment match/mismatch
     I (1): Insertion to the reference
@@ -101,30 +101,30 @@ def cal_md_and_tag(cigar, seq, ref, fwd):
 def calculate_directional_score(cigar, seq, ref, is_orientation1):
     """
     Calculate a directional conversion-aware alignment score for dual-base conversion chemistry.
-    
+
     IMPORTANT: The conversion is NOT 100% efficient!
-    
+
     For orientation 1 (MK conversion applied to read):
         - GOOD: Perfect matches (any base matches)
         - GOOD: Expected conversions C->T, A->G (chemistry worked)
         - GOOD: Unconverted C->C, A->A (chemistry didn't work, but that's OK)
         - BAD: Wrong conversions T->C, G->A (wrong chemistry applied)
         - BAD: Other mismatches (sequencing errors)
-    
+
     For orientation 2 (KM conversion applied to read):
         - GOOD: Perfect matches (any base matches)
         - GOOD: Expected conversions G->A, T->C (chemistry worked)
         - GOOD: Unconverted G->G, T->T (chemistry didn't work, but that's OK)
         - BAD: Wrong conversions A->G, C->T (wrong chemistry applied)
         - BAD: Other mismatches (sequencing errors)
-    
+
     The key insight: when comparing unconverted read vs unconverted reference:
         - Perfect match = GOOD
         - Expected conversion = GOOD (chemistry worked)
         - Note: Unconverted bases will show as perfect matches!
         - Wrong conversion = BAD (indicates wrong orientation)
         - Other mismatch = BAD (sequencing error)
-    
+
     Returns:
         score: alignment score (matches + expected_conversions - wrong_conversions - other_mismatches - indels)
         wrong_conversions: number of wrong-direction conversions
@@ -140,7 +140,7 @@ def filter_hits(hits, seq1, seq2, min_alignment_length=20, min_mapping_ratio=0.5
     1. The mapping quality of the hit is greater than 0
     2. The alignment length of the hit is greater than min_alignment_length
     3. The mapping length of the hit is larger than min_mapping_ratio of the query length
-    
+
     Args:
         hits: List of alignment hits
         seq1: Read 1 sequence
@@ -151,30 +151,46 @@ def filter_hits(hits, seq1, seq2, min_alignment_length=20, min_mapping_ratio=0.5
     filtered_hits = []
     for hit in hits:
         q_len = len(seq1) if hit.read_num == 1 else len(seq2)
-        if hit.mapq > 0 and hit.blen > min_alignment_length and hit.mlen > min_mapping_ratio * q_len:
+        if (
+            hit.mapq > 0
+            and hit.blen > min_alignment_length
+            and hit.mlen > min_mapping_ratio * q_len
+        ):
             filtered_hits.append(hit)
     return filtered_hits
 
 
-def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mismatches=10, min_alignment_length=20, min_mapping_ratio=0.5):
+def run_mapping(
+    name,
+    seq1,
+    seq2,
+    qua1,
+    qua2,
+    idx0,
+    idx_mk,
+    fwd_lib=True,
+    max_mismatches=10,
+    min_alignment_length=20,
+    min_mapping_ratio=0.5,
+):
     """
     Map reads using dual-base conversion chemistry with directional filtering.
-    
+
     This function implements a directional mapping strategy for dual-base conversion
     sequencing (similar to bisulfite-seq but converts TWO bases simultaneously).
     It tries both conversion orientations and filters based on conversion patterns.
-    
+
     Conversion chemistry:
         - MK conversion: C->T AND A->G simultaneously
         - KM conversion: G->A AND T->C simultaneously (reverse complement)
-    
+
     Mapping strategy:
         - Uses only MK converted reference
         - Tries two orientations:
             * Orientation 1: read1 MK, read2 KM (for forward library)
             * Orientation 2: read1 KM, read2 MK (for forward library)
         - Filters alignments based on wrong-direction conversions
-    
+
     Args:
         name: Read name/identifier
         seq1: Read 1 sequence
@@ -185,13 +201,13 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
         idx_mk: MK converted reference index
         fwd_lib: True for forward library, False for reverse library
         max_mismatches: Maximum allowed bad mismatches (wrong conversions + errors)
-    
+
     Returns:
         List of [score, map1, map2] for paired-end or [score, map1] for single-end
         where map1/map2 are lists of SAM fields plus custom tags
     """
     idx = idx_mk
-    
+
     mapped = []
     # Try both orientations
     for orientation in [1, 2]:
@@ -213,13 +229,16 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                 # For reverse library, read1 behaves like read2, read2 behaves like read1
                 seq1_conv = mk_conversion(seq1)
                 seq2_conv = km_conversion(seq2) if seq2 else None
-        
+
         if seq2:
             # Paired-end mapping
             for hit1, hit2 in find_properly_paired_hits(
                 filter_hits(
-                    idx.map(seq1_conv, seq2=seq2_conv, cs=False, MD=False), 
-                    seq1, seq2, min_alignment_length, min_mapping_ratio
+                    idx.map(seq1_conv, seq2=seq2_conv, cs=False, MD=False),
+                    seq1,
+                    seq2,
+                    min_alignment_length,
+                    min_mapping_ratio,
                 ),
                 fwd=True,  # Always use forward for MK reference
             ):
@@ -230,26 +249,26 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                 # Get reference sequences from original (unconverted) reference
                 ref1 = idx0.seq(hit1.ctg, hit1.r_st, hit1.r_en)
                 ref2 = idx0.seq(hit2.ctg, hit2.r_st, hit2.r_en)
-                
+
                 # Determine sequences and flags based on hit strand
                 # hit.strand tells us the strand relative to the reference
-                read1_reverse = (hit1.strand == -1)
-                read2_reverse = (hit2.strand == -1)
-            
+                read1_reverse = hit1.strand == -1
+                read2_reverse = hit2.strand == -1
+
                 if read1_reverse:
                     s1 = mp.revcomp(seq1)
                     q1 = qua1[::-1]
                 else:
                     s1 = seq1
                     q1 = qua1
-                
+
                 if read2_reverse:
                     s2 = mp.revcomp(seq2)
                     q2 = qua2[::-1]
                 else:
                     s2 = seq2
                     q2 = qua2
-            
+
                 # Set flags based on strand
                 if read1_reverse and not read2_reverse:
                     flag1, flag2 = 83, 163  # read1 reverse, read2 forward
@@ -279,32 +298,40 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                     cigar2 = cigar2 + [[len(s2) - hit2.q_en, 4]]
 
                 # Calculate directional score to filter wrong-direction conversions
-                is_orientation1 = (orientation == 1)
-                score1, wrong_conv1, bad_mm1 = calculate_directional_score(cigar1, s1, ref1, is_orientation1)
-                score2, wrong_conv2, bad_mm2 = calculate_directional_score(cigar2, s2, ref2, is_orientation1)
-                
+                is_orientation1 = orientation == 1
+                score1, wrong_conv1, bad_mm1 = calculate_directional_score(
+                    cigar1, s1, ref1, is_orientation1
+                )
+                score2, wrong_conv2, bad_mm2 = calculate_directional_score(
+                    cigar2, s2, ref2, is_orientation1
+                )
+
                 # Filter: skip if too many bad mismatches (wrong conversions + other errors)
                 # Allow some sequencing errors and incomplete conversion
                 total_bad = bad_mm1 + bad_mm2
-                
+
                 if total_bad > max_mismatches:
                     continue
-                
+
                 # Calculate MD tag and custom tags for both reads
-                md1, yf1, zf1, yc1, zc1, ns1, nc1 = cal_md_and_tag(cigar1, s1, ref1, is_orientation1)
-                md2, yf2, zf2, yc2, zc2, ns2, nc2 = cal_md_and_tag(cigar2, s2, ref2, is_orientation1)
+                md1, yf1, zf1, yc1, zc1, ns1, nc1 = cal_md_and_tag(
+                    cigar1, s1, ref1, is_orientation1
+                )
+                md2, yf2, zf2, yc2, zc2, ns2, nc2 = cal_md_and_tag(
+                    cigar2, s2, ref2, is_orientation1
+                )
 
                 combined_score = score1 + score2
-                
+
                 # Calculate MAPQ based on alignment score (simple formula: min(60, score))
                 # For paired-end, use the minimum of the two scores
                 mapq = min(60, min(score1, score2))
-                
+
                 # Create common tags for both reads
                 common_tags = [
                     ("ST", orientation),
                 ]
-                
+
                 # Create map data for read1
                 tags1 = common_tags + [
                     ("MD", md1),
@@ -317,10 +344,20 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                     ("NC", nc1),
                 ]
                 map1 = create_map_data(
-                    name, flag1, hit1.ctg, hit1.r_st + 1, mapq, cigar_str1,
-                    hit2.ctg, hit2.r_st + 1, tlen, s1, q1, tags1
+                    name,
+                    flag1,
+                    hit1.ctg,
+                    hit1.r_st + 1,
+                    mapq,
+                    cigar_str1,
+                    hit2.ctg,
+                    hit2.r_st + 1,
+                    tlen,
+                    s1,
+                    q1,
+                    tags1,
                 )
-                
+
                 # Create map data for read2
                 tags2 = common_tags + [
                     ("MD", md2),
@@ -333,24 +370,37 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                     ("NC", nc2),
                 ]
                 map2 = create_map_data(
-                    name, flag2, hit2.ctg, hit2.r_st + 1, mapq, cigar_str2,
-                    hit1.ctg, hit1.r_st + 1, -tlen, s2, q2, tags2
+                    name,
+                    flag2,
+                    hit2.ctg,
+                    hit2.r_st + 1,
+                    mapq,
+                    cigar_str2,
+                    hit1.ctg,
+                    hit1.r_st + 1,
+                    -tlen,
+                    s2,
+                    q2,
+                    tags2,
                 )
-                
+
                 mapped.append([combined_score, map1, map2])
         else:
             # Single-end mapping
             for hit in filter_hits(
-                idx.map(seq1_conv, cs=False, MD=False), 
-                seq1, None, min_alignment_length, min_mapping_ratio
+                idx.map(seq1_conv, cs=False, MD=False),
+                seq1,
+                None,
+                min_alignment_length,
+                min_mapping_ratio,
             ):
                 # Note: We don't filter by strand - the directional score will handle it
                 # Get reference sequence
                 ref = idx0.seq(hit.ctg, hit.r_st, hit.r_en)
-                
+
                 # Determine sequence and flag based on hit strand
-                read_reverse = (hit.strand == -1)
-                
+                read_reverse = hit.strand == -1
+
                 if read_reverse:
                     flag = 16  # reverse strand
                     s = mp.revcomp(seq1)
@@ -359,7 +409,7 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                     flag = 0  # forward strand
                     s = seq1
                     q = qua1
-                    
+
                 # Fix soft clip
                 cigar_str = hit.cigar_str
                 cigar = hit.cigar
@@ -369,23 +419,27 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                 if hit.q_en < len(s):
                     cigar_str = cigar_str + f"{len(s) - hit.q_en}S"
                     cigar = cigar + [[len(s) - hit.q_en, 4]]
-                
+
                 # Calculate directional score to filter wrong-direction conversions
-                is_orientation1 = (orientation == 1)
-                score, wrong_conv, bad_mm = calculate_directional_score(cigar, s, ref, is_orientation1)
-                
+                is_orientation1 = orientation == 1
+                score, wrong_conv, bad_mm = calculate_directional_score(
+                    cigar, s, ref, is_orientation1
+                )
+
                 # Filter: skip if too many bad mismatches (wrong conversions + other errors)
                 # Allow some sequencing errors and incomplete conversion
                 # Use half the threshold for single-end reads
                 if bad_mm > max_mismatches // 2:
                     continue
-                    
+
                 # Calculate MD tag and custom tags
-                md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(cigar, s, ref, is_orientation1)
-                
+                md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
+                    cigar, s, ref, is_orientation1
+                )
+
                 # Calculate MAPQ based on alignment score (simple formula: min(60, score))
                 mapq = min(60, score)
-                
+
                 # Create tags
                 tags = [
                     ("MD", md),
@@ -399,8 +453,18 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                     ("NC", nc),
                 ]
                 map1 = create_map_data(
-                    name, flag, hit.ctg, hit.r_st + 1, mapq, cigar_str,
-                    "*", 0, 0, s, q, tags
+                    name,
+                    flag,
+                    hit.ctg,
+                    hit.r_st + 1,
+                    mapq,
+                    cigar_str,
+                    "*",
+                    0,
+                    0,
+                    s,
+                    q,
+                    tags,
                 )
                 mapped.append([score, map1])
 
@@ -409,10 +473,12 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
     return mapped
 
 
-def create_map_data(name, flag, ctg, pos, mapq, cigar_str, mate_ctg, mate_pos, tlen, seq, qual, tags):
+def create_map_data(
+    name, flag, ctg, pos, mapq, cigar_str, mate_ctg, mate_pos, tlen, seq, qual, tags
+):
     """
     Create a map data list for BAM record.
-    
+
     Args:
         name: Read name
         flag: SAM flag
@@ -426,22 +492,34 @@ def create_map_data(name, flag, ctg, pos, mapq, cigar_str, mate_ctg, mate_pos, t
         seq: Query sequence
         qual: Quality string
         tags: List of (tag_name, tag_value) tuples
-    
+
     Returns:
         List containing SAM fields and tags
     """
-    return [name, flag, ctg, pos, mapq, cigar_str, mate_ctg, mate_pos, tlen, seq, qual] + tags
+    return [
+        name,
+        flag,
+        ctg,
+        pos,
+        mapq,
+        cigar_str,
+        mate_ctg,
+        mate_pos,
+        tlen,
+        seq,
+        qual,
+    ] + tags
 
 
 def create_bam_record(header, map_data, is_secondary):
     """
     Create a BAM record from mapping data.
-    
+
     Args:
         header: BAM header
         map_data: List containing SAM fields and tags [name, flag, ref, pos, mapq, cigar, ...]
         is_secondary: Whether this is a secondary alignment
-    
+
     Returns:
         pysam.AlignedSegment object
     """
@@ -457,21 +535,31 @@ def create_bam_record(header, map_data, is_secondary):
     a.template_length = map_data[8]
     a.query_sequence = map_data[9]
     a.query_qualities = pysam.qualitystring_to_array(map_data[10])
-    
+
     # Set tags from tuples (tag_name, tag_value)
     for tag_name, tag_value in map_data[11:]:
         a.set_tag(tag_name, tag_value)
-    
+
     return a
 
 
-def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatches=10, threads=8, min_alignment_length=20, min_mapping_ratio=0.5):
+def map_file(
+    ref_file,
+    r1_file,
+    r2_file,
+    output_file,
+    fwd_lib=True,
+    max_mismatches=10,
+    threads=8,
+    min_alignment_length=20,
+    min_mapping_ratio=0.5,
+):
     """
     Map FASTQ reads to reference genome using dual-base conversion chemistry.
-    
+
     This is the main entry point for the mapping pipeline. It handles reference
     conversion, index loading, read processing, and BAM file generation.
-    
+
     Args:
         ref_file: Path to reference FASTA file
         r1_file: Path to read 1 FASTQ file (can be gzipped)
@@ -482,7 +570,7 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
         threads: Number of threads for minimap2 indexing (default: 8)
                  Note: Currently only used for index loading, not for parallel mapping.
                  Parallel read mapping is planned for future versions.
-    
+
     Output BAM tags:
         - MD:Z: Mismatch/deletion string (standard SAM tag)
         - ST:i: Orientation (1=MK conversion: C->T, A->G; 2=KM conversion: G->A, T->C)
@@ -493,22 +581,23 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
         - Zc:i: Number of C matches (C->C for MK, G->G for KM)
         - NS:i: Number of non-conversion mismatches (sequencing errors)
         - NC:i: Number of clipped bases and indels
-    
+
     Note: Alignments are sorted by AS score (best first) for primary/secondary assignment.
     """
     # Create temporary directory for index files
     temp_dir = tempfile.mkdtemp(prefix="coralsnake_")
-    
+
     try:
         # Create MK converted reference and index files in temp directory
         mk_file = os.path.join(temp_dir, "ref.mk.fa")
         idx0_file = os.path.join(temp_dir, "ref.orig.mmi")
         idx_mk_file = os.path.join(temp_dir, "ref.mk.mmi")
-        
+
         from .conversion import convert_file
+
         # Convert reference to MK (A->G, C->T)
         convert_file(ref_file, mk_file, "AC", "GT", include_ys_tag=False)
-        
+
         # Load original reference and save index
         idx0 = mp.Aligner(
             fn_idx_in=ref_file,
@@ -521,7 +610,7 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
             best_n=50,
             fn_idx_out=idx0_file,
         )
-        
+
         # Load MK converted reference and save index
         idx_mk = mp.Aligner(
             fn_idx_in=mk_file,
@@ -534,11 +623,11 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
             best_n=50,
             fn_idx_out=idx_mk_file,
         )
-        
+
         # Remove MK FASTA file after indexing (index file is sufficient)
         if os.path.exists(mk_file):
             os.remove(mk_file)
-        
+
         # Create BAM header
         header = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": []}
         for name, seq, *_ in mp.fastx_read(ref_file):
@@ -553,17 +642,34 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
                     count = 0
                     for name1, seq1, qua1 in mp.fastx_read(r1_file):
                         # Get mapped reads
-                        mapped = run_mapping(name1, seq1, None, qua1, None, idx0, idx_mk, fwd_lib, max_mismatches, min_alignment_length, min_mapping_ratio)
-                        
+                        mapped = run_mapping(
+                            name1,
+                            seq1,
+                            None,
+                            qua1,
+                            None,
+                            idx0,
+                            idx_mk,
+                            fwd_lib,
+                            max_mismatches,
+                            min_alignment_length,
+                            min_mapping_ratio,
+                        )
+
                         # Write to BAM
                         for i, item in enumerate(mapped):
                             map1 = item[1]
-                            a1 = create_bam_record(bam_out.header, map1, is_secondary=(i > 0))
+                            a1 = create_bam_record(
+                                bam_out.header, map1, is_secondary=(i > 0)
+                            )
                             bam_out.write(a1)
-                        
+
                         count += 1
                         if count % 10 == 0:
-                            progress.update(task, description=f"Mapping reads: {count} ({format_duration(progress.tasks[task].elapsed)})")
+                            progress.update(
+                                task,
+                                description=f"Mapping reads: {count} ({format_duration(progress.tasks[task].elapsed)})",
+                            )
             else:
                 # Paired-end
                 with Progress() as progress:
@@ -574,24 +680,41 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
                     ):
                         if name1 != name2:
                             raise ValueError("r1 and r2 not in the same order")
-                        
+
                         # Get mapped reads
-                        mapped = run_mapping(name1, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib, max_mismatches, min_alignment_length, min_mapping_ratio)
-                        
+                        mapped = run_mapping(
+                            name1,
+                            seq1,
+                            seq2,
+                            qua1,
+                            qua2,
+                            idx0,
+                            idx_mk,
+                            fwd_lib,
+                            max_mismatches,
+                            min_alignment_length,
+                            min_mapping_ratio,
+                        )
+
                         # Write to BAM
                         for i, item in enumerate(mapped):
                             map1, map2 = item[1], item[2]
-                            a1 = create_bam_record(bam_out.header, map1, is_secondary=(i > 0))
-                            a2 = create_bam_record(bam_out.header, map2, is_secondary=(i > 0))
+                            a1 = create_bam_record(
+                                bam_out.header, map1, is_secondary=(i > 0)
+                            )
+                            a2 = create_bam_record(
+                                bam_out.header, map2, is_secondary=(i > 0)
+                            )
                             bam_out.write(a1)
                             bam_out.write(a2)
-                        
+
                         count += 1
                         if count % 10 == 0:
-                            progress.update(task, description=f"Mapping reads: {count:,} ({format_duration(progress.tasks[task].elapsed)})")
+                            progress.update(
+                                task,
+                                description=f"Mapping reads: {count:,} ({format_duration(progress.tasks[task].elapsed)})",
+                            )
     finally:
         # Clean up temporary directory
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)
-
-
