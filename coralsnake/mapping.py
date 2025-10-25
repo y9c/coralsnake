@@ -189,7 +189,7 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
     # Try both orientations
     for orientation in [1, 2]:
         if orientation == 1:
-            # Orientation 1: MK conversion (C->T AND A->G)
+            # Orientation 1: MK conversion
             if fwd_lib:
                 seq1_conv = mk_conversion(seq1)
                 seq2_conv = km_conversion(seq2) if seq2 else None
@@ -198,7 +198,7 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                 seq1_conv = km_conversion(seq1)
                 seq2_conv = mk_conversion(seq2) if seq2 else None
         else:
-            # Orientation 2: KM conversion (G->A AND T->C)
+            # Orientation 2: KM conversion
             if fwd_lib:
                 seq1_conv = km_conversion(seq1)
                 seq2_conv = mk_conversion(seq2) if seq2 else None
@@ -300,15 +300,15 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                     tlen,
                     s1,
                     q1,
-                    f"MD:Z:{md1}",
-                    f"ST:i:{orientation}",
-                    f"AS:i:{score1}",
-                    f"Yf:i:{yf}",
-                    f"Zf:i:{zf}",
-                    f"Yc:i:{yc}",
-                    f"Zc:i:{zc}",
-                    f"NS:i:{ns}",
-                    f"NC:i:{nc}",
+                    ("MD", md1),
+                    ("ST", orientation),
+                    ("AS", score1),
+                    ("Yf", yf),
+                    ("Zf", zf),
+                    ("Yc", yc),
+                    ("Zc", zc),
+                    ("NS", ns),
+                    ("NC", nc),
                 ]
                 map2 = [
                     name,
@@ -322,15 +322,15 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                     -tlen,
                     s2,
                     q2,
-                    f"MD:Z:{md2}",
-                    f"ST:i:{orientation}",
-                    f"AS:i:{score2}",
-                    f"Yf:i:{yf2}",
-                    f"Zf:i:{zf2}",
-                    f"Yc:i:{yc2}",
-                    f"Zc:i:{zc2}",
-                    f"NS:i:{ns2}",
-                    f"NC:i:{nc2}",
+                    ("MD", md2),
+                    ("ST", orientation),
+                    ("AS", score2),
+                    ("Yf", yf2),
+                    ("Zf", zf2),
+                    ("Yc", yc2),
+                    ("Zc", zc2),
+                    ("NS", ns2),
+                    ("NC", nc2),
                 ]
                 mapped.append([combined_score, map1, map2])
         else:
@@ -389,21 +389,53 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                     0,
                     s,
                     q,
-                    f"MD:Z:{md}",
-                    f"ST:i:{orientation}",
-                    f"AS:i:{score}",
-                    f"Yf:i:{yf}",
-                    f"Zf:i:{zf}",
-                    f"Yc:i:{yc}",
-                    f"Zc:i:{zc}",
-                    f"NS:i:{ns}",
-                    f"NC:i:{nc}",
+                    ("MD", md),
+                    ("ST", orientation),
+                    ("AS", score),
+                    ("Yf", yf),
+                    ("Zf", zf),
+                    ("Yc", yc),
+                    ("Zc", zc),
+                    ("NS", ns),
+                    ("NC", nc),
                 ]
                 mapped.append([score, map1])
 
     random.shuffle(mapped)
     mapped = sorted(mapped, key=lambda x: x[0], reverse=True)
     return mapped
+
+
+def create_bam_record(header, map_data, is_secondary):
+    """
+    Create a BAM record from mapping data.
+    
+    Args:
+        header: BAM header
+        map_data: List containing SAM fields and tags [name, flag, ref, pos, mapq, cigar, ...]
+        is_secondary: Whether this is a secondary alignment
+    
+    Returns:
+        pysam.AlignedSegment object
+    """
+    a = pysam.AlignedSegment(header=header)
+    a.query_name = map_data[0]
+    a.flag = map_data[1] + (256 if is_secondary else 0)
+    a.reference_name = map_data[2]
+    a.reference_start = map_data[3] - 1
+    a.mapping_quality = map_data[4]
+    a.cigarstring = map_data[5]
+    a.next_reference_name = map_data[6]
+    a.next_reference_start = map_data[7] - 1 if map_data[7] > 0 else 0
+    a.template_length = map_data[8]
+    a.query_sequence = map_data[9]
+    a.query_qualities = pysam.qualitystring_to_array(map_data[10])
+    
+    # Set tags from tuples (tag_name, tag_value)
+    for tag_name, tag_value in map_data[11:]:
+        a.set_tag(tag_name, tag_value)
+    
+    return a
 
 
 def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatches=10, threads=8):
@@ -499,31 +531,7 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
                         # Write to BAM
                         for i, item in enumerate(mapped):
                             map1 = item[1]
-                            # Extract tags from map1
-                            tags1 = {}
-                            for tag_str in map1[11:]:
-                                parts = tag_str.split(':', 2)
-                                if len(parts) == 3:
-                                    tag_name, tag_type, tag_value = parts
-                                    if tag_type == 'i':
-                                        tags1[tag_name] = int(tag_value)
-                                    else:
-                                        tags1[tag_name] = tag_value
-                            
-                            a1 = pysam.AlignedSegment(header=bam_out.header)
-                            a1.query_name = map1[0]
-                            a1.flag = map1[1] + (256 if i > 0 else 0)
-                            a1.reference_name = map1[2]
-                            a1.reference_start = map1[3] - 1
-                            a1.mapping_quality = map1[4]
-                            a1.cigarstring = map1[5]
-                            a1.next_reference_name = map1[6]
-                            a1.next_reference_start = map1[7]
-                            a1.template_length = map1[8]
-                            a1.query_sequence = map1[9]
-                            a1.query_qualities = pysam.qualitystring_to_array(map1[10])
-                            for tag_name, tag_value in tags1.items():
-                                a1.set_tag(tag_name, tag_value)
+                            a1 = create_bam_record(bam_out.header, map1, is_secondary=(i > 0))
                             bam_out.write(a1)
                         
                         count += 1
@@ -546,57 +554,9 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
                         # Write to BAM
                         for i, item in enumerate(mapped):
                             map1, map2 = item[1], item[2]
-                            # Extract tags from map1 and map2
-                            tags1 = {}
-                            for tag_str in map1[11:]:
-                                parts = tag_str.split(':', 2)
-                                if len(parts) == 3:
-                                    tag_name, tag_type, tag_value = parts
-                                    if tag_type == 'i':
-                                        tags1[tag_name] = int(tag_value)
-                                    else:
-                                        tags1[tag_name] = tag_value
-                            
-                            tags2 = {}
-                            for tag_str in map2[11:]:
-                                parts = tag_str.split(':', 2)
-                                if len(parts) == 3:
-                                    tag_name, tag_type, tag_value = parts
-                                    if tag_type == 'i':
-                                        tags2[tag_name] = int(tag_value)
-                                    else:
-                                        tags2[tag_name] = tag_value
-                            
-                            a1 = pysam.AlignedSegment(header=bam_out.header)
-                            a1.query_name = map1[0]
-                            a1.flag = map1[1] + (256 if i > 0 else 0)
-                            a1.reference_name = map1[2]
-                            a1.reference_start = map1[3] - 1
-                            a1.mapping_quality = map1[4]
-                            a1.cigarstring = map1[5]
-                            a1.next_reference_name = map1[6]
-                            a1.next_reference_start = map1[7] - 1
-                            a1.template_length = map1[8]
-                            a1.query_sequence = map1[9]
-                            a1.query_qualities = pysam.qualitystring_to_array(map1[10])
-                            for tag_name, tag_value in tags1.items():
-                                a1.set_tag(tag_name, tag_value)
+                            a1 = create_bam_record(bam_out.header, map1, is_secondary=(i > 0))
+                            a2 = create_bam_record(bam_out.header, map2, is_secondary=(i > 0))
                             bam_out.write(a1)
-                            
-                            a2 = pysam.AlignedSegment(header=bam_out.header)
-                            a2.query_name = map2[0]
-                            a2.flag = map2[1] + (256 if i > 0 else 0)
-                            a2.reference_name = map2[2]
-                            a2.reference_start = map2[3] - 1
-                            a2.mapping_quality = map2[4]
-                            a2.cigarstring = map2[5]
-                            a2.next_reference_name = map2[6]
-                            a2.next_reference_start = map2[7] - 1
-                            a2.template_length = map2[8]
-                            a2.query_sequence = map2[9]
-                            a2.query_qualities = pysam.qualitystring_to_array(map2[10])
-                            for tag_name, tag_value in tags2.items():
-                                a2.set_tag(tag_name, tag_value)
                             bam_out.write(a2)
                         
                         count += 1
