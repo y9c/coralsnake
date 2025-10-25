@@ -9,26 +9,7 @@
 """convert A->G, C->T in DNA sequence."""
 
 import dnaio
-
-
-def create_base_mapper(base_from: str, base_to: str) -> dict[int, int]:
-    if len(base_from) != len(base_to):
-        raise ValueError("base_from and base_to must be of the same length")
-
-    # Create mapping for both lower and upper case
-    base_from_lower = base_from.lower()
-    base_from_upper = base_from.upper()
-    base_to_lower = base_to.lower()
-    base_to_upper = base_to.upper()
-
-    full_base_from = base_from_lower + base_from_upper
-    full_base_to = base_to_lower + base_to_upper
-
-    return str.maketrans(full_base_from, full_base_to)
-
-
-def base_conversion(seq: str, base_mapper: dict[int, int]) -> str:
-    return seq.translate(base_mapper)
+from . import seqops
 
 
 def convert_file(
@@ -45,9 +26,6 @@ def convert_file(
     base_from: eg, "ACGT"
     base_to: eg, "GTGT"
     """
-    X2Y_BASE_MAPPER = create_base_mapper(base_from, base_to)
-    Y2X_BASE_MAPPER = create_base_mapper(base_to, base_from)
-
     with dnaio.open(input_file, mode="r") as fi, dnaio.open(
         output_X2Y_file, mode="w"
     ) as fo_x2y, dnaio.open(output_Y2X_file, mode="w") as fo_y2x:
@@ -63,30 +41,17 @@ def convert_file(
 
             r_x2y = dnaio.SequenceRecord(
                 name=n_x2y,
-                sequence=base_conversion(read.sequence, X2Y_BASE_MAPPER),
+                sequence=seqops.fast_base_conversion(read.sequence, base_from, base_to),
                 qualities=read.qualities,
             )
             fo_x2y.write(r_x2y)
 
             r_y2x = dnaio.SequenceRecord(
                 name=n_y2x,
-                sequence=base_conversion(read.sequence, Y2X_BASE_MAPPER),
+                sequence=seqops.fast_base_conversion(read.sequence, base_to, base_from),
                 qualities=read.qualities,
             )
             fo_y2x.write(r_y2x)
-
-
-# M to K (AC to GT)
-# M (aMino)	A/C
-# K (Keto)	G/T
-
-
-def mk_conversion(seq: str) -> str:
-    return base_conversion(seq, create_base_mapper("AC", "GT"))
-
-
-def km_conversion(seq: str) -> str:
-    return base_conversion(seq, create_base_mapper("GT", "AC"))
 
 
 def mk_convert_file(

@@ -12,6 +12,7 @@ from collections import defaultdict
 from functools import lru_cache
 
 import pysam
+from . import seqops
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -22,28 +23,20 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-_COMP = str.maketrans("ACGTNacgtn", "TGCANtgcan")
-
-
 @lru_cache(maxsize=10000)
-def _python_reverse_complement(seq: str) -> str:
-    return seq.translate(_COMP)[::-1]
+def reverse_complement(seq: str) -> str:
+    """Fast reverse complement using C implementation."""
+    return seqops.fast_reverse_complement(seq)
 
 
-try:
-    from functools import wraps
+def mk_conversion(seq: str) -> str:
+    """Convert A->G, C->T (M to K conversion)."""
+    return seqops.fast_base_conversion(seq, "AC", "GT")
 
-    from . import mappy as mp
 
-    @lru_cache(maxsize=10000)
-    @wraps(mp.revcomp)
-    def _c_reverse_complement(seq: str) -> str:
-        return mp.revcomp(seq)
-
-    reverse_complement = _c_reverse_complement
-
-except ImportError:
-    reverse_complement = _python_reverse_complement
+def km_conversion(seq: str) -> str:
+    """Convert G->A, T->C (K to M conversion)."""
+    return seqops.fast_base_conversion(seq, "GT", "AC")
 
 
 class Span:
@@ -269,3 +262,26 @@ def load_faidx(faidx_file: str) -> dict[str, int]:
             fields = line.strip().split("\t")
             faidx[fields[0]] = int(fields[1])
     return faidx
+
+
+def format_duration(sec: float) -> str:
+    """
+    Format duration in seconds to human-readable string.
+
+    Args:
+        sec: Duration in seconds
+
+    Returns:
+        Formatted duration string (e.g., "12.34s", "5m 23s", "2h 15m 30s")
+    """
+    if sec < 60:
+        return f"{sec:.2f}s"
+    if sec < 3600:
+        minutes = int(sec // 60)
+        seconds = int(round(sec % 60))
+        return f"{minutes}m {seconds}s"
+    hours = int(sec // 3600)
+    rem = sec % 3600
+    minutes = int(rem // 60)
+    seconds = int(round(rem % 60))
+    return f"{hours}h {minutes}m {seconds}s"

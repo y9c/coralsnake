@@ -154,13 +154,28 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
 )
 @click.option("-r", "--ref-file", help="reference file", required=True)
 @click.option("-1", "--r1-file", help="r1 file", required=True)
-@click.option("-2", "--r2-file", help="r2 file", required=True)
-# if --fwd is passed (or leave empty), fwd_lib will be True, otherwise if --rev is passed, fwd_lib will be False
-@click.option("--fwd/--rev", "fwd_lib", default=True, help="forward or reverse library")
-def map(ref_file, r1_file, r2_file, fwd_lib):
+@click.option("-2", "--r2-file", help="r2 file", required=False)
+@click.option("-o", "--output-file", help="output bam file", required=True)
+@click.option(
+    "--strand",
+    type=click.Choice(["forward", "reverse"], case_sensitive=False),
+    default="forward",
+    help="Library strand orientation (default: forward)",
+)
+@click.option(
+    "--max-mismatches",
+    "-m",
+    type=int,
+    default=10,
+    help="Maximum allowed bad mismatches (wrong conversions + sequencing errors) for paired-end reads. Single-end uses half this value. (default: 10)",
+)
+def map(ref_file, r1_file, r2_file, output_file, strand, max_mismatches):
     from .mapping import map_file
 
-    map_file(ref_file, r1_file, r2_file, fwd_lib)
+    fwd_lib = (strand.lower() == "forward")
+    map_file(ref_file, r1_file, r2_file, output_file, fwd_lib, max_mismatches)
+    
+    print(f"\n✅ Mapping completed! Output saved to: {output_file}")
 
 
 @cli.command(

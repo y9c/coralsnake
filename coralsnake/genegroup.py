@@ -23,20 +23,6 @@ from .utils import get_logger
 LOGGER = get_logger(__name__)
 
 
-def group_annot_by_gene_name(annot):
-    # annot is dict of dict of Transcript object
-    gene_dict = {}
-    for _, gene_info in annot.items():
-        for _, transcript in gene_info.items():
-            if not transcript.gene_name:
-                continue
-            gene_name = transcript.gene_name
-            if gene_name not in gene_dict:
-                gene_dict[gene_name] = []
-            gene_dict[gene_name].append(transcript)
-    return gene_dict
-
-
 def run_msa(names, seqs, threads=8):
     aligner = Aligner(guide_tree="upgma", threads=threads)
     seqs = [Sequence(n.encode(), s.encode()) for n, s in zip(names, seqs)]
@@ -44,11 +30,6 @@ def run_msa(names, seqs, threads=8):
     # print(tree.dumps())
     msa = aligner.align(seqs)
     return msa
-
-
-def show_msa(msa):
-    for sequence in msa:
-        print(sequence.sequence.decode())
 
 
 def msa_to_array(msa, mask_ratio=0.5):
@@ -138,29 +119,6 @@ def get_position_mapping_from_aligned_array(aligned_array):
         aligned_sequence = aligned_array[i]
         mappings = map_positions(aligned_sequence)
         yield mappings
-
-
-def map_genome_to_gap_open(genome_span_list, gap_open_list):
-    mapping = {}
-    gap_counter = 0
-    current_gap_start, current_gap_end = gap_open_list[gap_counter]
-    for genome_span in genome_span_list:
-        genome_start, genome_end = genome_span
-        for i in range(genome_start, genome_end + 1):
-            if current_gap_start <= current_gap_end:
-                mapping[i + 1] = current_gap_start + 1
-                current_gap_start += 1
-            else:
-                gap_counter += 1
-                if gap_counter < len(gap_open_list):
-                    current_gap_start, current_gap_end = gap_open_list[gap_counter]
-                    mapping[i + 1] = current_gap_start + 1
-                    current_gap_start += 1
-                else:
-                    # In case there are more genome positions than gap open positions
-                    mapping[i + 1] = None
-
-    return mapping
 
 
 def rename_snRNA(gene_name):

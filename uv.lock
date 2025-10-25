@@ -1,6 +1,6 @@
 version = 1
-revision = 2
-requires-python = ">=3.10, <4"
+revision = 3
+requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.11'",
     "python_full_version < '3.11'",
@@ -29,18 +29,21 @@ wheels = [
 
 [[package]]
 name = "coralsnake"
-version = "0.0.72"
+version = "0.0.98"
 source = { editable = "." }
 dependencies = [
     { name = "dnaio" },
+    { name = "mappy" },
     { name = "ncls" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pyfamsa" },
     { name = "pysam" },
+    { name = "rich" },
     { name = "rich-click" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scipy", version = "1.16.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "setuptools" },
 ]
 
 [package.dev-dependencies]
@@ -51,12 +54,15 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "dnaio", specifier = ">=1.2.1" },
+    { name = "mappy" },
     { name = "ncls", specifier = ">=0.0.68" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pyfamsa", specifier = ">=0.4" },
     { name = "pysam", specifier = ">=0.22" },
+    { name = "rich", specifier = ">=13.0.0" },
     { name = "rich-click", specifier = ">=1.8.3" },
     { name = "scipy", specifier = ">=1.14" },
+    { name = "setuptools", specifier = ">=70.3.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -138,6 +144,12 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/4d/b2/47ee5ec9b9b67a792225895fb4683a1e3c721e8fe0a4d79d2822e43e4c59/isal-1.8.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:914442a3da17812fc5ab136da6aad2c5cee59d17bb9382b59f7a55efeea28988", size = 267585, upload-time = "2025-09-10T08:47:08.928Z" },
     { url = "https://files.pythonhosted.org/packages/e0/8a/768d91b6078f283c521b79e0a59d7e07a54a0bfab690ab90bcf4c641cc93/isal-1.8.0-cp314-cp314t-win_amd64.whl", hash = "sha256:e76946e7455b1614a6a00bf9ec6444baa3a5217e6806836e0e9a271f0d18f84d", size = 209399, upload-time = "2025-09-10T08:49:19.2Z" },
 ]
+
+[[package]]
+name = "mappy"
+version = "2.30"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/78/25/21f1816701c7366cc2d1318c37fe374edd242e966ec3ad152f1742cef7a2/mappy-2.30.tar.gz", hash = "sha256:a25448004558a28cb0d74fb1e55b6ffe9a78aa15dd6b2763630fbbabbaa97a27", size = 143810, upload-time = "2025-06-15T22:49:38.771Z" }
 
 [[package]]
 name = "markdown-it-py"

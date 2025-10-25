@@ -3,18 +3,21 @@ name = "coralsnake"
 version = "0.0.98"
 description = "Transcriptome mapping utils"
 authors = [{ name = "Chang Ye", email = "yech1990@gmail.com" }]
-requires-python = "~=3.10"
+requires-python = ">=3.10"
 readme = "README.md"
-license = "GPL-3.0"
+license = {text = "GPL-3.0"}
 keywords = ["transcriptome", "mapping"]
 dependencies = [
   "dnaio>=1.2.1",
   "rich-click>=1.8.3",
+  "rich>=13.0.0",
   "pysam>=0.22",
   "numpy>=1.26",
   "ncls>=0.0.68",
   "pyfamsa>=0.4",
   "scipy>=1.14",
+  "mappy",
+  "setuptools>=70.3.0",
 ]
 
 [project.urls]
@@ -27,5 +30,14 @@ coralsnake = "coralsnake.cli:cli"
 dev = ["setuptools>=70.1.1,<71"]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "setuptools"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["coralsnake"]
+
+[tool.hatch.build.targets.wheel.sources]
+"coralsnake" = "coralsnake"
+
+[tool.hatch.build.targets.wheel.force-include]
+"coralsnake/seqops.so" = "coralsnake/seqops.so"
