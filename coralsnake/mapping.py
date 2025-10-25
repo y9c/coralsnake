@@ -669,6 +669,7 @@ def map_file(
     min_mapping_ratio=0.5,
     index_dir=None,
     index_only=False,
+    num_chunks=1,
 ):
     """
     Map FASTQ reads to reference genome using dual-base conversion chemistry.
@@ -690,6 +691,8 @@ def map_file(
         min_mapping_ratio: Minimum mapping length ratio for filtering (default: 0.5)
         index_dir: Directory to store/load index files. If None, uses temporary directory (default: None)
         index_only: If True, only build indices without mapping (default: False)
+        num_chunks: Number of chunks to split input files for processing (default: 1)
+                    If > 1, splits FASTQ files and processes chunks sequentially, then merges BAM files
 
     Output BAM tags:
         - MD:Z: Mismatch/deletion string (standard SAM tag)
@@ -774,12 +777,57 @@ def map_file(
         if index_only:
             return
 
+        # Handle chunked processing if num_chunks > 1
+        if num_chunks > 1:
+            # Create temporary directory for chunks
+            chunks_dir = tempfile.mkdtemp(prefix="coralsnake_chunks_")
+            try:
+                # Split FASTQ files into chunks
+                print(f"\n📦 Splitting input files into {num_chunks} chunks...")
+                chunk_files = split_fastq_files(r1_file, r2_file, num_chunks, chunks_dir)
+                print(f"✓ Created {len(chunk_files)} chunks")
+                
+                # Process chunks sequentially
+                chunk_bams = []
+                for idx, (chunk_r1, chunk_r2) in enumerate(chunk_files):
+                    chunk_bam = os.path.join(chunks_dir, f"chunk_{idx}.bam")
+                    print(f"\n🔄 Processing chunk {idx + 1}/{len(chunk_files)}...")
+                    
+                    process_chunk(
+                        chunk_r1,
+                        chunk_r2,
+                        chunk_bam,
+                        idx0_file,
+                        idx_mk_file,
+                        ref_file,
+                        fwd_lib,
+                        max_mismatches,
+                        threads,
+                        min_alignment_length,
+                        min_mapping_ratio,
+                        idx,
+                    )
+                    chunk_bams.append(chunk_bam)
+                    print(f"✓ Chunk {idx + 1} completed")
+                
+                # Merge all chunk BAMs into final output
+                print(f"\n🔗 Merging {len(chunk_bams)} BAM files...")
+                pysam.cat("-o", output_file, *chunk_bams)
+                print(f"✓ Merged BAM saved to: {output_file}")
+                
+            finally:
+                # Clean up chunks directory
+                if os.path.exists(chunks_dir):
+                    shutil.rmtree(chunks_dir)
+            
+            return
+
         # Create BAM header
         header = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": []}
         for name, seq, *_ in mp.fastx_read(ref_file):
             header["SQ"].append({"SN": name, "LN": len(seq)})
 
-        # Write BAM file
+        # Write BAM file (single chunk processing)
         with pysam.AlignmentFile(output_file, "wb", header=header) as bam_out:
             if r2_file is None:
                 # Single-end

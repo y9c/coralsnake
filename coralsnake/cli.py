@@ -204,6 +204,12 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     default=False,
     help="Only build indices without mapping reads. Requires --index-dir to be specified. (default: False)",
 )
+@click.option(
+    "--chunks",
+    type=int,
+    default=1,
+    help="Number of chunks to split input files for processing. Useful for very large FASTQ files. Uses fast C-based splitting with gzip support. (default: 1)",
+)
 def map(
     ref_file,
     r1_file,
@@ -216,6 +222,7 @@ def map(
     min_mapping_ratio,
     index_dir,
     index_only,
+    chunks,
 ):
     from .mapping import map_file
 
@@ -248,6 +255,7 @@ def map(
         min_mapping_ratio,
         index_dir,
         index_only,
+        chunks,
     )
 
     if index_only:
