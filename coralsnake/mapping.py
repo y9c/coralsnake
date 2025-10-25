@@ -9,6 +9,8 @@
 
 import os
 import random
+from multiprocessing import Pool, Manager
+from functools import partial
 
 import mappy as mp
 import pysam
@@ -16,6 +18,54 @@ from rich.progress import Progress
 
 from .utils import format_duration, mk_conversion, km_conversion
 from . import seqops
+
+
+def _worker_process_reads(batch, ref_file, mk_file, fwd_lib, max_mismatches, threads_per_worker):
+    """
+    Worker function for parallel read processing.
+    Each worker loads its own copy of the indices and processes a batch of reads.
+    
+    Args:
+        batch: List of (name, seq1, seq2, qua1, qua2) tuples
+        ref_file: Path to original reference
+        mk_file: Path to MK converted reference
+        fwd_lib: Library strand orientation
+        max_mismatches: Maximum allowed bad mismatches
+        threads_per_worker: Number of threads for this worker's minimap2 operations
+    
+    Returns:
+        List of (name, mapped_results) tuples
+    """
+    # Load indices in this worker process
+    idx0 = mp.Aligner(
+        fn_idx_in=ref_file,
+        preset="sr",
+        n_threads=threads_per_worker,
+        k=10,
+        w=10,
+        min_cnt=0,
+        min_chain_score=0,
+        best_n=50,
+    )
+    
+    idx_mk = mp.Aligner(
+        fn_idx_in=mk_file,
+        preset="sr",
+        n_threads=threads_per_worker,
+        k=10,
+        w=10,
+        min_cnt=0,
+        min_chain_score=0,
+        best_n=50,
+    )
+    
+    # Process reads
+    results = []
+    for name, seq1, seq2, qua1, qua2 in batch:
+        mapped = run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib, max_mismatches)
+        results.append((name, mapped))
+    
+    return results
 
 
 def find_properly_paired_hits(hits, fwd=True):
@@ -401,7 +451,7 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
     return mapped
 
 
-def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatches=10, threads=8):
+def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatches=10, threads=8, num_processes=None):
     """
     Map FASTQ reads to reference genome using dual-base conversion chemistry.
     
@@ -415,7 +465,8 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
         output_file: Path to output BAM file
         fwd_lib: True for forward library, False for reverse library
         max_mismatches: Maximum allowed bad mismatches for filtering
-        threads: Number of threads for indexing and mapping (default: 8)
+        threads: Total number of threads to use (default: 8)
+        num_processes: Number of parallel processes (default: threads//2, min 1)
     
     Output BAM tags:
         - MD:Z: Mismatch/deletion string (standard SAM tag)
@@ -427,6 +478,16 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
         - NS:i: Number of non-conversion mismatches (sequencing errors)
         - NC:i: Number of clipped bases and indels
     """
+    # Determine number of processes and threads per process
+    # Note: Multiprocessing has overhead, so only use it for large datasets
+    # For now, default to single process (num_processes=1) for stability
+    if num_processes is None:
+        num_processes = 1  # Default to single process for stability
+    threads_per_worker = max(1, threads // num_processes) if num_processes > 1 else threads
+    
+    # Batch size: larger batches for fewer processes
+    batch_size = max(100, 1000 // num_processes)
+    
     # Only need MK converted reference for directional mapping
     mk_file = ref_file + ".mk.fa"
     km_file = ref_file + ".km.fa"  # Temporary file, will be removed
@@ -437,150 +498,286 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
         # Remove KM file (not needed)
         if os.path.exists(km_file):
             os.remove(km_file)
-
-    # Load original reference for extracting unconverted sequences
-    idx0 = mp.Aligner(
-        fn_idx_in=ref_file,
-        preset="sr",
-        n_threads=threads,
-        k=10,
-        w=10,
-        min_cnt=0,
-        min_chain_score=0,
-        best_n=50,
-    )
-    
-    # Load MK converted reference
-    idx_mk = mp.Aligner(
-        fn_idx_in=mk_file,
-        preset="sr",
-        n_threads=threads,
-        k=10,
-        w=10,
-        min_cnt=0,
-        min_chain_score=0,
-        best_n=50,
-    )
     
     # Create BAM header
     header = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": []}
     for name, seq, *_ in mp.fastx_read(ref_file):
         header["SQ"].append({"SN": name, "LN": len(seq)})
 
+    # Prepare worker function
+    worker_func = partial(
+        _worker_process_reads,
+        ref_file=ref_file,
+        mk_file=mk_file,
+        fwd_lib=fwd_lib,
+        max_mismatches=max_mismatches,
+        threads_per_worker=threads_per_worker
+    )
+    
     # Write BAM file
     with pysam.AlignmentFile(output_file, "wb", header=header) as bam_out:
         if r2_file is None:
-            # Single-end
+            # Single-end with parallel processing
             with Progress() as progress:
                 task = progress.add_task("Mapping reads: 0 (0:00:00)", total=None)
                 count = 0
+                batch = []
+                
+                # Collect reads into batches
                 for name1, seq1, qua1 in mp.fastx_read(r1_file):
-                    # Get mapped reads
-                    mapped = run_mapping(name1, seq1, None, qua1, None, idx0, idx_mk, fwd_lib, max_mismatches)
+                    batch.append((name1, seq1, None, qua1, None))
                     
-                    # Write to BAM
-                    for i, item in enumerate(mapped):
-                        map1 = item[1]
-                        # Extract tags from map1
-                        tags1 = {}
-                        for tag_str in map1[11:]:
-                            parts = tag_str.split(':', 2)
-                            if len(parts) == 3:
-                                tag_name, tag_type, tag_value = parts
-                                if tag_type == 'i':
-                                    tags1[tag_name] = int(tag_value)
-                                else:
-                                    tags1[tag_name] = tag_value
+                    if len(batch) >= batch_size:
+                        # Process batch in parallel
+                        if num_processes > 1:
+                            # Split batch into chunks for workers
+                            chunk_size = max(1, len(batch) // num_processes)
+                            chunks = [batch[i:i + chunk_size] for i in range(0, len(batch), chunk_size)]
+                            
+                            with Pool(processes=num_processes) as pool:
+                                results = pool.map(worker_func, chunks)
+                        else:
+                            # Single process mode
+                            results = [worker_func(batch)]
                         
-                        a1 = pysam.AlignedSegment(header=bam_out.header)
-                        a1.query_name = map1[0]
-                        a1.flag = map1[1] + (256 if i > 0 else 0)
-                        a1.reference_name = map1[2]
-                        a1.reference_start = map1[3] - 1
-                        a1.mapping_quality = map1[4]
-                        a1.cigarstring = map1[5]
-                        a1.next_reference_name = map1[6]
-                        a1.next_reference_start = map1[7]
-                        a1.template_length = map1[8]
-                        a1.query_sequence = map1[9]
-                        a1.query_qualities = pysam.qualitystring_to_array(map1[10])
-                        for tag_name, tag_value in tags1.items():
-                            a1.set_tag(tag_name, tag_value)
-                        bam_out.write(a1)
+                        # Write results to BAM
+                        for chunk_results in results:
+                            for name, mapped in chunk_results:
+                                for i, item in enumerate(mapped):
+                                    map1 = item[1]
+                                    # Extract tags from map1
+                                    tags1 = {}
+                                    for tag_str in map1[11:]:
+                                        parts = tag_str.split(':', 2)
+                                        if len(parts) == 3:
+                                            tag_name, tag_type, tag_value = parts
+                                            if tag_type == 'i':
+                                                tags1[tag_name] = int(tag_value)
+                                            else:
+                                                tags1[tag_name] = tag_value
+                                    
+                                    a1 = pysam.AlignedSegment(header=bam_out.header)
+                                    a1.query_name = map1[0]
+                                    a1.flag = map1[1] + (256 if i > 0 else 0)
+                                    a1.reference_name = map1[2]
+                                    a1.reference_start = map1[3] - 1
+                                    a1.mapping_quality = map1[4]
+                                    a1.cigarstring = map1[5]
+                                    a1.next_reference_name = map1[6]
+                                    a1.next_reference_start = map1[7]
+                                    a1.template_length = map1[8]
+                                    a1.query_sequence = map1[9]
+                                    a1.query_qualities = pysam.qualitystring_to_array(map1[10])
+                                    for tag_name, tag_value in tags1.items():
+                                        a1.set_tag(tag_name, tag_value)
+                                    bam_out.write(a1)
+                                
+                                count += 1
+                        
+                        batch = []
+                        progress.update(task, description=f"Mapping reads: {count:,} ({format_duration(progress.tasks[task].elapsed)})")
+                
+                # Process remaining reads
+                if batch:
+                    if num_processes > 1:
+                        chunk_size = max(1, len(batch) // num_processes)
+                        chunks = [batch[i:i + chunk_size] for i in range(0, len(batch), chunk_size)]
+                        with Pool(processes=num_processes) as pool:
+                            results = pool.map(worker_func, chunks)
+                    else:
+                        results = [worker_func(batch)]
                     
-                    count += 1
-                    if count % 10 == 0:
-                        progress.update(task, description=f"Mapping reads: {count} ({format_duration(progress.tasks[task].elapsed)})")
+                    for chunk_results in results:
+                        for name, mapped in chunk_results:
+                            for i, item in enumerate(mapped):
+                                map1 = item[1]
+                                tags1 = {}
+                                for tag_str in map1[11:]:
+                                    parts = tag_str.split(':', 2)
+                                    if len(parts) == 3:
+                                        tag_name, tag_type, tag_value = parts
+                                        if tag_type == 'i':
+                                            tags1[tag_name] = int(tag_value)
+                                        else:
+                                            tags1[tag_name] = tag_value
+                                
+                                a1 = pysam.AlignedSegment(header=bam_out.header)
+                                a1.query_name = map1[0]
+                                a1.flag = map1[1] + (256 if i > 0 else 0)
+                                a1.reference_name = map1[2]
+                                a1.reference_start = map1[3] - 1
+                                a1.mapping_quality = map1[4]
+                                a1.cigarstring = map1[5]
+                                a1.next_reference_name = map1[6]
+                                a1.next_reference_start = map1[7]
+                                a1.template_length = map1[8]
+                                a1.query_sequence = map1[9]
+                                a1.query_qualities = pysam.qualitystring_to_array(map1[10])
+                                for tag_name, tag_value in tags1.items():
+                                    a1.set_tag(tag_name, tag_value)
+                                bam_out.write(a1)
+                            
+                            count += 1
+                    
+                    progress.update(task, description=f"Mapping reads: {count:,} ({format_duration(progress.tasks[task].elapsed)})")
         else:
-            # Paired-end
+            # Paired-end with parallel processing
             with Progress() as progress:
                 task = progress.add_task("Mapping reads: 0 (0:00:00)", total=None)
                 count = 0
+                batch = []
+                
+                # Collect reads into batches
                 for (name1, seq1, qua1), (name2, seq2, qua2) in zip(
                     mp.fastx_read(r1_file), mp.fastx_read(r2_file)
                 ):
                     if name1 != name2:
                         raise ValueError("r1 and r2 not in the same order")
                     
-                    # Get mapped reads
-                    mapped = run_mapping(name1, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib, max_mismatches)
+                    batch.append((name1, seq1, seq2, qua1, qua2))
                     
-                    # Write to BAM
-                    for i, item in enumerate(mapped):
-                        map1, map2 = item[1], item[2]
-                        # Extract tags from map1 and map2
-                        tags1 = {}
-                        for tag_str in map1[11:]:
-                            parts = tag_str.split(':', 2)
-                            if len(parts) == 3:
-                                tag_name, tag_type, tag_value = parts
-                                if tag_type == 'i':
-                                    tags1[tag_name] = int(tag_value)
-                                else:
-                                    tags1[tag_name] = tag_value
+                    if len(batch) >= batch_size:
+                        # Process batch in parallel
+                        if num_processes > 1:
+                            # Split batch into chunks for workers
+                            chunk_size = max(1, len(batch) // num_processes)
+                            chunks = [batch[i:i + chunk_size] for i in range(0, len(batch), chunk_size)]
+                            
+                            with Pool(processes=num_processes) as pool:
+                                results = pool.map(worker_func, chunks)
+                        else:
+                            # Single process mode
+                            results = [worker_func(batch)]
                         
-                        tags2 = {}
-                        for tag_str in map2[11:]:
-                            parts = tag_str.split(':', 2)
-                            if len(parts) == 3:
-                                tag_name, tag_type, tag_value = parts
-                                if tag_type == 'i':
-                                    tags2[tag_name] = int(tag_value)
-                                else:
-                                    tags2[tag_name] = tag_value
+                        # Write results to BAM
+                        for chunk_results in results:
+                            for name, mapped in chunk_results:
+                                for i, item in enumerate(mapped):
+                                    map1, map2 = item[1], item[2]
+                                    # Extract tags from map1 and map2
+                                    tags1 = {}
+                                    for tag_str in map1[11:]:
+                                        parts = tag_str.split(':', 2)
+                                        if len(parts) == 3:
+                                            tag_name, tag_type, tag_value = parts
+                                            if tag_type == 'i':
+                                                tags1[tag_name] = int(tag_value)
+                                            else:
+                                                tags1[tag_name] = tag_value
+                                    
+                                    tags2 = {}
+                                    for tag_str in map2[11:]:
+                                        parts = tag_str.split(':', 2)
+                                        if len(parts) == 3:
+                                            tag_name, tag_type, tag_value = parts
+                                            if tag_type == 'i':
+                                                tags2[tag_name] = int(tag_value)
+                                            else:
+                                                tags2[tag_name] = tag_value
+                                    
+                                    a1 = pysam.AlignedSegment(header=bam_out.header)
+                                    a1.query_name = map1[0]
+                                    a1.flag = map1[1] + (256 if i > 0 else 0)
+                                    a1.reference_name = map1[2]
+                                    a1.reference_start = map1[3] - 1
+                                    a1.mapping_quality = map1[4]
+                                    a1.cigarstring = map1[5]
+                                    a1.next_reference_name = map1[6]
+                                    a1.next_reference_start = map1[7] - 1
+                                    a1.template_length = map1[8]
+                                    a1.query_sequence = map1[9]
+                                    a1.query_qualities = pysam.qualitystring_to_array(map1[10])
+                                    for tag_name, tag_value in tags1.items():
+                                        a1.set_tag(tag_name, tag_value)
+                                    bam_out.write(a1)
+                                    
+                                    a2 = pysam.AlignedSegment(header=bam_out.header)
+                                    a2.query_name = map2[0]
+                                    a2.flag = map2[1] + (256 if i > 0 else 0)
+                                    a2.reference_name = map2[2]
+                                    a2.reference_start = map2[3] - 1
+                                    a2.mapping_quality = map2[4]
+                                    a2.cigarstring = map2[5]
+                                    a2.next_reference_name = map2[6]
+                                    a2.next_reference_start = map2[7] - 1
+                                    a2.template_length = map2[8]
+                                    a2.query_sequence = map2[9]
+                                    a2.query_qualities = pysam.qualitystring_to_array(map2[10])
+                                    for tag_name, tag_value in tags2.items():
+                                        a2.set_tag(tag_name, tag_value)
+                                    bam_out.write(a2)
+                                
+                                count += 1
                         
-                        a1 = pysam.AlignedSegment(header=bam_out.header)
-                        a1.query_name = map1[0]
-                        a1.flag = map1[1] + (256 if i > 0 else 0)
-                        a1.reference_name = map1[2]
-                        a1.reference_start = map1[3] - 1
-                        a1.mapping_quality = map1[4]
-                        a1.cigarstring = map1[5]
-                        a1.next_reference_name = map1[6]
-                        a1.next_reference_start = map1[7] - 1
-                        a1.template_length = map1[8]
-                        a1.query_sequence = map1[9]
-                        a1.query_qualities = pysam.qualitystring_to_array(map1[10])
-                        for tag_name, tag_value in tags1.items():
-                            a1.set_tag(tag_name, tag_value)
-                        bam_out.write(a1)
-                        
-                        a2 = pysam.AlignedSegment(header=bam_out.header)
-                        a2.query_name = map2[0]
-                        a2.flag = map2[1] + (256 if i > 0 else 0)
-                        a2.reference_name = map2[2]
-                        a2.reference_start = map2[3] - 1
-                        a2.mapping_quality = map2[4]
-                        a2.cigarstring = map2[5]
-                        a2.next_reference_name = map2[6]
-                        a2.next_reference_start = map2[7] - 1
-                        a2.template_length = map2[8]
-                        a2.query_sequence = map2[9]
-                        a2.query_qualities = pysam.qualitystring_to_array(map2[10])
-                        for tag_name, tag_value in tags2.items():
-                            a2.set_tag(tag_name, tag_value)
-                        bam_out.write(a2)
+                        batch = []
+                        progress.update(task, description=f"Mapping reads: {count:,} ({format_duration(progress.tasks[task].elapsed)})")
+                
+                # Process remaining reads
+                if batch:
+                    if num_processes > 1:
+                        chunk_size = max(1, len(batch) // num_processes)
+                        chunks = [batch[i:i + chunk_size] for i in range(0, len(batch), chunk_size)]
+                        with Pool(processes=num_processes) as pool:
+                            results = pool.map(worker_func, chunks)
+                    else:
+                        results = [worker_func(batch)]
                     
-                    count += 1
-                    if count % 10 == 0:
-                        progress.update(task, description=f"Mapping reads: {count} ({format_duration(progress.tasks[task].elapsed)})")
+                    for chunk_results in results:
+                        for name, mapped in chunk_results:
+                            for i, item in enumerate(mapped):
+                                map1, map2 = item[1], item[2]
+                                tags1 = {}
+                                for tag_str in map1[11:]:
+                                    parts = tag_str.split(':', 2)
+                                    if len(parts) == 3:
+                                        tag_name, tag_type, tag_value = parts
+                                        if tag_type == 'i':
+                                            tags1[tag_name] = int(tag_value)
+                                        else:
+                                            tags1[tag_name] = tag_value
+                                
+                                tags2 = {}
+                                for tag_str in map2[11:]:
+                                    parts = tag_str.split(':', 2)
+                                    if len(parts) == 3:
+                                        tag_name, tag_type, tag_value = parts
+                                        if tag_type == 'i':
+                                            tags2[tag_name] = int(tag_value)
+                                        else:
+                                            tags2[tag_name] = tag_value
+                                
+                                a1 = pysam.AlignedSegment(header=bam_out.header)
+                                a1.query_name = map1[0]
+                                a1.flag = map1[1] + (256 if i > 0 else 0)
+                                a1.reference_name = map1[2]
+                                a1.reference_start = map1[3] - 1
+                                a1.mapping_quality = map1[4]
+                                a1.cigarstring = map1[5]
+                                a1.next_reference_name = map1[6]
+                                a1.next_reference_start = map1[7] - 1
+                                a1.template_length = map1[8]
+                                a1.query_sequence = map1[9]
+                                a1.query_qualities = pysam.qualitystring_to_array(map1[10])
+                                for tag_name, tag_value in tags1.items():
+                                    a1.set_tag(tag_name, tag_value)
+                                bam_out.write(a1)
+                                
+                                a2 = pysam.AlignedSegment(header=bam_out.header)
+                                a2.query_name = map2[0]
+                                a2.flag = map2[1] + (256 if i > 0 else 0)
+                                a2.reference_name = map2[2]
+                                a2.reference_start = map2[3] - 1
+                                a2.mapping_quality = map2[4]
+                                a2.cigarstring = map2[5]
+                                a2.next_reference_name = map2[6]
+                                a2.next_reference_start = map2[7] - 1
+                                a2.template_length = map2[8]
+                                a2.query_sequence = map2[9]
+                                a2.query_qualities = pysam.qualitystring_to_array(map2[10])
+                                for tag_name, tag_value in tags2.items():
+                                    a2.set_tag(tag_name, tag_value)
+                                bam_out.write(a2)
+                            
+                            count += 1
+                    
+                    progress.update(task, description=f"Mapping reads: {count:,} ({format_duration(progress.tasks[task].elapsed)})")
