@@ -1,4 +1,8 @@
+import importlib.metadata
+
 import rich_click as click
+
+__VERSION__ = importlib.metadata.version("coralsnake")
 
 click.rich_click.COMMAND_GROUPS = {
     "coralsnake": [
@@ -17,7 +21,7 @@ click.rich_click.STYLE_OPTION = "bold green"
     help="Coralsnake (transcriptome mapping utils)",
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
-@click.version_option(None, "-v", "--version")
+@click.version_option(__VERSION__, "--version", "-v")
 @click.pass_context
 def cli(ctx):
     pass
@@ -179,9 +183,9 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
 def map(ref_file, r1_file, r2_file, output_file, strand, max_mismatches, threads):
     from .mapping import map_file
 
-    fwd_lib = (strand.lower() == "forward")
+    fwd_lib = strand.lower() == "forward"
     map_file(ref_file, r1_file, r2_file, output_file, fwd_lib, max_mismatches, threads)
-    
+
     print(f"\n✅ Mapping completed! Output saved to: {output_file}")
 
 
@@ -262,7 +266,12 @@ def annot(
     required=False,
 )
 @click.option(
-    "--gene-name-regex", "-r", "gene_name_regex", help="Gene name regex.", default=None, type=str
+    "--gene-name-regex",
+    "-r",
+    "gene_name_regex",
+    help="Gene name regex.",
+    default=None,
+    type=str,
 )
 @click.option(
     "--gene-biotype-list",

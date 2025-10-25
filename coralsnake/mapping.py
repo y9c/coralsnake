@@ -591,4 +591,4 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
                     
                     count += 1
                     if count % 10 == 0:
-                        progress.update(task, description=f"Mapping reads: {count} ({format_duration(progress.tasks[task].elapsed)})")
+                        progress.update(task, description=f"Mapping reads: {count:,} ({format_duration(progress.tasks[task].elapsed)})")
