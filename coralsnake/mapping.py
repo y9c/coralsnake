@@ -15,7 +15,6 @@ import pysam
 from rich.progress import Progress
 
 from .utils import format_duration, mk_conversion, km_conversion
-from .conversion import mk_convert_file
 
 
 def find_properly_paired_hits(hits, fwd=True):
@@ -62,78 +61,35 @@ def cal_md_and_tag(cigar, seq, ref, fwd):
     """
     Calculate MD tag and custom tags for dual-base conversion chemistry.
     
+    This function generates the MD tag (mismatch/deletion string) and calculates
+    custom tags for tracking conversion statistics in dual-base conversion sequencing.
+    
     Dual-base conversion chemistry (not standard bisulfite):
     - MK conversion: C->T AND A->G simultaneously
     - KM conversion: G->A AND T->C simultaneously
     
     Args:
-        fwd: if True, expect MK conversions (C->T, A->G)
-             if False, expect KM conversions (G->A, T->C)
-
-    Calculate MD tag
-    M (0): Alignment match
-    I (1): Insertion to the reference
-    D (2): Deletion from the reference
-    N (3): Skipped region from the reference
-    S (4): Soft clipping
-    H (5): Hard clipping
-    P (6): Padding
-    = (7): Sequence match
-    X (8): Sequence mismatch
-
-    Some tags:
-    Yf:i:<N>: Number of (A to G) conversions are detected in the read.
-    Zf:i:<N>: Number of (A to A) un-converted bases are detected in the read. Yf + Zf = total number of bases which can be converted in the read sequence.
-    Yc:i:<N>: Number of (C to T) conversions are detected in the read.
-    Zc:i:<N>: Number of (C to C) un-converted bases are detected in the read. Yc + Zc = total number of bases which can be converted in the read
-    NS:i:<N>: Number of substitutions are detected in the read.
-    NC:i:<N>: Number of clipped bases and INDEL bases are detected in the read.
-
-
-    ### add tag function that I used previously, learn from this function
-    for read_pos, _, ref_base in read.get_aligned_pairs(with_seq=True):
-        # Dn not forget to convert the ref_base to upper case
-        ref_base = ref_base.upper() if ref_base is not None else None
-        read_base = s[read_pos] if read_pos is not None else None
-        if strand == "+":
-            if ref_base == "A":
-                if read_base == "G":
-                    yf += 1
-                elif read_base == "A":
-                    zf += 1
-                elif read_base is not None:
-                    ns += 1
-            elif ref_base == "C":
-                if read_base == "T":
-                    yc += 1
-                elif read_base == "C":
-                    zc += 1
-                elif read_base is not None:
-                    ns += 1
-            elif ref_base is None or read_base is None:
-                nc += 1
-            elif ref_base != read_base:
-                ns += 1
-
-        else:
-            if ref_base == "T":
-                if read_base == "C":
-                    yf += 1
-                elif read_base == "T":
-                    zf += 1
-                elif read_base is not None:
-                    ns += 1
-            elif ref_base == "G":
-                if read_base == "A":
-                    yc += 1
-                elif read_base == "G":
-                    zc += 1
-                elif read_base is not None:
-                    ns += 1
-            elif ref_base is None or read_base is None:
-                nc += 1
-            elif ref_base != read_base:
-                ns += 1
+        cigar: List of CIGAR operations [(length, operation), ...]
+        seq: Query sequence (read)
+        ref: Reference sequence
+        fwd: If True, expect MK conversions (C->T, A->G)
+             If False, expect KM conversions (G->A, T->C)
+    
+    Returns:
+        Tuple of (md_tag, yf, zf, yc, zc, ns, nc) where:
+        - md_tag: MD tag string for SAM/BAM format
+        - yf: Number of A->G conversions (MK) or T->C conversions (KM)
+        - zf: Number of A->A matches (MK) or T->T matches (KM)
+        - yc: Number of C->T conversions (MK) or G->A conversions (KM)
+        - zc: Number of C->C matches (MK) or G->G matches (KM)
+        - ns: Number of non-conversion mismatches (sequencing errors)
+        - nc: Number of clipped bases and indels
+    
+    CIGAR operations:
+        M (0): Alignment match/mismatch
+        I (1): Insertion to the reference
+        D (2): Deletion from the reference
+        S (4): Soft clipping
     """
     yf = 0
     zf = 0
@@ -296,28 +252,40 @@ def filter_hits(hits, seq1, seq2):
     return filtered_hits
 
 
-def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_km, idx_mk, fwd_lib=True, max_mismatches=10):
-    # sam format specification
-    # 1. QNAME: Query template NAME
-    # 2. FLAG: bitwise FLAG
-    # 3. RNAME: Reference sequence NAME
-    # 4. POS: 1-based leftmost POSition/coordinate of clipped sequence
-    # 5. MAPQ: MAPping Quality (Phred-scaled)
-    # 6. CIGAR: CIGAR string
-    # 7. RNEXT: Reference name of the mate/next read
-    # 8. PNEXT: Position of the mate/next read
-    # 9. TLEN: observed Template LENgth
-    # 10. SEQ: segment SEQuence
-    # 11. QUAL: ASCII of Phred-scaled base QUALity+33
-    # 12. TAG: additional information
-
-    # q_st  q_en  strand  ctg  ctg_len  r_st  r_en  mlen  blen  mapq  cg:Z:cigar_str
-    # Dual-base conversion chemistry (similar to bisulfite but converts TWO bases):
-    # MK conversion: C->T AND A->G simultaneously
-    # KM conversion: G->A AND T->C simultaneously (reverse complement)
-    # Only use MK reference, try both orientations
-    # Orientation 1: read1 MK forward, read2 KM reverse
-    # Orientation 2: read1 KM reverse, read2 MK forward
+def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mismatches=10):
+    """
+    Map reads using dual-base conversion chemistry with directional filtering.
+    
+    This function implements a directional mapping strategy for dual-base conversion
+    sequencing (similar to bisulfite-seq but converts TWO bases simultaneously).
+    It tries both conversion orientations and filters based on conversion patterns.
+    
+    Conversion chemistry:
+        - MK conversion: C->T AND A->G simultaneously
+        - KM conversion: G->A AND T->C simultaneously (reverse complement)
+    
+    Mapping strategy:
+        - Uses only MK converted reference
+        - Tries two orientations:
+            * Orientation 1: read1 MK, read2 KM (for forward library)
+            * Orientation 2: read1 KM, read2 MK (for forward library)
+        - Filters alignments based on wrong-direction conversions
+    
+    Args:
+        name: Read name/identifier
+        seq1: Read 1 sequence
+        seq2: Read 2 sequence (None for single-end)
+        qua1: Read 1 quality string
+        qua2: Read 2 quality string (None for single-end)
+        idx0: Original (unconverted) reference index
+        idx_mk: MK converted reference index
+        fwd_lib: True for forward library, False for reverse library
+        max_mismatches: Maximum allowed bad mismatches (wrong conversions + errors)
+    
+    Returns:
+        List of [score, map1, map2] for paired-end or [score, map1] for single-end
+        where map1/map2 are lists of SAM fields plus custom tags
+    """
     idx = idx_mk
     
     mapped = []
@@ -539,11 +507,40 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_km, idx_mk, fwd_lib=True
 
 
 def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatches=10):
-    # Only need MK converted reference for directional bisulfite sequencing
+    """
+    Map FASTQ reads to reference genome using dual-base conversion chemistry.
+    
+    This is the main entry point for the mapping pipeline. It handles reference
+    conversion, index loading, read processing, and BAM file generation.
+    
+    Args:
+        ref_file: Path to reference FASTA file
+        r1_file: Path to read 1 FASTQ file (can be gzipped)
+        r2_file: Path to read 2 FASTQ file (None for single-end, can be gzipped)
+        output_file: Path to output BAM file
+        fwd_lib: True for forward library, False for reverse library
+        max_mismatches: Maximum allowed bad mismatches for filtering
+    
+    Output BAM tags:
+        - MD:Z: Mismatch/deletion string (standard SAM tag)
+        - ST:i: Strand/orientation (1=MK conversion, 2=KM conversion)
+        - Yf:i: Number of forward conversions (A->G for MK, T->C for KM)
+        - Zf:i: Number of forward matches (A->A for MK, T->T for KM)
+        - Yc:i: Number of C conversions (C->T for MK, G->A for KM)
+        - Zc:i: Number of C matches (C->C for MK, G->G for KM)
+        - NS:i: Number of non-conversion mismatches (sequencing errors)
+        - NC:i: Number of clipped bases and indels
+    """
+    # Only need MK converted reference for directional mapping
     mk_file = ref_file + ".mk.fa"
-    km_file = ref_file + ".km.fa"  # Still create for compatibility
-    if not os.path.exists(mk_file) or not os.path.exists(km_file):
-        mk_convert_file(ref_file, mk_file, km_file, include_ys_tag=False)
+    if not os.path.exists(mk_file):
+        from .conversion import convert_file
+        # Only create MK converted reference (no need for KM)
+        convert_file(ref_file, mk_file, mk_file + ".tmp", "AC", "GT", include_ys_tag=False)
+        # Remove temporary KM file
+        import os as _os
+        if _os.path.exists(mk_file + ".tmp"):
+            _os.remove(mk_file + ".tmp")
 
     # Load original reference for extracting unconverted sequences
     idx0 = mp.Aligner(
@@ -557,7 +554,7 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
         best_n=50,
     )
     
-    # Load MK converted reference (only one needed)
+    # Load MK converted reference
     idx_mk = mp.Aligner(
         fn_idx_in=mk_file,
         preset="sr",
@@ -569,8 +566,6 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
         best_n=50,
     )
     
-    # For compatibility, keep idx_km as None (not used anymore)
-    idx_km = None
     # Create BAM header
     header = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": []}
     for name, seq, *_ in mp.fastx_read(ref_file):
@@ -585,7 +580,7 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
                 count = 0
                 for name1, seq1, qua1 in mp.fastx_read(r1_file):
                     # Get mapped reads
-                    mapped = run_mapping(name1, seq1, None, qua1, None, idx0, idx_km, idx_mk, fwd_lib, max_mismatches)
+                    mapped = run_mapping(name1, seq1, None, qua1, None, idx0, idx_mk, fwd_lib, max_mismatches)
                     
                     # Write to BAM
                     for i, item in enumerate(mapped):
@@ -632,7 +627,7 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
                         raise ValueError("r1 and r2 not in the same order")
                     
                     # Get mapped reads
-                    mapped = run_mapping(name1, seq1, seq2, qua1, qua2, idx0, idx_km, idx_mk, fwd_lib, max_mismatches)
+                    mapped = run_mapping(name1, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib, max_mismatches)
                     
                     # Write to BAM
                     for i, item in enumerate(mapped):
@@ -693,24 +688,3 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
                     count += 1
                     if count % 100 == 0:
                         progress.update(task, description=f"Mapping reads: {count} ({format_duration(progress.tasks[task].elapsed)})")
-
-
-if __name__ == "__main__":
-    ref_file = "./test/ref.fa"
-    r1_file = "./test/r1.fq.gz"
-    r2_file = "./test/r2.fq.gz"
-    map_file(ref_file, r1_file, r2_file, fwd_lib=False)
-
-# # ## # on forward strand example
-# seq_name = "test1"
-# seq1 = "TTTTTTTTTTTTTTTTTTTTTTTTTTTCGGGTTGCTTGGGAATGCAGCCCAAAGCGGGTGGTAAACT"
-# # seq1 = "TTGGGTTGTTTGGGGGTGTGGTGTGGGGTGGGT"
-# qua1 = "IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"
-# # seq2 = "AGTTTACCACCCGCTTTGGGCTGCATTCCCAAGCA"
-# seq2 = "AGCCCACCACCCGCCCCGGGCCGCACCCCCAAGCA"
-# qua2 = "IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"
-#
-# run_mapping(seq_name, seq1, seq2, qua1, qua2, idx0, idx_km, idx_mk, fwd_lib=True)
-## # on rev strand example
-## # seq1 = "GGGTCCTAACACGTGCGCTCGTGCTC"
-## # seq2 = "TCTCGCCCGCCGCGCCGGGGAGGTGGAGCACGAG"

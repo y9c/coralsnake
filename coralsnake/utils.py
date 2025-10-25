@@ -29,13 +29,15 @@ def reverse_complement(seq: str) -> str:
     return seqops.fast_reverse_complement(seq)
 
 
+@lru_cache(maxsize=10000)
 def mk_conversion(seq: str) -> str:
-    """Convert A->G, C->T (M to K conversion)."""
+    """Convert A->G, C->T (M to K conversion). Cached for performance."""
     return seqops.fast_base_conversion(seq, "AC", "GT")
 
 
+@lru_cache(maxsize=10000)
 def km_conversion(seq: str) -> str:
-    """Convert G->A, T->C (K to M conversion)."""
+    """Convert G->A, T->C (K to M conversion). Cached for performance."""
     return seqops.fast_base_conversion(seq, "GT", "AC")
 
 
