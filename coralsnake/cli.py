@@ -157,9 +157,9 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
 @click.option("-r", "--ref-file", help="reference file", required=True)
-@click.option("-1", "--r1-file", help="r1 file", required=True)
+@click.option("-1", "--r1-file", help="r1 file", required=False)
 @click.option("-2", "--r2-file", help="r2 file", required=False)
-@click.option("-o", "--output-file", help="output bam file", required=True)
+@click.option("-o", "--output-file", help="output bam file", required=False)
 @click.option(
     "--strand",
     type=click.Choice(["forward", "reverse"], case_sensitive=False),
@@ -192,6 +192,18 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     default=0.5,
     help="Minimum mapping length ratio (mapped length / query length) for filtering hits (default: 0.5)",
 )
+@click.option(
+    "--index-dir",
+    type=click.Path(),
+    default=None,
+    help="Directory to store/load index files (.mmi). If specified, indices will be reused across runs. If not specified, uses temporary directory (default: None)",
+)
+@click.option(
+    "--index-only",
+    is_flag=True,
+    default=False,
+    help="Only build indices without mapping reads. Requires --index-dir to be specified. (default: False)",
+)
 def map(
     ref_file,
     r1_file,
@@ -202,8 +214,26 @@ def map(
     threads,
     min_alignment_length,
     min_mapping_ratio,
+    index_dir,
+    index_only,
 ):
     from .mapping import map_file
+
+    # Validate arguments
+    if index_only:
+        if not index_dir:
+            click.echo("❌ Error: --index-only requires --index-dir to be specified", err=True)
+            raise click.Abort()
+        if not r1_file and not r2_file and not output_file:
+            # Index-only mode, these are not needed
+            pass
+    else:
+        if not r1_file:
+            click.echo("❌ Error: -1/--r1-file is required for mapping", err=True)
+            raise click.Abort()
+        if not output_file:
+            click.echo("❌ Error: -o/--output-file is required for mapping", err=True)
+            raise click.Abort()
 
     fwd_lib = strand.lower() == "forward"
     map_file(
@@ -216,9 +246,14 @@ def map(
         threads,
         min_alignment_length,
         min_mapping_ratio,
+        index_dir,
+        index_only,
     )
 
-    print(f"\n✅ Mapping completed! Output saved to: {output_file}")
+    if index_only:
+        print(f"\n✅ Index building completed! Indices saved to: {index_dir}")
+    else:
+        print(f"\n✅ Mapping completed! Output saved to: {output_file}")
 
 
 @cli.command(

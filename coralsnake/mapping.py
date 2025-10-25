@@ -553,6 +553,8 @@ def map_file(
     threads=8,
     min_alignment_length=20,
     min_mapping_ratio=0.5,
+    index_dir=None,
+    index_only=False,
 ):
     """
     Map FASTQ reads to reference genome using dual-base conversion chemistry.
@@ -570,6 +572,10 @@ def map_file(
         threads: Number of threads for minimap2 indexing (default: 8)
                  Note: Currently only used for index loading, not for parallel mapping.
                  Parallel read mapping is planned for future versions.
+        min_alignment_length: Minimum alignment length for filtering (default: 20)
+        min_mapping_ratio: Minimum mapping length ratio for filtering (default: 0.5)
+        index_dir: Directory to store/load index files. If None, uses temporary directory (default: None)
+        index_only: If True, only build indices without mapping (default: False)
 
     Output BAM tags:
         - MD:Z: Mismatch/deletion string (standard SAM tag)
@@ -584,51 +590,75 @@ def map_file(
 
     Note: Alignments are sorted by AS score (best first) for primary/secondary assignment.
     """
-    # Create temporary directory for index files
-    temp_dir = tempfile.mkdtemp(prefix="coralsnake_")
-    mk_file = os.path.join(temp_dir, "ref.mk.fa")
-    idx0_file = os.path.join(temp_dir, "ref.orig.mmi")
-    idx_mk_file = os.path.join(temp_dir, "ref.mk.mmi")
+    # Determine index directory and cleanup behavior
+    if index_dir:
+        # User-specified directory: create if doesn't exist, don't clean up
+        os.makedirs(index_dir, exist_ok=True)
+        use_temp_dir = False
+        index_base_dir = index_dir
+    else:
+        # Temporary directory: will be cleaned up
+        use_temp_dir = True
+        index_base_dir = tempfile.mkdtemp(prefix="coralsnake_")
+    
+    mk_file = os.path.join(index_base_dir, "ref.mk.fa")
+    idx0_file = os.path.join(index_base_dir, "ref.orig.mmi")
+    idx_mk_file = os.path.join(index_base_dir, "ref.mk.mmi")
     try:
-        # Create MK converted reference and index files in temp directory
-        with Progress(transient=True) as progress:
-            task = progress.add_task("Converting reference...", total=None)
-            # Convert reference to MK (A->G, C->T) using fast C implementation
-            convert_file_realtime(ref_file, mk_file, "AC", "GT")
-            progress.update(task, description="✓ Reference converted")
-            # Load original reference and save index
-            progress.update(task, description="Indexing original reference...")
-            idx0 = mp.Aligner(
-                fn_idx_in=ref_file,
-                preset="sr",
-                n_threads=threads,
-                k=10,
-                w=10,
-                min_cnt=0,
-                min_chain_score=0,
-                best_n=50,
-                fn_idx_out=idx0_file,
-            )
-            progress.update(task, description="✓ Original reference indexed")
-            # Load MK converted reference and save index
-            progress.update(task, description="Indexing converted reference...")
-            idx_mk = mp.Aligner(
-                fn_idx_in=mk_file,
-                preset="sr",
-                n_threads=threads,
-                k=10,
-                w=10,
-                min_cnt=0,
-                min_chain_score=0,
-                best_n=50,
-                fn_idx_out=idx_mk_file,
-            )
-            progress.update(task, description="✓ Converted reference indexed")
+        # Check if indices already exist
+        indices_exist = os.path.exists(idx0_file) and os.path.exists(idx_mk_file)
+        
+        if indices_exist and not index_only:
+            # Load existing indices
+            with Progress(transient=True) as progress:
+                task = progress.add_task("Loading existing indices...", total=None)
+                idx0 = mp.Aligner(fn_idx_in=idx0_file, preset="sr", n_threads=threads)
+                idx_mk = mp.Aligner(fn_idx_in=idx_mk_file, preset="sr", n_threads=threads)
+                progress.update(task, description="✓ Indices loaded from disk")
+        else:
+            # Build new indices
+            with Progress(transient=True) as progress:
+                task = progress.add_task("Converting reference...", total=None)
+                # Convert reference to MK (A->G, C->T) using fast C implementation
+                convert_file_realtime(ref_file, mk_file, "AC", "GT")
+                progress.update(task, description="✓ Reference converted")
+                # Load original reference and save index
+                progress.update(task, description="Indexing original reference...")
+                idx0 = mp.Aligner(
+                    fn_idx_in=ref_file,
+                    preset="sr",
+                    n_threads=threads,
+                    k=10,
+                    w=10,
+                    min_cnt=0,
+                    min_chain_score=0,
+                    best_n=50,
+                    fn_idx_out=idx0_file,
+                )
+                progress.update(task, description="✓ Original reference indexed")
+                # Load MK converted reference and save index
+                progress.update(task, description="Indexing converted reference...")
+                idx_mk = mp.Aligner(
+                    fn_idx_in=mk_file,
+                    preset="sr",
+                    n_threads=threads,
+                    k=10,
+                    w=10,
+                    min_cnt=0,
+                    min_chain_score=0,
+                    best_n=50,
+                    fn_idx_out=idx_mk_file,
+                )
+                progress.update(task, description="✓ Converted reference indexed")
 
-            # Remove MK FASTA file after indexing (index file is sufficient)
-            if os.path.exists(mk_file):
-                os.remove(mk_file)
-            progress.update(task, description="Reference file created")
+                # Remove MK FASTA file after indexing (index file is sufficient)
+                if os.path.exists(mk_file):
+                    os.remove(mk_file)
+                progress.update(task, description="✓ Index files created")
+        
+        # If index-only mode, we're done
+        if index_only:
+            return
 
         # Create BAM header
         header = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": []}
@@ -717,6 +747,6 @@ def map_file(
                                 description=f"Mapping reads: {count:,} ({format_duration(progress.tasks[task].elapsed)})",
                             )
     finally:
-        # Clean up temporary directory
-        if os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir)
+        # Clean up temporary directory only if we created it
+        if use_temp_dir and os.path.exists(index_base_dir):
+            shutil.rmtree(index_base_dir)
