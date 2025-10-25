@@ -284,6 +284,8 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                 md1, yf, zf, yc, zc, ns, nc = cal_md_and_tag(cigar1, s1, ref1, is_orientation1)
                 md2, yf2, zf2, yc2, zc2, ns2, nc2 = cal_md_and_tag(cigar2, s2, ref2, is_orientation1)
 
+                combined_score = score1 + score2
+                
                 map1 = [
                     name,
                     flag1,
@@ -296,8 +298,9 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                     tlen,
                     s1,
                     q1,
-                    "MD:Z:" + md1,
-                    f"ST:i:{orientation}",  # 1 for C-to-T, 2 for G-to-A
+                    f"MD:Z:{md1}",
+                    f"ST:i:{orientation}",
+                    f"AS:i:{score1}",
                     f"Yf:i:{yf}",
                     f"Zf:i:{zf}",
                     f"Yc:i:{yc}",
@@ -317,8 +320,9 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                     -tlen,
                     s2,
                     q2,
-                    "MD:Z:" + md2,
-                    f"ST:i:{orientation}",  # 1 for C-to-T, 2 for G-to-A
+                    f"MD:Z:{md2}",
+                    f"ST:i:{orientation}",
+                    f"AS:i:{score2}",
                     f"Yf:i:{yf2}",
                     f"Zf:i:{zf2}",
                     f"Yc:i:{yc2}",
@@ -326,8 +330,7 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                     f"NS:i:{ns2}",
                     f"NC:i:{nc2}",
                 ]
-                score = hit1.mapq + hit2.mapq
-                mapped.append([score, map1, map2])
+                mapped.append([combined_score, map1, map2])
         else:
             # Single-end mapping
             for hit in filter_hits(
@@ -384,8 +387,9 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                     0,
                     s,
                     q,
-                    "MD:Z:" + md,
-                    f"ST:i:{orientation}",  # 1 for C-to-T, 2 for G-to-A
+                    f"MD:Z:{md}",
+                    f"ST:i:{orientation}",
+                    f"AS:i:{score}",
                     f"Yf:i:{yf}",
                     f"Zf:i:{zf}",
                     f"Yc:i:{yc}",
@@ -393,7 +397,6 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                     f"NS:i:{ns}",
                     f"NC:i:{nc}",
                 ]
-                score = hit.mapq
                 mapped.append([score, map1])
 
     random.shuffle(mapped)
@@ -421,13 +424,16 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
     
     Output BAM tags:
         - MD:Z: Mismatch/deletion string (standard SAM tag)
-        - ST:i: Strand/orientation (1=MK conversion, 2=KM conversion)
+        - ST:i: Orientation (1=MK conversion: C->T, A->G; 2=KM conversion: G->A, T->C)
+        - AS:i: Alignment score (directional conversion-aware, higher is better)
         - Yf:i: Number of forward conversions (A->G for MK, T->C for KM)
         - Zf:i: Number of forward matches (A->A for MK, T->T for KM)
         - Yc:i: Number of C conversions (C->T for MK, G->A for KM)
         - Zc:i: Number of C matches (C->C for MK, G->G for KM)
         - NS:i: Number of non-conversion mismatches (sequencing errors)
         - NC:i: Number of clipped bases and indels
+    
+    Note: Alignments are sorted by AS score (best first) for primary/secondary assignment.
     """
     # Only need MK converted reference for directional mapping
     mk_file = ref_file + ".mk.fa"
