@@ -134,22 +134,29 @@ def calculate_directional_score(cigar, seq, ref, is_orientation1):
     return seqops.fast_calculate_directional_score(cigar, seq, ref, is_orientation1)
 
 
-def filter_hits(hits, seq1, seq2):
+def filter_hits(hits, seq1, seq2, min_alignment_length=20, min_mapping_ratio=0.5):
     """
     Filter hits by the following rules:
     1. The mapping quality of the hit is greater than 0
-    2. The alignment length of the hit is greater than 20
-    3. The mapping length of the hit is larger than 50% of the query length (relaxed for bisulfite)
+    2. The alignment length of the hit is greater than min_alignment_length
+    3. The mapping length of the hit is larger than min_mapping_ratio of the query length
+    
+    Args:
+        hits: List of alignment hits
+        seq1: Read 1 sequence
+        seq2: Read 2 sequence (or None for single-end)
+        min_alignment_length: Minimum alignment length (default: 20)
+        min_mapping_ratio: Minimum mapping length ratio (default: 0.5)
     """
     filtered_hits = []
     for hit in hits:
         q_len = len(seq1) if hit.read_num == 1 else len(seq2)
-        if hit.mapq > 0 and hit.blen > 20 and hit.mlen > 0.5 * q_len:
+        if hit.mapq > 0 and hit.blen > min_alignment_length and hit.mlen > min_mapping_ratio * q_len:
             filtered_hits.append(hit)
     return filtered_hits
 
 
-def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mismatches=10):
+def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mismatches=10, min_alignment_length=20, min_mapping_ratio=0.5):
     """
     Map reads using dual-base conversion chemistry with directional filtering.
     
@@ -211,7 +218,8 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
             # Paired-end mapping
             for hit1, hit2 in find_properly_paired_hits(
                 filter_hits(
-                idx.map(seq1_conv, seq2=seq2_conv, cs=False, MD=False), seq1, seq2
+                    idx.map(seq1_conv, seq2=seq2_conv, cs=False, MD=False), 
+                    seq1, seq2, min_alignment_length, min_mapping_ratio
                 ),
                 fwd=True,  # Always use forward for MK reference
             ):
@@ -282,48 +290,40 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                 if total_bad > max_mismatches:
                     continue
                 
-                # Calculate MD tag and custom tags
-                md1, yf, zf, yc, zc, ns, nc = cal_md_and_tag(cigar1, s1, ref1, is_orientation1)
+                # Calculate MD tag and custom tags for both reads
+                md1, yf1, zf1, yc1, zc1, ns1, nc1 = cal_md_and_tag(cigar1, s1, ref1, is_orientation1)
                 md2, yf2, zf2, yc2, zc2, ns2, nc2 = cal_md_and_tag(cigar2, s2, ref2, is_orientation1)
 
                 combined_score = score1 + score2
                 
-                map1 = [
-                    name,
-                    flag1,
-                    hit1.ctg,
-                    hit1.r_st + 1,
-                    hit1.mapq,
-                    cigar_str1,
-                    hit2.ctg,
-                    hit2.r_st + 1,
-                    tlen,
-                    s1,
-                    q1,
-                    ("MD", md1),
+                # Calculate MAPQ based on alignment score (simple formula: min(60, score))
+                # For paired-end, use the minimum of the two scores
+                mapq = min(60, min(score1, score2))
+                
+                # Create common tags for both reads
+                common_tags = [
                     ("ST", orientation),
-                    ("AS", score1),
-                    ("Yf", yf),
-                    ("Zf", zf),
-                    ("Yc", yc),
-                    ("Zc", zc),
-                    ("NS", ns),
-                    ("NC", nc),
                 ]
-                map2 = [
-                    name,
-                    flag2,
-                    hit2.ctg,
-                    hit2.r_st + 1,
-                    hit2.mapq,
-                    cigar_str2,
-                    hit1.ctg,
-                    hit1.r_st + 1,
-                    -tlen,
-                    s2,
-                    q2,
+                
+                # Create map data for read1
+                tags1 = common_tags + [
+                    ("MD", md1),
+                    ("AS", score1),
+                    ("Yf", yf1),
+                    ("Zf", zf1),
+                    ("Yc", yc1),
+                    ("Zc", zc1),
+                    ("NS", ns1),
+                    ("NC", nc1),
+                ]
+                map1 = create_map_data(
+                    name, flag1, hit1.ctg, hit1.r_st + 1, mapq, cigar_str1,
+                    hit2.ctg, hit2.r_st + 1, tlen, s1, q1, tags1
+                )
+                
+                # Create map data for read2
+                tags2 = common_tags + [
                     ("MD", md2),
-                    ("ST", orientation),
                     ("AS", score2),
                     ("Yf", yf2),
                     ("Zf", zf2),
@@ -332,11 +332,17 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                     ("NS", ns2),
                     ("NC", nc2),
                 ]
+                map2 = create_map_data(
+                    name, flag2, hit2.ctg, hit2.r_st + 1, mapq, cigar_str2,
+                    hit1.ctg, hit1.r_st + 1, -tlen, s2, q2, tags2
+                )
+                
                 mapped.append([combined_score, map1, map2])
         else:
             # Single-end mapping
             for hit in filter_hits(
-                idx.map(seq1_conv, cs=False, MD=False), seq1, None
+                idx.map(seq1_conv, cs=False, MD=False), 
+                seq1, None, min_alignment_length, min_mapping_ratio
             ):
                 # Note: We don't filter by strand - the directional score will handle it
                 # Get reference sequence
@@ -377,18 +383,11 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                 # Calculate MD tag and custom tags
                 md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(cigar, s, ref, is_orientation1)
                 
-                map1 = [
-                    name,
-                    flag,
-                    hit.ctg,
-                    hit.r_st + 1,
-                    hit.mapq,
-                    cigar_str,
-                    "*",
-                    0,
-                    0,
-                    s,
-                    q,
+                # Calculate MAPQ based on alignment score (simple formula: min(60, score))
+                mapq = min(60, score)
+                
+                # Create tags
+                tags = [
                     ("MD", md),
                     ("ST", orientation),
                     ("AS", score),
@@ -399,11 +398,39 @@ def run_mapping(name, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib=True, max_mi
                     ("NS", ns),
                     ("NC", nc),
                 ]
+                map1 = create_map_data(
+                    name, flag, hit.ctg, hit.r_st + 1, mapq, cigar_str,
+                    "*", 0, 0, s, q, tags
+                )
                 mapped.append([score, map1])
 
     random.shuffle(mapped)
     mapped = sorted(mapped, key=lambda x: x[0], reverse=True)
     return mapped
+
+
+def create_map_data(name, flag, ctg, pos, mapq, cigar_str, mate_ctg, mate_pos, tlen, seq, qual, tags):
+    """
+    Create a map data list for BAM record.
+    
+    Args:
+        name: Read name
+        flag: SAM flag
+        ctg: Reference contig
+        pos: Reference position (1-based)
+        mapq: Mapping quality
+        cigar_str: CIGAR string
+        mate_ctg: Mate reference contig
+        mate_pos: Mate reference position (1-based)
+        tlen: Template length
+        seq: Query sequence
+        qual: Quality string
+        tags: List of (tag_name, tag_value) tuples
+    
+    Returns:
+        List containing SAM fields and tags
+    """
+    return [name, flag, ctg, pos, mapq, cigar_str, mate_ctg, mate_pos, tlen, seq, qual] + tags
 
 
 def create_bam_record(header, map_data, is_secondary):
@@ -438,7 +465,7 @@ def create_bam_record(header, map_data, is_secondary):
     return a
 
 
-def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatches=10, threads=8):
+def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatches=10, threads=8, min_alignment_length=20, min_mapping_ratio=0.5):
     """
     Map FASTQ reads to reference genome using dual-base conversion chemistry.
     
@@ -526,7 +553,7 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
                     count = 0
                     for name1, seq1, qua1 in mp.fastx_read(r1_file):
                         # Get mapped reads
-                        mapped = run_mapping(name1, seq1, None, qua1, None, idx0, idx_mk, fwd_lib, max_mismatches)
+                        mapped = run_mapping(name1, seq1, None, qua1, None, idx0, idx_mk, fwd_lib, max_mismatches, min_alignment_length, min_mapping_ratio)
                         
                         # Write to BAM
                         for i, item in enumerate(mapped):
@@ -549,7 +576,7 @@ def map_file(ref_file, r1_file, r2_file, output_file, fwd_lib=True, max_mismatch
                             raise ValueError("r1 and r2 not in the same order")
                         
                         # Get mapped reads
-                        mapped = run_mapping(name1, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib, max_mismatches)
+                        mapped = run_mapping(name1, seq1, seq2, qua1, qua2, idx0, idx_mk, fwd_lib, max_mismatches, min_alignment_length, min_mapping_ratio)
                         
                         # Write to BAM
                         for i, item in enumerate(mapped):

@@ -180,11 +180,23 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     default=8,
     help="Number of threads for minimap2 indexing (default: 8). Note: Currently only used for index loading. Parallel read mapping is planned for future versions.",
 )
-def map(ref_file, r1_file, r2_file, output_file, strand, max_mismatches, threads):
+@click.option(
+    "--min-alignment-length",
+    type=int,
+    default=20,
+    help="Minimum alignment length for filtering hits (default: 20)",
+)
+@click.option(
+    "--min-mapping-ratio",
+    type=float,
+    default=0.5,
+    help="Minimum mapping length ratio (mapped length / query length) for filtering hits (default: 0.5)",
+)
+def map(ref_file, r1_file, r2_file, output_file, strand, max_mismatches, threads, min_alignment_length, min_mapping_ratio):
     from .mapping import map_file
 
     fwd_lib = strand.lower() == "forward"
-    map_file(ref_file, r1_file, r2_file, output_file, fwd_lib, max_mismatches, threads)
+    map_file(ref_file, r1_file, r2_file, output_file, fwd_lib, max_mismatches, threads, min_alignment_length, min_mapping_ratio)
 
     print(f"\n✅ Mapping completed! Output saved to: {output_file}")
 
