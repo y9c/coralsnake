@@ -13,7 +13,6 @@ import tempfile
 import atexit
 import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import time
 from contextlib import ExitStack
 
 import mappy as mp
@@ -95,7 +94,7 @@ def _map_batch_worker(
     idx0 = _ALIGNER_IDX0
     idx_mk = _ALIGNER_IDXMK
 
-    t0 = time.perf_counter()
+    # timing removed
     results = []
     if not paired:
         for name1, seq1, qua1 in batch:
@@ -136,8 +135,7 @@ def _map_batch_worker(
                 )
             )
 
-    compute_sec = time.perf_counter() - t0
-    return results, compute_sec
+    return results
 
 
 # Per-process cached aligners (initialized once per worker)
@@ -521,7 +519,8 @@ def map_file(
     # Streaming batches in parallel (no file splitting). threads = workers
     paired = r2_file is not None
     with ExitStack() as stack:
-        bam_out = stack.enter_context(pysam.AlignmentFile(output_file, "wb", header=header))
+        mode = "w" if output_file.endswith(".sam") else "wb"
+        bam_out = stack.enter_context(pysam.AlignmentFile(output_file, mode, header=header))
         progress = stack.enter_context(Progress(
             SpinnerColumn(style="cyan"),
             TextColumn("[bold]Map[/bold]"),
@@ -532,12 +531,8 @@ def map_file(
         processed_reads = 0
         mapped_reads = 0
 
-        total_worker_sec = 0.0
-
-        def write_mapped(worker_result):
-            nonlocal processed_reads, mapped_reads, total_worker_sec
-            mapped, worker_sec = worker_result
-            total_worker_sec += worker_sec
+        def write_mapped(mapped):
+            nonlocal processed_reads, mapped_reads
             for read_result in mapped:
                 for i, item in enumerate(read_result):
                     if paired and len(item) == 3:
@@ -554,8 +549,7 @@ def map_file(
                 if read_result:
                     mapped_reads += 1
             elapsed = format_duration(progress.tasks[task].elapsed)
-            cpu = f"cpu~{format_duration(total_worker_sec)}"
-            progress.update(task, description=f"[green]{mapped_reads:,}[/green] / [white]{processed_reads:,}[/white] {unit} ([magenta]{elapsed}[/magenta], {cpu})")
+            progress.update(task, description=f"[green]{mapped_reads:,}[/green] / [white]{processed_reads:,}[/white] {unit} ([magenta]{elapsed}[/magenta])")
 
         if not paired:
             it1 = mp.fastx_read(r1_file)
