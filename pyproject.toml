@@ -1,6 +1,6 @@
 [project]
 name = "coralsnake"
-version = "0.0.113"
+version = "0.0.114"
 description = "Transcriptome mapping utils"
 authors = [{ name = "Chang Ye", email = "yech1990@gmail.com" }]
 requires-python = ">=3.10"
@@ -26,7 +26,10 @@ Repository = "https://github.com/y9c/coralsnake"
 coralsnake = "coralsnake.cli:cli"
 
 [dependency-groups]
-dev = ["setuptools>=70.1.1,<71"]
+dev = [
+  "setuptools>=70.1.1,<71",
+  "ruff>=0.6",
+]
 
 [build-system]
 requires = ["setuptools>=70.3.0", "wheel"]

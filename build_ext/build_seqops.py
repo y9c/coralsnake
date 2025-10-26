@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-import os
-import sys
 from distutils.core import setup, Extension
 
 # Define the C extension
