@@ -69,7 +69,8 @@ def _build_indices_with_progress(
         # Poll while conversion runs
         conv_status = "Converting..."
         while not fut_conv.done():
-            p1 = indexer1.progress_percent or 0.0
+            # If ORIG is done during conversion, mark it complete
+            p1 = 100.0 if fut_orig.done() else (indexer1.progress_percent or 0.0)
             on_update(conv_status, p1, 0.0)
             time.sleep(poll_interval)
         
@@ -81,8 +82,9 @@ def _build_indices_with_progress(
         
         # Poll both indices
         while not (fut_orig.done() and fut_mk.done()):
-            p1 = indexer1.progress_percent or 0.0
-            p2 = indexer2.progress_percent or 0.0
+            # If future is done but progress still 0, it completed too fast - set to 100%
+            p1 = 100.0 if fut_orig.done() else (indexer1.progress_percent or 0.0)
+            p2 = 100.0 if fut_mk.done() else (indexer2.progress_percent or 0.0)
             on_update(conv_status, p1, p2)
             time.sleep(poll_interval)
         
