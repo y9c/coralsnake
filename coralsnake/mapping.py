@@ -68,26 +68,36 @@ def _build_indices_with_progress(
         
         # Poll while conversion runs
         conv_status = "Converting..."
+        import sys
+        print("[DEBUG] Starting conversion+ORIG poll loop", file=sys.stderr, flush=True)
         while not fut_conv.done():
             # If ORIG is done during conversion, mark it complete
             p1 = 100.0 if fut_orig.done() else (indexer1.progress_percent or 0.0)
             on_update(conv_status, p1, 0.0)
             time.sleep(poll_interval)
+        print(f"[DEBUG] Conversion done, ORIG done={fut_orig.done()}", file=sys.stderr, flush=True)
         
         fut_conv.result()
         conv_status = "Converted"
         
         # Start MK index after conversion completes
         fut_mk = ex.submit(build_mk)
+        print("[DEBUG] Starting MK index poll loop", file=sys.stderr, flush=True)
         
         # Poll both indices (do-while pattern: always run at least once)
+        poll_count = 0
         while True:
+            poll_count += 1
             # If future is done but progress still 0, it completed too fast - set to 100%
             p1 = 100.0 if fut_orig.done() else (indexer1.progress_percent or 0.0)
             p2 = 100.0 if fut_mk.done() else (indexer2.progress_percent or 0.0)
             on_update(conv_status, p1, p2)
             
+            if poll_count == 1:
+                print(f"[DEBUG] First MK poll: ORIG done={fut_orig.done()}, MK done={fut_mk.done()}, p1={p1:.1f}, p2={p2:.1f}", file=sys.stderr, flush=True)
+            
             if fut_orig.done() and fut_mk.done():
+                print(f"[DEBUG] Both indices done after {poll_count} polls", file=sys.stderr, flush=True)
                 break
             
             time.sleep(poll_interval)
