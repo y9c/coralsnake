@@ -31,7 +31,7 @@ def _build_indices_with_progress(
     ref_file: str,
     index_base_dir: str,
     on_update,
-    poll_interval: float = 0.2,
+    poll_interval: float = 0.1,
 ):
     """Build indices with progress using threads (not async - Rich doesn't play well with asyncio.run)."""
     from concurrent.futures import ThreadPoolExecutor

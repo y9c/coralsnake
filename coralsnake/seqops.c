@@ -268,8 +268,8 @@ static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
             }
             fputs(line_buffer, output_file);
         }
-        // Flush every 1000 lines so file size grows for progress tracking
-        if (++line_count % 1000 == 0) {
+        // Flush every 100 lines so file size grows for progress tracking
+        if (++line_count % 100 == 0) {
             fflush(output_file);
         }
     }
