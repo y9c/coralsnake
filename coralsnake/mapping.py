@@ -73,13 +73,11 @@ def _build_indices_with_progress(
             out_size = 0
         
         poll_count += 1
-        if out_size > 0 and input_size > 0:
-            conv_pct = min(100.0, 100.0 * (out_size / float(input_size)))
-            out_mb = out_size / 1024 / 1024
-            in_mb = input_size / 1024 / 1024
-            on_update(f"Converting... {conv_pct:.1f}% ({out_mb:.1f}/{in_mb:.1f} MB)", 0.0, 0.0)
-        else:
-            on_update(f"Converting... (poll #{poll_count}, size={out_size})", 0.0, 0.0)
+        conv_pct = min(100.0, 100.0 * (out_size / float(input_size))) if input_size > 0 else 0.0
+        out_mb = out_size / 1024 / 1024
+        in_mb = input_size / 1024 / 1024
+        # Always show poll counter for debugging
+        on_update(f"Converting... {conv_pct:.1f}% [poll#{poll_count} {out_mb:.1f}/{in_mb:.1f}MB]", 0.0, 0.0)
         
         time.sleep(poll_interval)
     
