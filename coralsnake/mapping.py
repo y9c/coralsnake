@@ -25,36 +25,49 @@ from . import seqops
 from .utils import convert_file_realtime, format_duration, km_conversion, mk_conversion
 
 
-def _prepare_indices(ref_file, index_base_dir, parallel: bool = True):
-    """Create MK FASTA and build both BWA indices. Returns (orig_fa, mk_index_prefix).
+def _prepare_indices_with_progress(
+    ref_file: str,
+    index_base_dir: str,
+    progress: Progress,
+    task_orig: int,
+    task_mk: int,
+    poll_interval: float = 0.2,
+):
+    """Build ORIG and MK indices concurrently and update provided progress tasks.
 
-    BWA index build is single-threaded; when parallel=True we build ORIG and MK in
-    separate threads concurrently.
+    Returns (orig_fa_path, mk_prefix_path).
     """
     os.makedirs(index_base_dir, exist_ok=True)
+    # ORIG
     orig_fa = os.path.join(index_base_dir, "ref.orig.fa")
     if os.path.abspath(ref_file) != os.path.abspath(orig_fa):
         shutil.copyfile(ref_file, orig_fa)
-
+    orig_prefix = os.path.splitext(orig_fa)[0]
+    # MK
     mk_fa = os.path.join(index_base_dir, "ref.mk.fa")
     convert_file_realtime(ref_file, mk_fa, "AC", "GT")
-
-    indexer = BwaIndexer()
-    orig_prefix = os.path.splitext(orig_fa)[0]
     mk_prefix = os.path.splitext(mk_fa)[0]
-    if parallel:
-        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        with ThreadPoolExecutor(max_workers=2) as ex:
-            futs = [
-                ex.submit(indexer.build_index, orig_fa, orig_prefix),
-                ex.submit(indexer.build_index, mk_fa, mk_prefix),
-            ]
-            for _ in as_completed(futs):
-                pass
-    else:
-        indexer.build_index(orig_fa, prefix=orig_prefix)
-        indexer.build_index(mk_fa, prefix=mk_prefix)
+    indexer1 = BwaIndexer()
+    indexer2 = BwaIndexer()
+
+    def build_orig():
+        indexer1.build_index(orig_fa, prefix=orig_prefix, capture_progress=True)
+
+    def build_mk():
+        indexer2.build_index(mk_fa, prefix=mk_prefix, capture_progress=True)
+
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        fut1 = ex.submit(build_orig)
+        fut2 = ex.submit(build_mk)
+        while not (fut1.done() and fut2.done()):
+            p1 = indexer1.progress_percent or 0.0
+            p2 = indexer2.progress_percent or 0.0
+            progress.update(task_orig, description=f"Indexing ORIG... {p1:.1f}%")
+            progress.update(task_mk, description=f"Indexing MK... {p2:.1f}%")
+            time.sleep(poll_interval)
+        fut1.result()
+        fut2.result()
 
     return orig_fa, mk_prefix
 
@@ -572,36 +585,7 @@ def map_file(
                 raise RuntimeError("--index-only requires --ref-file to be provided")
             t1 = progress.add_task("Indexing ORIG reference...", total=None)
             t2 = progress.add_task("Indexing MK reference...", total=None)
-            # Build both with real-time progress from bwamem
-            indexer1 = BwaIndexer()
-            indexer2 = BwaIndexer()
-            orig_fa, mk_prefix = None, None
-
-            def build_orig():
-                nonlocal orig_fa
-                orig_fa = os.path.join(index_base_dir, "ref.orig.fa")
-                if os.path.abspath(ref_file) != os.path.abspath(orig_fa):
-                    shutil.copyfile(ref_file, orig_fa)
-                indexer1.build_index(orig_fa, prefix=os.path.splitext(orig_fa)[0], capture_progress=True)
-
-            def build_mk():
-                nonlocal mk_prefix
-                mk_fa = os.path.join(index_base_dir, "ref.mk.fa")
-                convert_file_realtime(ref_file, mk_fa, "AC", "GT")
-                mk_prefix = os.path.splitext(mk_fa)[0]
-                indexer2.build_index(mk_fa, prefix=mk_prefix, capture_progress=True)
-
-            with ThreadPoolExecutor(max_workers=2) as ex:
-                fut1 = ex.submit(build_orig)
-                fut2 = ex.submit(build_mk)
-                while not (fut1.done() and fut2.done()):
-                    p1 = indexer1.progress_percent or 0.0
-                    p2 = indexer2.progress_percent or 0.0
-                    progress.update(t1, description=f"Indexing ORIG... {p1:.1f}%")
-                    progress.update(t2, description=f"Indexing MK... {p2:.1f}%")
-                    time.sleep(0.2)
-                fut1.result()
-                fut2.result()
+            _prepare_indices_with_progress(ref_file, index_base_dir, progress, t1, t2)
             progress.update(t1, description="✓ ORIG index ready")
             progress.update(t2, description="✓ MK index ready")
             return
@@ -613,33 +597,9 @@ def map_file(
             else:
                 t1 = progress.add_task("Indexing ORIG reference...", total=None)
                 t2 = progress.add_task("Indexing MK reference...", total=None)
-                indexer1 = BwaIndexer()
-                indexer2 = BwaIndexer()
-                orig_fa = os.path.join(index_base_dir, "ref.orig.fa")
-                if os.path.abspath(ref_file) != os.path.abspath(orig_fa):
-                    shutil.copyfile(ref_file, orig_fa)
-                mk_fa = os.path.join(index_base_dir, "ref.mk.fa")
-                convert_file_realtime(ref_file, mk_fa, "AC", "GT")
-                mk_prefix = os.path.splitext(mk_fa)[0]
-
-                def build_orig():
-                    indexer1.build_index(orig_fa, prefix=os.path.splitext(orig_fa)[0], capture_progress=True)
-
-                def build_mk():
-                    indexer2.build_index(mk_fa, prefix=mk_prefix, capture_progress=True)
-
-                with ThreadPoolExecutor(max_workers=2) as ex:
-                    fut1 = ex.submit(build_orig)
-                    fut2 = ex.submit(build_mk)
-                    while not (fut1.done() and fut2.done()):
-                        p1 = indexer1.progress_percent or 0.0
-                        p2 = indexer2.progress_percent or 0.0
-                        progress.update(t1, description=f"Indexing ORIG... {p1:.1f}%")
-                        progress.update(t2, description=f"Indexing MK... {p2:.1f}%")
-                        time.sleep(0.2)
-                    fut1.result()
-                    fut2.result()
-                idx0_file, idx_mk_file = orig_fa, mk_prefix
+                idx0_file, idx_mk_file = _prepare_indices_with_progress(
+                    ref_file, index_base_dir, progress, t1, t2
+                )
                 progress.update(t1, description="✓ ORIG index ready")
                 progress.update(t2, description="✓ MK index ready")
 
