@@ -58,5 +58,3 @@ def test_index_only(tmp_path: Path):
     # BWA index should exist (ref.orig.fa + ref.mk.fa*.{amb,ann,bwt,pac,sa})
     assert (index_dir / "ref.orig.fa").exists()
     assert (index_dir / "ref.mk.amb").exists()
-
-

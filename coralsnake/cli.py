@@ -229,7 +229,9 @@ def map(
     # Validate arguments
     if index_only:
         if not index_dir:
-            click.echo("❌ Error: --index-only requires --index-dir to be specified", err=True)
+            click.echo(
+                "❌ Error: --index-only requires --index-dir to be specified", err=True
+            )
             raise click.Abort()
         if not r1_file and not r2_file and not output_file:
             # Index-only mode, these are not needed
@@ -244,13 +246,20 @@ def map(
         # If index-dir is provided and both indices exist, ref-file can be omitted
         if not ref_file:
             if not index_dir:
-                click.echo("❌ Error: --ref-file is required unless --index-dir is provided", err=True)
+                click.echo(
+                    "❌ Error: --ref-file is required unless --index-dir is provided",
+                    err=True,
+                )
                 raise click.Abort()
             import os
+
             idx0_file = os.path.join(index_dir, "ref.orig.mmi")
             idx_mk_file = os.path.join(index_dir, "ref.mk.mmi")
             if not (os.path.exists(idx0_file) and os.path.exists(idx_mk_file)):
-                click.echo("❌ Error: --ref-file is required because indices not found in --index-dir", err=True)
+                click.echo(
+                    "❌ Error: --ref-file is required because indices not found in --index-dir",
+                    err=True,
+                )
                 raise click.Abort()
 
     fwd_lib = strand.lower() == "forward"

@@ -49,21 +49,21 @@ def convert_file_realtime(
 ):
     """
     Convert FASTA file using fast C implementation (line-by-line, memory efficient).
-    
+
     This function is optimized for large genome reference files. It reads and writes
     line-by-line without loading the entire file into memory, making it much faster
     and more memory-efficient than dnaio-based conversion.
-    
+
     Args:
         input_file: Path to input FASTA file
         output_file: Path to output converted FASTA file
         base_from: Bases to convert from (e.g., "AC" for MK conversion)
         base_to: Bases to convert to (e.g., "GT" for MK conversion)
-    
+
     Examples:
         MK conversion (A->G, C->T): convert_file_realtime(in, out, "AC", "GT")
         KM conversion (G->A, T->C): convert_file_realtime(in, out, "GT", "AC")
-    
+
     Note:
         - Only works with FASTA format (not FASTQ)
         - Does not add YS:Z tags

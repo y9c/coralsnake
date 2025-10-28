@@ -94,8 +94,8 @@ def _map_batch_worker(
             )
     else:
         for (name1, seq1, qua1), (name2, seq2, qua2) in batch:
-            base1 = name1.split()[0].rstrip('/1').rstrip('/2')
-            base2 = name2.split()[0].rstrip('/1').rstrip('/2')
+            base1 = name1.split()[0].rstrip("/1").rstrip("/2")
+            base2 = name2.split()[0].rstrip("/1").rstrip("/2")
             if base1 != base2:
                 raise ValueError(f"r1 and r2 not in the same order: {name1} vs {name2}")
             results.append(
@@ -255,7 +255,9 @@ def run_mapping_se(
                 cigar = cigar + [[len(s) - hit.q_en, 4]]
 
             is_orientation1 = orientation == 1
-            score, _wrong_conv, bad_mm = calculate_directional_score(cigar, s, ref, is_orientation1)
+            score, _wrong_conv, bad_mm = calculate_directional_score(
+                cigar, s, ref, is_orientation1
+            )
             if bad_mm > max_mismatches // 2:
                 continue
 
@@ -391,17 +393,34 @@ def run_mapping_pe(
                 cigar2 = cigar2 + [[len(s2) - hit2.q_en, 4]]
 
             is_orientation1 = orientation == 1
-            score1, _w1, bad_mm1 = calculate_directional_score(cigar1, s1, ref1, is_orientation1)
-            score2, _w2, bad_mm2 = calculate_directional_score(cigar2, s2, ref2, is_orientation1)
+            score1, _w1, bad_mm1 = calculate_directional_score(
+                cigar1, s1, ref1, is_orientation1
+            )
+            score2, _w2, bad_mm2 = calculate_directional_score(
+                cigar2, s2, ref2, is_orientation1
+            )
             if (bad_mm1 + bad_mm2) > max_mismatches:
                 continue
 
-            md1, yf1, zf1, yc1, zc1, ns1, nc1 = cal_md_and_tag(cigar1, s1, ref1, is_orientation1)
-            md2, yf2, zf2, yc2, zc2, ns2, nc2 = cal_md_and_tag(cigar2, s2, ref2, is_orientation1)
+            md1, yf1, zf1, yc1, zc1, ns1, nc1 = cal_md_and_tag(
+                cigar1, s1, ref1, is_orientation1
+            )
+            md2, yf2, zf2, yc2, zc2, ns2, nc2 = cal_md_and_tag(
+                cigar2, s2, ref2, is_orientation1
+            )
             combined_score = score1 + score2
             mapq = min(60, min(score1, score2))
             common_tags = [("ST", orientation)]
-            tags1 = common_tags + [("MD", md1), ("AS", score1), ("Yf", yf1), ("Zf", zf1), ("Yc", yc1), ("Zc", zc1), ("NS", ns1), ("NC", nc1)]
+            tags1 = common_tags + [
+                ("MD", md1),
+                ("AS", score1),
+                ("Yf", yf1),
+                ("Zf", zf1),
+                ("Yc", yc1),
+                ("Zc", zc1),
+                ("NS", ns1),
+                ("NC", nc1),
+            ]
             map1 = [
                 name,
                 flag1,
@@ -415,7 +434,16 @@ def run_mapping_pe(
                 s1,
                 q1,
             ] + tags1
-            tags2 = common_tags + [("MD", md2), ("AS", score2), ("Yf", yf2), ("Zf", zf2), ("Yc", yc2), ("Zc", zc2), ("NS", ns2), ("NC", nc2)]
+            tags2 = common_tags + [
+                ("MD", md2),
+                ("AS", score2),
+                ("Yf", yf2),
+                ("Zf", zf2),
+                ("Yc", yc2),
+                ("Zc", zc2),
+                ("NS", ns2),
+                ("NC", nc2),
+            ]
             map2 = [
                 name,
                 flag2,
@@ -477,7 +505,6 @@ def run_mapping(
     )
 
 
-
 def create_bam_record(header, map_data, is_secondary):
     """Create a pysam.AlignedSegment from mapping data (SAM fields + tags)."""
     a = pysam.AlignedSegment(header=header)
@@ -521,7 +548,10 @@ def map_file(
         index_base_dir = index_dir
     else:
         index_base_dir = tempfile.mkdtemp(prefix="coralsnake_")
-        atexit.register(lambda p=index_base_dir: os.path.isdir(p) and shutil.rmtree(p, ignore_errors=True))
+        atexit.register(
+            lambda p=index_base_dir: os.path.isdir(p)
+            and shutil.rmtree(p, ignore_errors=True)
+        )
 
     # Indexing (single flat progress)
     with Progress(transient=True) as progress:
@@ -534,7 +564,9 @@ def map_file(
 
     # BAM header
     header = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": []}
-    fa_for_header = ref_file if ref_file else os.path.join(index_base_dir, "ref.orig.fa")
+    fa_for_header = (
+        ref_file if ref_file else os.path.join(index_base_dir, "ref.orig.fa")
+    )
     for rec in fastx_read(fa_for_header):
         header["SQ"].append({"SN": rec.name, "LN": rec.length})
 
@@ -542,14 +574,21 @@ def map_file(
     paired = r2_file is not None
     with ExitStack() as stack:
         mode = "w" if output_file.endswith(".sam") else "wb"
-        bam_out = stack.enter_context(pysam.AlignmentFile(output_file, mode, header=header))
-        progress = stack.enter_context(Progress(
-            SpinnerColumn(style="cyan"),
-            TextColumn("[bold]Map[/bold]"),
-            TextColumn("{task.description}"),
-        ))
+        bam_out = stack.enter_context(
+            pysam.AlignmentFile(output_file, mode, header=header)
+        )
+        progress = stack.enter_context(
+            Progress(
+                SpinnerColumn(style="cyan"),
+                TextColumn("[bold]Map[/bold]"),
+                TextColumn("{task.description}"),
+            )
+        )
         unit = "pairs" if paired else "reads"
-        task = progress.add_task(f"[green]0[/green] / [white]0[/white] {unit} ([magenta]0.00s[/magenta])", total=None)
+        task = progress.add_task(
+            f"[green]0[/green] / [white]0[/white] {unit} ([magenta]0.00s[/magenta])",
+            total=None,
+        )
         processed_reads = 0
         mapped_reads = 0
 
@@ -559,34 +598,53 @@ def map_file(
                 for i, item in enumerate(read_result):
                     if paired and len(item) == 3:
                         map1, map2 = item[1], item[2]
-                        a1 = create_bam_record(bam_out.header, map1, is_secondary=(i > 0))
-                        a2 = create_bam_record(bam_out.header, map2, is_secondary=(i > 0))
+                        a1 = create_bam_record(
+                            bam_out.header, map1, is_secondary=(i > 0)
+                        )
+                        a2 = create_bam_record(
+                            bam_out.header, map2, is_secondary=(i > 0)
+                        )
                         bam_out.write(a1)
                         bam_out.write(a2)
                     else:
                         map1 = item[1]
-                        a1 = create_bam_record(bam_out.header, map1, is_secondary=(i > 0))
+                        a1 = create_bam_record(
+                            bam_out.header, map1, is_secondary=(i > 0)
+                        )
                         bam_out.write(a1)
                 processed_reads += 1
                 if read_result:
                     mapped_reads += 1
             elapsed = format_duration(progress.tasks[task].elapsed)
-            progress.update(task, description=f"[green]{mapped_reads:,}[/green] / [white]{processed_reads:,}[/white] {unit} ([magenta]{elapsed}[/magenta])")
+            progress.update(
+                task,
+                description=f"[green]{mapped_reads:,}[/green] / [white]{processed_reads:,}[/white] {unit} ([magenta]{elapsed}[/magenta])",
+            )
 
         if not paired:
-            it1 = ( (rec.name, rec.sequence, rec.quality) for rec in fastx_read(r1_file) )
+            it1 = ((rec.name, rec.sequence, rec.quality) for rec in fastx_read(r1_file))
             batch = []
-            with ProcessPoolExecutor(max_workers=max(1, threads), mp_context=mp.get_context("spawn"), initializer=_init_worker, initargs=(idx0_file, idx_mk_file, threads)) as ex:
+            with ProcessPoolExecutor(
+                max_workers=max(1, threads),
+                mp_context=mp.get_context("spawn"),
+                initializer=_init_worker,
+                initargs=(idx0_file, idx_mk_file, threads),
+            ) as ex:
                 futures = []
                 for rec in it1:
                     batch.append(rec)
                     if len(batch) >= batch_size:
-                        futures.append(ex.submit(
-                            _map_batch_worker,
-                            list(batch), False,
-                            fwd_lib, max_mismatches,
-                            min_alignment_length, min_mapping_ratio,
-                        ))
+                        futures.append(
+                            ex.submit(
+                                _map_batch_worker,
+                                list(batch),
+                                False,
+                                fwd_lib,
+                                max_mismatches,
+                                min_alignment_length,
+                                min_mapping_ratio,
+                            )
+                        )
                         batch.clear()
                     # Drain completed futures to avoid initial stall
                     for fut in futures[:]:
@@ -594,32 +652,52 @@ def map_file(
                             write_mapped(fut.result())
                             futures.remove(fut)
                 if batch:
-                    futures.append(ex.submit(
-                        _map_batch_worker,
-                        list(batch), False,
-                        fwd_lib, max_mismatches,
-                        min_alignment_length, min_mapping_ratio,
-                    ))
+                    futures.append(
+                        ex.submit(
+                            _map_batch_worker,
+                            list(batch),
+                            False,
+                            fwd_lib,
+                            max_mismatches,
+                            min_alignment_length,
+                            min_mapping_ratio,
+                        )
+                    )
                 for fut in as_completed(futures):
                     write_mapped(fut.result())
         else:
-            it_pairs = ( ((r1.name, r1.sequence, r1.quality), (r2.name, r2.sequence, r2.quality)) for r1, r2 in read_paired_fastx(r1_file, r2_file) )
+            it_pairs = (
+                ((r1.name, r1.sequence, r1.quality), (r2.name, r2.sequence, r2.quality))
+                for r1, r2 in read_paired_fastx(r1_file, r2_file)
+            )
             batch = []
-            with ProcessPoolExecutor(max_workers=max(1, threads), mp_context=mp.get_context("spawn"), initializer=_init_worker, initargs=(idx0_file, idx_mk_file, threads)) as ex:
+            with ProcessPoolExecutor(
+                max_workers=max(1, threads),
+                mp_context=mp.get_context("spawn"),
+                initializer=_init_worker,
+                initargs=(idx0_file, idx_mk_file, threads),
+            ) as ex:
                 futures = []
                 for rec1, rec2 in it_pairs:
-                    base1 = rec1[0].split()[0].rstrip('/1').rstrip('/2')
-                    base2 = rec2[0].split()[0].rstrip('/1').rstrip('/2')
+                    base1 = rec1[0].split()[0].rstrip("/1").rstrip("/2")
+                    base2 = rec2[0].split()[0].rstrip("/1").rstrip("/2")
                     if base1 != base2:
-                        raise ValueError(f"r1 and r2 not in the same order: {rec1[0]} vs {rec2[0]}")
+                        raise ValueError(
+                            f"r1 and r2 not in the same order: {rec1[0]} vs {rec2[0]}"
+                        )
                     batch.append((rec1, rec2))
                     if len(batch) >= batch_size:
-                        futures.append(ex.submit(
-                            _map_batch_worker,
-                            list(batch), True,
-                            fwd_lib, max_mismatches,
-                            min_alignment_length, min_mapping_ratio,
-                        ))
+                        futures.append(
+                            ex.submit(
+                                _map_batch_worker,
+                                list(batch),
+                                True,
+                                fwd_lib,
+                                max_mismatches,
+                                min_alignment_length,
+                                min_mapping_ratio,
+                            )
+                        )
                         batch.clear()
                     # Drain completed futures to avoid initial stall
                     for fut in futures[:]:
@@ -627,11 +705,16 @@ def map_file(
                             write_mapped(fut.result())
                             futures.remove(fut)
                 if batch:
-                    futures.append(ex.submit(
-                        _map_batch_worker,
-                        list(batch), True,
-                        fwd_lib, max_mismatches,
-                        min_alignment_length, min_mapping_ratio,
-                    ))
+                    futures.append(
+                        ex.submit(
+                            _map_batch_worker,
+                            list(batch),
+                            True,
+                            fwd_lib,
+                            max_mismatches,
+                            min_alignment_length,
+                            min_mapping_ratio,
+                        )
+                    )
                 for fut in as_completed(futures):
                     write_mapped(fut.result())

@@ -1,28 +1,41 @@
-# Simple Makefile for coralsnake
+## Makefile for coralsnake
 
-PY=uv run --python 3.13
+.PHONY: help install install-dev test test-cov build clean lint format check all
 
-.PHONY: help format lint test build clean
+help:  ## Show help
+	@echo "Available commands:"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
-help:
-	@echo "Targets: format lint test build clean"
+install:  ## Install the package and dependencies
+	uv sync
+	uv pip install -e . --no-deps
 
-format:
-	$(PY) ruff check --fix .
+install-dev:  ## Install with development dependencies
+	uv sync --extra dev
+	uv pip install -e . --no-deps
 
-lint:
-	$(PY) ruff check .
+test:  ## Run tests
+	uv run pytest tests/ -v
 
-# Minimal smoke test: small paired-end run
-# Adjust paths if needed
-TEST_OUT=/tmp/coralsnake_test.bam
+test-cov:  ## Run tests with coverage
+	uv run pytest tests/ --cov=coralsnake --cov-report=html --cov-report=term
 
-test:
-	$(PY) coralsnake map -r test/ref.fa -1 test/test1.fq -2 test/test2.fq -o $(TEST_OUT) -m 0 -t 2
-	@echo "Test output: $(TEST_OUT)"
+build:  ## Build the package (wheel and sdist)
+	uv build
 
-build:
-	$(PY) python -m pip install -e .
+clean:  ## Clean build/test artifacts
+	rm -rf build/ dist/ *.egg-info/ .pytest_cache/ htmlcov/ .coverage
+	find . -type d -name __pycache__ -exec rm -rf {} +
+	find . -type f -name "*.pyc" -delete
 
-clean:
-	rm -rf dist build *.egg-info __pycache__ **/__pycache__
+lint:  ## Run linting
+	uv run ruff check coralsnake/ tests/
+	uv run ruff format --check coralsnake/ tests/
+
+format:  ## Format code
+	uv run ruff format coralsnake/ tests/
+	uv run ruff check --fix coralsnake/ tests/
+
+check: lint test  ## Run lint + tests
+
+all: clean install-dev test build  ## Full pipeline
