@@ -12,6 +12,7 @@ import random
 import tempfile
 import atexit
 import shutil
+import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import ExitStack
 
@@ -575,7 +576,7 @@ def map_file(
         if not paired:
             it1 = ( (rec.name, rec.sequence, rec.quality) for rec in fastx_read(r1_file) )
             batch = []
-            with ProcessPoolExecutor(max_workers=max(1, threads), initializer=_init_worker, initargs=(idx0_file, idx_mk_file, threads)) as ex:
+            with ProcessPoolExecutor(max_workers=max(1, threads), mp_context=mp.get_context("spawn"), initializer=_init_worker, initargs=(idx0_file, idx_mk_file, threads)) as ex:
                 futures = []
                 for rec in it1:
                     batch.append(rec)
@@ -604,7 +605,7 @@ def map_file(
         else:
             it_pairs = ( ((r1.name, r1.sequence, r1.quality), (r2.name, r2.sequence, r2.quality)) for r1, r2 in read_paired_fastx(r1_file, r2_file) )
             batch = []
-            with ProcessPoolExecutor(max_workers=max(1, threads), initializer=_init_worker, initargs=(idx0_file, idx_mk_file, threads)) as ex:
+            with ProcessPoolExecutor(max_workers=max(1, threads), mp_context=mp.get_context("spawn"), initializer=_init_worker, initargs=(idx0_file, idx_mk_file, threads)) as ex:
                 futures = []
                 for rec1, rec2 in it_pairs:
                     base1 = rec1[0].split()[0].rstrip('/1').rstrip('/2')
