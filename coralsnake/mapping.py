@@ -85,8 +85,6 @@ def _map_batch_worker(
 ):
     """Map a batch of reads; return one run_mapping result per input read."""
     # Use per-process cached resources initialized by _init_worker
-    idx0 = None
-    idx_mk = None
 
     # timing removed
     results = []
@@ -99,8 +97,6 @@ def _map_batch_worker(
                     None,
                     qua1,
                     None,
-                    idx0,
-                    idx_mk,
                     fwd_lib,
                     max_mismatches,
                     min_alignment_length,
@@ -120,8 +116,6 @@ def _map_batch_worker(
                     seq2,
                     qua1,
                     qua2,
-                    idx0,
-                    idx_mk,
                     fwd_lib,
                     max_mismatches,
                     min_alignment_length,
@@ -218,8 +212,6 @@ def run_mapping_se(
     name,
     seq1,
     qua1,
-    idx0,
-    idx_mk,
     fwd_lib=True,
     max_mismatches=10,
     min_alignment_length=20,
@@ -315,8 +307,6 @@ def run_mapping_pe(
     seq2,
     qua1,
     qua2,
-    idx0,
-    idx_mk,
     fwd_lib=True,
     max_mismatches=10,
     min_alignment_length=20,
@@ -485,8 +475,6 @@ def run_mapping(
     seq2,
     qua1,
     qua2,
-    idx0,
-    idx_mk,
     fwd_lib=True,
     max_mismatches=10,
     min_alignment_length=20,
@@ -498,8 +486,6 @@ def run_mapping(
             name,
             seq1,
             qua1,
-            idx0,
-            idx_mk,
             fwd_lib,
             max_mismatches,
             min_alignment_length,
@@ -511,8 +497,6 @@ def run_mapping(
         seq2,
         qua1,
         qua2,
-        idx0,
-        idx_mk,
         fwd_lib,
         max_mismatches,
         min_alignment_length,
