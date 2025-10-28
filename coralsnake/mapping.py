@@ -45,7 +45,9 @@ def _prepare_indices_with_progress(
     orig_prefix = os.path.splitext(orig_fa)[0]
     # MK
     mk_fa = os.path.join(index_base_dir, "ref.mk.fa")
+    progress.update(task_mk, description="Converting reference to MK format...")
     convert_file_realtime(ref_file, mk_fa, "AC", "GT")
+    progress.update(task_mk, description="Reference converted to MK format")
     mk_prefix = os.path.splitext(mk_fa)[0]
 
     indexer1 = BwaIndexer()
@@ -69,6 +71,50 @@ def _prepare_indices_with_progress(
         fut1.result()
         fut2.result()
 
+    return orig_fa, mk_prefix
+
+
+def _build_indices_with_progress(
+    ref_file: str,
+    index_base_dir: str,
+    on_update,
+    poll_interval: float = 0.2,
+):
+    """Build ORIG and MK indices concurrently and invoke on_update(conv_status, p1, p2)."""
+    os.makedirs(index_base_dir, exist_ok=True)
+    # ORIG
+    orig_fa = os.path.join(index_base_dir, "ref.orig.fa")
+    if os.path.abspath(ref_file) != os.path.abspath(orig_fa):
+        shutil.copyfile(ref_file, orig_fa)
+    orig_prefix = os.path.splitext(orig_fa)[0]
+    # MK
+    mk_fa = os.path.join(index_base_dir, "ref.mk.fa")
+    on_update("Converting...", 0.0, 0.0)
+    convert_file_realtime(ref_file, mk_fa, "AC", "GT")
+    on_update("Converted", 0.0, 0.0)
+    mk_prefix = os.path.splitext(mk_fa)[0]
+
+    indexer1 = BwaIndexer()
+    indexer2 = BwaIndexer()
+
+    def build_orig():
+        indexer1.build_index(orig_fa, prefix=orig_prefix, capture_progress=True)
+
+    def build_mk():
+        indexer2.build_index(mk_fa, prefix=mk_prefix, capture_progress=True)
+
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        fut1 = ex.submit(build_orig)
+        fut2 = ex.submit(build_mk)
+        while not (fut1.done() and fut2.done()):
+            p1 = indexer1.progress_percent or 0.0
+            p2 = indexer2.progress_percent or 0.0
+            on_update("Converted", p1, p2)
+            time.sleep(poll_interval)
+        fut1.result()
+        fut2.result()
+
+    on_update("Done", 100.0, 100.0)
     return orig_fa, mk_prefix
 
 
@@ -534,32 +580,50 @@ def map_file(
 
     with Progress(
         SpinnerColumn(style="cyan"),
-        TextColumn("[bold]Index[/bold]"),
+        TextColumn("[bold green]Index[/bold green]"),
         TextColumn("{task.description}"),
+        TextColumn("| [yellow]{task.fields[conv]}[/yellow] | ORIG: [cyan]{task.fields[p1]:>5.1f}%[/cyan] | MK: [magenta]{task.fields[p2]:>5.1f}%[/magenta]"),
         transient=True,
     ) as progress:
         if index_only:
             if not ref_file:
                 raise RuntimeError("--index-only requires --ref-file to be provided")
-            t1 = progress.add_task("Indexing ORIG reference...", total=None)
-            t2 = progress.add_task("Indexing MK reference...", total=None)
-            _prepare_indices_with_progress(ref_file, index_base_dir, progress, t1, t2)
-            progress.update(t1, description="✓ ORIG index ready")
-            progress.update(t2, description="✓ MK index ready")
+            task = progress.add_task(
+                "Preparing indices...",
+                total=None,
+                conv="Starting",
+                p1=0.0,
+                p2=0.0,
+            )
+            def on_update(conv, p1, p2):
+                progress.update(task, conv=conv, p1=p1, p2=p2)
+            _build_indices_with_progress(ref_file, index_base_dir, on_update)
+            progress.update(task, description="✓ Indices ready", conv="Done", p1=100.0, p2=100.0)
             return
         else:
             if orig_ready and mk_index_ready:
-                task = progress.add_task("✓ Indices ready", total=None)
-                # Ensure we have path values consistent with downstream
+                task = progress.add_task(
+                    "✓ Indices ready",
+                    total=None,
+                    conv="Done",
+                    p1=100.0,
+                    p2=100.0,
+                )
                 idx0_file, idx_mk_file = orig_fa_path, mk_prefix_path
             else:
-                t1 = progress.add_task("Indexing ORIG reference...", total=None)
-                t2 = progress.add_task("Indexing MK reference...", total=None)
-                idx0_file, idx_mk_file = _prepare_indices_with_progress(
-                    ref_file, index_base_dir, progress, t1, t2
+                task = progress.add_task(
+                    "Preparing indices...",
+                    total=None,
+                    conv="Starting",
+                    p1=0.0,
+                    p2=0.0,
                 )
-                progress.update(t1, description="✓ ORIG index ready")
-                progress.update(t2, description="✓ MK index ready")
+                def on_update(conv, p1, p2):
+                    progress.update(task, conv=conv, p1=p1, p2=p2)
+                idx0_file, idx_mk_file = _build_indices_with_progress(
+                    ref_file, index_base_dir, on_update
+                )
+                progress.update(task, description="✓ Indices ready", conv="Done", p1=100.0, p2=100.0)
 
     if index_only:
         return
@@ -582,7 +646,7 @@ def map_file(
         progress = stack.enter_context(
             Progress(
                 SpinnerColumn(style="cyan"),
-                TextColumn("[bold]Map[/bold]"),
+                TextColumn("[bold green]Map[/bold green]"),
                 TextColumn("{task.description}"),
             )
         )
