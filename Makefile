@@ -11,7 +11,7 @@ install:  ## Install the package and dependencies
 	uv pip install -e . --no-deps
 
 install-dev:  ## Install with development dependencies
-	uv sync --extra dev
+	uv sync --group dev
 	uv pip install -e . --no-deps
 
 test:  ## Run tests
