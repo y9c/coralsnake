@@ -43,9 +43,7 @@ def _prepare_indices(ref_file, index_base_dir, threads):
     return orig_fa, mk_prefix
 
 
-def _load_aligners(idx0_file, idx_mk_file, threads):
-    """No-op for BWA; kept for compatibility with call sites."""
-    return None, None
+## (removed) _load_aligners: no longer used with BWA backend
 
 
 def _ensure_indices(ref_file, index_base_dir, threads):
@@ -552,11 +550,39 @@ def map_file(
             and shutil.rmtree(p, ignore_errors=True)
         )
 
-    # Indexing (single flat progress)
-    with Progress(transient=True) as progress:
-        task = progress.add_task("Preparing indices...", total=None)
-        idx0_file, idx_mk_file = _ensure_indices(ref_file, index_base_dir, threads)
-        progress.update(task, description="✓ Indices ready")
+    # Indexing with step-level progress (orig + MK)
+    orig_fa_path = os.path.join(index_base_dir, "ref.orig.fa")
+    mk_prefix_path = os.path.join(index_base_dir, "ref.mk")
+    mk_index_ready = all(os.path.exists(mk_prefix_path + ext) for ext in [".amb", ".ann", ".bwt", ".pac", ".sa"])
+    orig_ready = os.path.exists(orig_fa_path)
+
+    with Progress(
+        SpinnerColumn(style="cyan"),
+        TextColumn("[bold]Index[/bold]"),
+        TextColumn("{task.description}"),
+        transient=True,
+    ) as progress:
+        if index_only:
+            if not ref_file:
+                raise RuntimeError("--index-only requires --ref-file to be provided")
+            t1 = progress.add_task("Indexing ORIG reference...", total=None)
+            t2 = progress.add_task("Indexing MK reference...", total=None)
+            # Build both regardless of current state
+            _prepare_indices(ref_file, index_base_dir, threads)
+            progress.update(t1, description="✓ ORIG index ready")
+            progress.update(t2, description="✓ MK index ready")
+            return
+        else:
+            if orig_ready and mk_index_ready:
+                task = progress.add_task("✓ Indices ready", total=None)
+                # Ensure we have path values consistent with downstream
+                idx0_file, idx_mk_file = orig_fa_path, mk_prefix_path
+            else:
+                t1 = progress.add_task("Indexing ORIG reference...", total=None)
+                t2 = progress.add_task("Indexing MK reference...", total=None)
+                idx0_file, idx_mk_file = _prepare_indices(ref_file, index_base_dir, threads)
+                progress.update(t1, description="✓ ORIG index ready")
+                progress.update(t2, description="✓ MK index ready")
 
     if index_only:
         return
