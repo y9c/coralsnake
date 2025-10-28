@@ -80,12 +80,16 @@ def _build_indices_with_progress(
         # Start MK index after conversion completes
         fut_mk = ex.submit(build_mk)
         
-        # Poll both indices
-        while not (fut_orig.done() and fut_mk.done()):
+        # Poll both indices (do-while pattern: always run at least once)
+        while True:
             # If future is done but progress still 0, it completed too fast - set to 100%
             p1 = 100.0 if fut_orig.done() else (indexer1.progress_percent or 0.0)
             p2 = 100.0 if fut_mk.done() else (indexer2.progress_percent or 0.0)
             on_update(conv_status, p1, p2)
+            
+            if fut_orig.done() and fut_mk.done():
+                break
+            
             time.sleep(poll_interval)
         
         fut_orig.result()
