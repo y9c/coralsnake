@@ -251,7 +251,6 @@ static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
     }
     
     // Process file line by line (release GIL for long-running I/O)
-    size_t line_count = 0;
     Py_BEGIN_ALLOW_THREADS
     while (fgets(line_buffer, 1048576, input_file)) {
         if (line_buffer[0] == '>') {
@@ -267,10 +266,6 @@ static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
                 }
             }
             fputs(line_buffer, output_file);
-        }
-        // Flush every 100 lines so file size grows for progress tracking
-        if (++line_count % 100 == 0) {
-            fflush(output_file);
         }
     }
     Py_END_ALLOW_THREADS
