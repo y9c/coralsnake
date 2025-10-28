@@ -7,16 +7,16 @@ requires-python = ">=3.10"
 readme = "README.md"
 license = {text = "GPL-3.0"}
 keywords = ["transcriptome", "mapping"]
+# Runtime dependencies only (build tools belong under [build-system])
 dependencies = [
-  "rich-click>=1.8.3",
-  "rich>=13.0.0",
-  "pysam>=0.22",
-  "numpy>=1.26",
-  "ncls>=0.0.68",
-  "pyfamsa>=0.4",
-  "scipy>=1.14",
   "bwamem>=0.0.8",
-  "setuptools>=70.3.0",
+  "ruranges>=0.0.14",
+  "numpy>=1.26",
+  "pyfamsa>=0.4",
+  "pysam>=0.22",
+  "rich>=13.0.0",
+  "rich-click>=1.8.3",
+  "scipy>=1.14",
 ]
 
 [project.urls]
@@ -26,8 +26,10 @@ Repository = "https://github.com/y9c/coralsnake"
 coralsnake = "coralsnake.cli:cli"
 
 [dependency-groups]
+# Development-only tools (not required at runtime)
 dev = [
   "ruff>=0.6",
+  "pytest>=8",
 ]
 
 [build-system]

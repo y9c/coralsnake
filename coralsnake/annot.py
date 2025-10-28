@@ -11,7 +11,7 @@ import os
 import pickle
 
 import numpy as np
-from ncls import NCLS32
+from ruranges import overlaps
 from rich.progress import track
 from xopen import xopen
 
@@ -23,14 +23,6 @@ def parse_annot_file(tx_file, cache):
         with open(tx_file + ".pickle", "rb") as f:
             data = pickle.load(f)
             exon_tree_by_chrom_strand = data["tree"]
-            for (chromosome, strand), (
-                starts,
-                ends,
-                rids,
-            ) in exon_tree_by_chrom_strand.items():
-                exon_tree_by_chrom_strand[(chromosome, strand)] = NCLS32(
-                    starts, ends, rids
-                )
             return exon_tree_by_chrom_strand, data["info"]
 
     exons_by_chrom_strand = {}
@@ -73,13 +65,8 @@ def parse_annot_file(tx_file, cache):
     # save the parsed data to a pickle file
     if cache:
         with open(tx_file + ".pickle", "wb") as f:
-            pickle.dump(
-                {"tree": exon_tree_by_chrom_strand, "info": info},
-                open(tx_file + ".pickle", "wb"),
-            )
+            pickle.dump({"tree": exon_tree_by_chrom_strand, "info": info}, f)
 
-    for (chromosome, strand), (starts, ends, rids) in exon_tree_by_chrom_strand.items():
-        exon_tree_by_chrom_strand[(chromosome, strand)] = NCLS32(starts, ends, rids)
     return exon_tree_by_chrom_strand, info
 
 
@@ -114,11 +101,26 @@ def run_annot(
             tree = tree_by_chrom_strand.get((chromosome, strand))
             annot_list = []
             if tree:
-                for exon_start, exon_end, rid in tree.find_overlap(
-                    position, position + 1
-                ):
+                starts, ends, rids = tree
+                # Build single-position query arrays
+                q_starts = np.array([position], dtype=np.int32)
+                q_ends = np.array([position + 1], dtype=np.int32)
+                groups = np.zeros(1, dtype=np.uint32)
+                groups2 = np.zeros(len(starts), dtype=np.uint32)
+                idx1, idx2 = overlaps(
+                    starts=q_starts,
+                    ends=q_ends,
+                    starts2=starts,
+                    ends2=ends,
+                    groups=groups,
+                    groups2=groups2,
+                )
+                for j in idx2:
+                    rid = int(rids[j])
                     if info.get(rid):
                         gene_id, transcript_id, exon_shift = info[rid]
+                        exon_start = int(starts[j])
+                        exon_end = int(ends[j])
                         if strand == "+":
                             transcript_pos = position - exon_start + exon_shift
                         else:

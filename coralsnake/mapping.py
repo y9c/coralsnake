@@ -587,6 +587,11 @@ def map_file(
                             min_alignment_length, min_mapping_ratio,
                         ))
                         batch.clear()
+                    # Drain completed futures to avoid initial stall
+                    for fut in futures[:]:
+                        if fut.done():
+                            write_mapped(fut.result())
+                            futures.remove(fut)
                 if batch:
                     futures.append(ex.submit(
                         _map_batch_worker,
@@ -615,6 +620,11 @@ def map_file(
                             min_alignment_length, min_mapping_ratio,
                         ))
                         batch.clear()
+                    # Drain completed futures to avoid initial stall
+                    for fut in futures[:]:
+                        if fut.done():
+                            write_mapped(fut.result())
+                            futures.remove(fut)
                 if batch:
                     futures.append(ex.submit(
                         _map_batch_worker,
