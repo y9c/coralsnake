@@ -89,9 +89,12 @@ def _build_indices_with_progress(
     orig_prefix = os.path.splitext(orig_fa)[0]
     # MK
     mk_fa = os.path.join(index_base_dir, "ref.mk.fa")
-    on_update("Converting...", 0.0, 0.0)
-    convert_file_realtime(ref_file, mk_fa, "AC", "GT")
-    on_update("Converted", 0.0, 0.0)
+    # Launch conversion in background and poll output size
+    try:
+        input_size = os.path.getsize(ref_file)
+    except OSError:
+        input_size = None
+    on_update("Converting... 0.0%", 0.0, 0.0)
     mk_prefix = os.path.splitext(mk_fa)[0]
 
     indexer1 = BwaIndexer()
@@ -103,16 +106,37 @@ def _build_indices_with_progress(
     def build_mk():
         indexer2.build_index(mk_fa, prefix=mk_prefix, capture_progress=True)
 
-    with ThreadPoolExecutor(max_workers=2) as ex:
+    with ThreadPoolExecutor(max_workers=3) as ex:
         fut1 = ex.submit(build_orig)
-        fut2 = ex.submit(build_mk)
-        while not (fut1.done() and fut2.done()):
+        fut_conv = ex.submit(convert_file_realtime, ref_file, mk_fa, "AC", "GT")
+        fut2 = None
+        started_mk = False
+        while True:
             p1 = indexer1.progress_percent or 0.0
             p2 = indexer2.progress_percent or 0.0
-            on_update("Converted", p1, p2)
+            # Update conversion percent by checking output file size
+            if not fut_conv.done():
+                try:
+                    out_size = os.path.getsize(mk_fa)
+                except OSError:
+                    out_size = 0
+                if input_size and input_size > 0:
+                    conv_pct = min(100.0, 100.0 * (out_size / input_size))
+                else:
+                    conv_pct = 0.0
+                on_update(f"Converting... {conv_pct:.1f}%", p1, p2)
+            else:
+                if not started_mk:
+                    fut2 = ex.submit(build_mk)
+                    started_mk = True
+                on_update("Converted", p1, p2)
+
+            if fut1.done() and started_mk and fut2 and fut2.done():
+                break
             time.sleep(poll_interval)
         fut1.result()
-        fut2.result()
+        if fut2:
+            fut2.result()
 
     on_update("Done", 100.0, 100.0)
     return orig_fa, mk_prefix
