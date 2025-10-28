@@ -122,7 +122,12 @@ def _build_indices_with_progress(
                 except OSError:
                     out_size = 0
                 if input_size and input_size > 0:
-                    conv_pct = min(100.0, 100.0 * min(1, out_size / input_size))
+                    ratio = out_size / float(input_size)
+                    if ratio < 0:
+                        ratio = 0.0
+                    if ratio > 1:
+                        ratio = 1.0
+                    conv_pct = 100.0 * ratio
                 else:
                     conv_pct = 0.0
                 on_update(f"Converting... {conv_pct:.1f}%", p1, p2)
