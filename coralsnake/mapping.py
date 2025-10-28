@@ -110,6 +110,7 @@ def _build_indices_with_progress(
     conv_thread.start()
 
     # Poll conversion progress by checking output file size
+    # Note: C extension releases GIL during I/O, so this should work
     while not conv_done.is_set():
         try:
             out_size = os.path.getsize(mk_fa)
@@ -119,8 +120,9 @@ def _build_indices_with_progress(
             conv_pct = min(100.0, 100.0 * (out_size / float(input_size)))
         else:
             conv_pct = 0.0
+        # Force update with percentage
         on_update(f"Converting... {conv_pct:.1f}%", 0.0, 0.0)
-        time.sleep(poll_interval)
+        conv_done.wait(poll_interval)  # Use wait instead of sleep for faster response
 
     conv_thread.join()
     on_update("Converted", 0.0, 0.0)
