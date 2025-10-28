@@ -52,35 +52,47 @@ async def _build_indices_with_progress_async(
 
     on_update("Converting... 0.0%", 0.0, 0.0)
 
-    # Conversion in executor
-    loop = asyncio.get_event_loop()
-    conv_task = loop.run_in_executor(None, convert_file_realtime, ref_file, mk_fa, "AC", "GT")
-
-    # Give conversion a moment to create the file
-    await asyncio.sleep(0.1)
-
-    # Poll conversion progress
-    while not conv_task.done():
+    # Conversion in background executor with concurrent.futures
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    
+    conv_done = threading.Event()
+    conv_executor = ThreadPoolExecutor(max_workers=1)
+    
+    def do_conversion():
+        convert_file_realtime(ref_file, mk_fa, "AC", "GT")
+        conv_done.set()
+    
+    conv_future = conv_executor.submit(do_conversion)
+    
+    # Poll conversion progress while it runs
+    poll_count = 0
+    while not conv_done.is_set():
         try:
             out_size = os.path.getsize(mk_fa)
         except OSError:
             out_size = 0
+        
+        poll_count += 1
         if out_size > 0 and input_size > 0:
             conv_pct = min(100.0, 100.0 * (out_size / float(input_size)))
             out_mb = out_size / 1024 / 1024
             in_mb = input_size / 1024 / 1024
             on_update(f"Converting... {conv_pct:.1f}% ({out_mb:.1f}/{in_mb:.1f} MB)", 0.0, 0.0)
         else:
-            on_update("Converting... (waiting)", 0.0, 0.0)
+            on_update(f"Converting... (poll #{poll_count}, size={out_size})", 0.0, 0.0)
+        
         await asyncio.sleep(poll_interval)
-
-    await conv_task
+    
+    conv_future.result()
+    conv_executor.shutdown(wait=False)
     on_update("Converted", 0.0, 0.0)
 
     # Build both indices concurrently
     indexer1 = BwaIndexer()
     indexer2 = BwaIndexer()
 
+    loop = asyncio.get_event_loop()
     task1 = loop.run_in_executor(None, indexer1.build_index, orig_fa, orig_prefix, True)
     task2 = loop.run_in_executor(None, indexer2.build_index, mk_fa, mk_prefix, True)
 
