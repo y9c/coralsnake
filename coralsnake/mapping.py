@@ -68,17 +68,10 @@ def _build_indices_with_progress(
         time.sleep(0.01)  # Brief stagger to ensure both start
         fut2 = ex.submit(build_mk)
         
-        poll_count = 0
         while not (fut1.done() and fut2.done()):
-            poll_count += 1
             p1 = indexer1.progress_percent or 0.0
             p2 = indexer2.progress_percent or 0.0
             on_update("Converted", p1, p2)
-            
-            if poll_count == 1:
-                import sys
-                print(f"[DEBUG] First index poll: ORIG={p1:.1f}%, MK={p2:.1f}%, fut1.done={fut1.done()}, fut2.done={fut2.done()}", file=sys.stderr, flush=True)
-            
             time.sleep(poll_interval)
         
         fut1.result()
