@@ -106,7 +106,8 @@ def _build_indices_with_progress(
     def build_mk():
         indexer2.build_index(mk_fa, prefix=mk_prefix, capture_progress=True)
 
-    with ThreadPoolExecutor(max_workers=3) as ex:
+    # Two workers: one dedicated to ORIG, the other shared by conversion then MK index
+    with ThreadPoolExecutor(max_workers=2) as ex:
         fut1 = ex.submit(build_orig)
         fut_conv = ex.submit(convert_file_realtime, ref_file, mk_fa, "AC", "GT")
         fut2 = None
