@@ -46,14 +46,9 @@ def _build_indices_with_progress(
     mk_fa = os.path.join(index_base_dir, "ref.mk.fa")
     mk_prefix = os.path.splitext(mk_fa)[0]
 
-    # Simple conversion - no progress tracking (too fast to be useful, flushing hurts performance)
+    # Start ORIG index in parallel with conversion (they're independent)
     import time
     
-    on_update("Converting...", 0.0, 0.0)
-    convert_file_realtime(ref_file, mk_fa, "AC", "GT")
-    on_update("Converted", 0.0, 0.0)
-
-    # Build both indices concurrently
     indexer1 = BwaIndexer()
     indexer2 = BwaIndexer()
 
@@ -62,20 +57,37 @@ def _build_indices_with_progress(
 
     def build_mk():
         indexer2.build_index(mk_fa, prefix=mk_prefix, capture_progress=True)
+    
+    def do_conversion():
+        convert_file_realtime(ref_file, mk_fa, "AC", "GT")
 
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        fut1 = ex.submit(build_orig)
-        time.sleep(0.01)  # Brief stagger to ensure both start
-        fut2 = ex.submit(build_mk)
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        # Start ORIG index and conversion in parallel
+        fut_orig = ex.submit(build_orig)
+        fut_conv = ex.submit(do_conversion)
         
-        while not (fut1.done() and fut2.done()):
+        # Poll while conversion runs
+        conv_status = "Converting..."
+        while not fut_conv.done():
             p1 = indexer1.progress_percent or 0.0
-            p2 = indexer2.progress_percent or 0.0
-            on_update("Converted", p1, p2)
+            on_update(conv_status, p1, 0.0)
             time.sleep(poll_interval)
         
-        fut1.result()
-        fut2.result()
+        fut_conv.result()
+        conv_status = "Converted"
+        
+        # Start MK index after conversion completes
+        fut_mk = ex.submit(build_mk)
+        
+        # Poll both indices
+        while not (fut_orig.done() and fut_mk.done()):
+            p1 = indexer1.progress_percent or 0.0
+            p2 = indexer2.progress_percent or 0.0
+            on_update(conv_status, p1, p2)
+            time.sleep(poll_interval)
+        
+        fut_orig.result()
+        fut_mk.result()
 
     on_update("Done", 100.0, 100.0)
     return orig_fa, mk_prefix
