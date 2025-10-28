@@ -7,22 +7,21 @@
 # Created: 2024-06-08 20:32
 
 
+import atexit
+import multiprocessing as mp
 import os
 import random
-import tempfile
-import atexit
 import shutil
-import multiprocessing as mp
+import tempfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import ExitStack
 
 import pysam
+from bwamem import BwaAligner, BwaIndexer, fastx_read, read_paired_fastx
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from bwamem import BwaAligner, BwaIndexer, fastx_read, read_paired_fastx
-
-from .utils import format_duration, mk_conversion, km_conversion, convert_file_realtime
 from . import seqops
+from .utils import convert_file_realtime, format_duration, km_conversion, mk_conversion
 
 
 def _prepare_indices(ref_file, index_base_dir, threads):
