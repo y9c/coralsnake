@@ -24,18 +24,19 @@ from . import seqops
 from .utils import convert_file_realtime, format_duration, km_conversion, mk_conversion
 
 
-## (removed) _prepare_indices_with_progress: replaced by async version
+## (removed) async version: asyncio.run() blocks Rich progress updates
 
 
-async def _build_indices_with_progress_async(
+def _build_indices_with_progress(
     ref_file: str,
     index_base_dir: str,
     on_update,
     poll_interval: float = 0.2,
 ):
-    """Build ORIG and MK indices concurrently using asyncio."""
-    import asyncio
-
+    """Build indices with progress using threads (not async - Rich doesn't play well with asyncio.run)."""
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    
     os.makedirs(index_base_dir, exist_ok=True)
     # ORIG
     orig_fa = os.path.join(index_base_dir, "ref.orig.fa")
@@ -52,20 +53,18 @@ async def _build_indices_with_progress_async(
 
     on_update("Converting... 0.0%", 0.0, 0.0)
 
-    # Conversion in background executor with concurrent.futures
-    from concurrent.futures import ThreadPoolExecutor
-    import threading
-    
+    # Conversion in background thread
     conv_done = threading.Event()
-    conv_executor = ThreadPoolExecutor(max_workers=1)
     
     def do_conversion():
         convert_file_realtime(ref_file, mk_fa, "AC", "GT")
         conv_done.set()
     
-    conv_future = conv_executor.submit(do_conversion)
+    conv_thread = threading.Thread(target=do_conversion, daemon=True)
+    conv_thread.start()
     
-    # Poll conversion progress while it runs
+    # Poll conversion progress
+    import time
     poll_count = 0
     while not conv_done.is_set():
         try:
@@ -82,42 +81,34 @@ async def _build_indices_with_progress_async(
         else:
             on_update(f"Converting... (poll #{poll_count}, size={out_size})", 0.0, 0.0)
         
-        await asyncio.sleep(poll_interval)
+        time.sleep(poll_interval)
     
-    conv_future.result()
-    conv_executor.shutdown(wait=False)
+    conv_thread.join()
     on_update("Converted", 0.0, 0.0)
 
     # Build both indices concurrently
     indexer1 = BwaIndexer()
     indexer2 = BwaIndexer()
 
-    loop = asyncio.get_event_loop()
-    task1 = loop.run_in_executor(None, indexer1.build_index, orig_fa, orig_prefix, True)
-    task2 = loop.run_in_executor(None, indexer2.build_index, mk_fa, mk_prefix, True)
+    def build_orig():
+        indexer1.build_index(orig_fa, prefix=orig_prefix, capture_progress=True)
 
-    while not (task1.done() and task2.done()):
-        p1 = indexer1.progress_percent or 0.0
-        p2 = indexer2.progress_percent or 0.0
-        on_update("Converted", p1, p2)
-        await asyncio.sleep(poll_interval)
+    def build_mk():
+        indexer2.build_index(mk_fa, prefix=mk_prefix, capture_progress=True)
 
-    await task1
-    await task2
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        fut1 = ex.submit(build_orig)
+        fut2 = ex.submit(build_mk)
+        while not (fut1.done() and fut2.done()):
+            p1 = indexer1.progress_percent or 0.0
+            p2 = indexer2.progress_percent or 0.0
+            on_update("Converted", p1, p2)
+            time.sleep(poll_interval)
+        fut1.result()
+        fut2.result()
 
     on_update("Done", 100.0, 100.0)
     return orig_fa, mk_prefix
-
-
-def _build_indices_with_progress(
-    ref_file: str,
-    index_base_dir: str,
-    on_update,
-    poll_interval: float = 0.2,
-):
-    """Synchronous wrapper for async build."""
-    import asyncio
-    return asyncio.run(_build_indices_with_progress_async(ref_file, index_base_dir, on_update, poll_interval))
 
 
 ## (removed) _ensure_indices: inlined async index building with progress in map_file
