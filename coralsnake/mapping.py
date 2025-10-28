@@ -87,16 +87,42 @@ def _build_indices_with_progress(
     if os.path.abspath(ref_file) != os.path.abspath(orig_fa):
         shutil.copyfile(ref_file, orig_fa)
     orig_prefix = os.path.splitext(orig_fa)[0]
-    # MK
+    # MK: convert first (synchronous, with progress tracking in a thread)
     mk_fa = os.path.join(index_base_dir, "ref.mk.fa")
-    # Launch conversion in background and poll output size
+    mk_prefix = os.path.splitext(mk_fa)[0]
     try:
         input_size = os.path.getsize(ref_file)
     except OSError:
-        input_size = None
-    on_update("Converting... 0.0%", 0.0, 0.0)
-    mk_prefix = os.path.splitext(mk_fa)[0]
+        input_size = 1  # avoid division by zero
 
+    on_update("Converting...", 0.0, 0.0)
+
+    # Run conversion in a thread while polling file size
+    import threading
+
+    conv_done = threading.Event()
+
+    def do_conversion():
+        convert_file_realtime(ref_file, mk_fa, "AC", "GT")
+        conv_done.set()
+
+    conv_thread = threading.Thread(target=do_conversion, daemon=True)
+    conv_thread.start()
+
+    # Poll conversion progress by checking output file size
+    while not conv_done.is_set():
+        try:
+            out_size = os.path.getsize(mk_fa)
+        except OSError:
+            out_size = 0
+        conv_pct = min(100.0, 100.0 * (out_size / float(input_size)))
+        on_update(f"Converting... {conv_pct:.1f}%", 0.0, 0.0)
+        time.sleep(poll_interval)
+
+    conv_thread.join()
+    on_update("Converted", 0.0, 0.0)
+
+    # Now build both indices in parallel
     indexer1 = BwaIndexer()
     indexer2 = BwaIndexer()
 
@@ -106,43 +132,16 @@ def _build_indices_with_progress(
     def build_mk():
         indexer2.build_index(mk_fa, prefix=mk_prefix, capture_progress=True)
 
-    # Two workers: one dedicated to ORIG, the other shared by conversion then MK index
     with ThreadPoolExecutor(max_workers=2) as ex:
         fut1 = ex.submit(build_orig)
-        fut_conv = ex.submit(convert_file_realtime, ref_file, mk_fa, "AC", "GT")
-        fut2 = None
-        started_mk = False
-        while True:
+        fut2 = ex.submit(build_mk)
+        while not (fut1.done() and fut2.done()):
             p1 = indexer1.progress_percent or 0.0
             p2 = indexer2.progress_percent or 0.0
-            # Update conversion percent by checking output file size
-            if not fut_conv.done():
-                try:
-                    out_size = os.path.getsize(mk_fa)
-                except OSError:
-                    out_size = 0
-                if input_size and input_size > 0:
-                    ratio = out_size / float(input_size)
-                    if ratio < 0:
-                        ratio = 0.0
-                    if ratio > 1:
-                        ratio = 1.0
-                    conv_pct = 100.0 * ratio
-                else:
-                    conv_pct = 0.0
-                on_update(f"Converting... {conv_pct:.1f}%", p1, p2)
-            else:
-                if not started_mk:
-                    fut2 = ex.submit(build_mk)
-                    started_mk = True
-                on_update("Converted", p1, p2)
-
-            if fut1.done() and started_mk and fut2 and fut2.done():
-                break
+            on_update("Converted", p1, p2)
             time.sleep(poll_interval)
         fut1.result()
-        if fut2:
-            fut2.result()
+        fut2.result()
 
     on_update("Done", 100.0, 100.0)
     return orig_fa, mk_prefix
