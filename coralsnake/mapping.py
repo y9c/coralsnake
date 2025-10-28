@@ -122,7 +122,7 @@ def _build_indices_with_progress(
                 except OSError:
                     out_size = 0
                 if input_size and input_size > 0:
-                    conv_pct = min(100.0, 100.0 * (out_size / input_size))
+                    conv_pct = min(100.0, 100.0 * min(1, out_size / input_size))
                 else:
                     conv_pct = 0.0
                 on_update(f"Converting... {conv_pct:.1f}%", p1, p2)
@@ -622,8 +622,10 @@ def map_file(
             )
             def on_update(conv, p1, p2):
                 progress.update(task, conv=conv, p1=p1, p2=p2)
+                progress.refresh()
             _build_indices_with_progress(ref_file, index_base_dir, on_update)
             progress.update(task, description="✓ Indices ready", conv="Done", p1=100.0, p2=100.0)
+            progress.refresh()
             return
         else:
             if orig_ready and mk_index_ready:
@@ -645,10 +647,12 @@ def map_file(
                 )
                 def on_update(conv, p1, p2):
                     progress.update(task, conv=conv, p1=p1, p2=p2)
+                    progress.refresh()
                 idx0_file, idx_mk_file = _build_indices_with_progress(
                     ref_file, index_base_dir, on_update
                 )
                 progress.update(task, description="✓ Indices ready", conv="Done", p1=100.0, p2=100.0)
+                progress.refresh()
 
     if index_only:
         return
