@@ -51,36 +51,49 @@ def _build_indices_with_progress(
     except OSError:
         input_size = 1
 
-    on_update("Converting... 0.0%", 0.0, 0.0)
-
-    # Conversion in background thread
+    # Conversion with progress tracking - simpler approach
+    import time
+    import sys
+    
+    on_update("Converting...", 0.0, 0.0)
+    
+    # Start conversion in background
     conv_done = threading.Event()
     
     def do_conversion():
+        print("[DEBUG] Conversion started", file=sys.stderr, flush=True)
         convert_file_realtime(ref_file, mk_fa, "AC", "GT")
+        print("[DEBUG] Conversion done", file=sys.stderr, flush=True)
         conv_done.set()
     
     conv_thread = threading.Thread(target=do_conversion, daemon=True)
     conv_thread.start()
     
+    # Force a brief pause to let thread start
+    time.sleep(0.05)
+    
     # Poll conversion progress
-    import time
     poll_count = 0
+    print(f"[DEBUG] Starting poll loop, conv_done={conv_done.is_set()}", file=sys.stderr, flush=True)
+    
     while not conv_done.is_set():
+        poll_count += 1
         try:
             out_size = os.path.getsize(mk_fa)
         except OSError:
             out_size = 0
         
-        poll_count += 1
         conv_pct = min(100.0, 100.0 * (out_size / float(input_size))) if input_size > 0 else 0.0
         out_mb = out_size / 1024 / 1024
         in_mb = input_size / 1024 / 1024
-        # Always show poll counter for debugging
-        on_update(f"Converting... {conv_pct:.1f}% [poll#{poll_count} {out_mb:.1f}/{in_mb:.1f}MB]", 0.0, 0.0)
+        on_update(f"Converting... {conv_pct:.1f}% [#{poll_count} {out_mb:.1f}/{in_mb:.1f}MB]", 0.0, 0.0)
+        
+        if poll_count == 1:
+            print(f"[DEBUG] First poll: size={out_size}, pct={conv_pct:.1f}%", file=sys.stderr, flush=True)
         
         time.sleep(poll_interval)
     
+    print(f"[DEBUG] Poll loop done after {poll_count} iterations", file=sys.stderr, flush=True)
     conv_thread.join()
     on_update("Converted", 0.0, 0.0)
 
