@@ -35,7 +35,6 @@ def _build_indices_with_progress(
 ):
     """Build indices with progress using threads (not async - Rich doesn't play well with asyncio.run)."""
     from concurrent.futures import ThreadPoolExecutor
-    import threading
     
     os.makedirs(index_base_dir, exist_ok=True)
     # ORIG
@@ -46,10 +45,6 @@ def _build_indices_with_progress(
     # MK
     mk_fa = os.path.join(index_base_dir, "ref.mk.fa")
     mk_prefix = os.path.splitext(mk_fa)[0]
-    try:
-        input_size = os.path.getsize(ref_file)
-    except OSError:
-        input_size = 1
 
     # Simple conversion - no progress tracking (too fast to be useful, flushing hurts performance)
     import time
@@ -70,12 +65,22 @@ def _build_indices_with_progress(
 
     with ThreadPoolExecutor(max_workers=2) as ex:
         fut1 = ex.submit(build_orig)
+        time.sleep(0.01)  # Brief stagger to ensure both start
         fut2 = ex.submit(build_mk)
+        
+        poll_count = 0
         while not (fut1.done() and fut2.done()):
+            poll_count += 1
             p1 = indexer1.progress_percent or 0.0
             p2 = indexer2.progress_percent or 0.0
             on_update("Converted", p1, p2)
+            
+            if poll_count == 1:
+                import sys
+                print(f"[DEBUG] First index poll: ORIG={p1:.1f}%, MK={p2:.1f}%, fut1.done={fut1.done()}, fut2.done={fut2.done()}", file=sys.stderr, flush=True)
+            
             time.sleep(poll_interval)
+        
         fut1.result()
         fut2.result()
 
