@@ -69,9 +69,14 @@ def _build_indices_with_progress(
         conv_status = "Converting..."
         import sys
         print("[DEBUG] Starting conversion+ORIG poll loop", file=sys.stderr, flush=True)
+        poll_conv_count = 0
         while not fut_conv.done():
+            poll_conv_count += 1
             # If ORIG is done during conversion, mark it complete
-            p1 = 100.0 if fut_orig.done() else (indexer1.progress_percent or 0.0)
+            raw_p1 = indexer1.progress_percent
+            p1 = 100.0 if fut_orig.done() else (raw_p1 or 0.0)
+            if poll_conv_count % 10 == 1:  # Log every 10th poll
+                print(f"[DEBUG] Conv poll #{poll_conv_count}: raw_p1={raw_p1}, fut_orig.done={fut_orig.done()}", file=sys.stderr, flush=True)
             on_update(conv_status, p1, 0.0)
             time.sleep(poll_interval)
         print(f"[DEBUG] Conversion done, ORIG done={fut_orig.done()}", file=sys.stderr, flush=True)
@@ -88,12 +93,14 @@ def _build_indices_with_progress(
         while True:
             poll_count += 1
             # If future is done but progress still 0, it completed too fast - set to 100%
-            p1 = 100.0 if fut_orig.done() else (indexer1.progress_percent or 0.0)
-            p2 = 100.0 if fut_mk.done() else (indexer2.progress_percent or 0.0)
+            raw_p1 = indexer1.progress_percent
+            raw_p2 = indexer2.progress_percent
+            p1 = 100.0 if fut_orig.done() else (raw_p1 or 0.0)
+            p2 = 100.0 if fut_mk.done() else (raw_p2 or 0.0)
             on_update(conv_status, p1, p2)
             
-            if poll_count == 1:
-                print(f"[DEBUG] First MK poll: ORIG done={fut_orig.done()}, MK done={fut_mk.done()}, p1={p1:.1f}, p2={p2:.1f}", file=sys.stderr, flush=True)
+            if poll_count == 1 or poll_count % 10 == 0:
+                print(f"[DEBUG] MK poll #{poll_count}: raw_p1={raw_p1}, raw_p2={raw_p2}, ORIG done={fut_orig.done()}, MK done={fut_mk.done()}", file=sys.stderr, flush=True)
             
             if fut_orig.done() and fut_mk.done():
                 print(f"[DEBUG] Both indices done after {poll_count} polls", file=sys.stderr, flush=True)
