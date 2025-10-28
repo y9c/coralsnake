@@ -95,7 +95,7 @@ def _build_indices_with_progress(
     except OSError:
         input_size = 1  # avoid division by zero
 
-    on_update("Converting...", 0.0, 0.0)
+    on_update("Converting... 0.0%", 0.0, 0.0)
 
     # Run conversion in a thread while polling file size
     import threading
@@ -115,7 +115,10 @@ def _build_indices_with_progress(
             out_size = os.path.getsize(mk_fa)
         except OSError:
             out_size = 0
-        conv_pct = min(100.0, 100.0 * (out_size / float(input_size)))
+        if input_size > 0:
+            conv_pct = min(100.0, 100.0 * (out_size / float(input_size)))
+        else:
+            conv_pct = 0.0
         on_update(f"Converting... {conv_pct:.1f}%", 0.0, 0.0)
         time.sleep(poll_interval)
 
