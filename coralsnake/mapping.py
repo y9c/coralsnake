@@ -67,9 +67,11 @@ async def _build_indices_with_progress_async(
             out_size = 0
         if out_size > 0 and input_size > 0:
             conv_pct = min(100.0, 100.0 * (out_size / float(input_size)))
-            on_update(f"Converting... {conv_pct:.1f}%", 0.0, 0.0)
+            out_mb = out_size / 1024 / 1024
+            in_mb = input_size / 1024 / 1024
+            on_update(f"Converting... {conv_pct:.1f}% ({out_mb:.1f}/{in_mb:.1f} MB)", 0.0, 0.0)
         else:
-            on_update("Converting... (starting)", 0.0, 0.0)
+            on_update("Converting... (waiting)", 0.0, 0.0)
         await asyncio.sleep(poll_interval)
 
     await conv_task
