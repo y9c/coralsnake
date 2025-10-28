@@ -263,20 +263,24 @@ def map(
                 raise click.Abort()
 
     fwd_lib = strand.lower() == "forward"
-    map_file(
-        ref_file,
-        r1_file,
-        r2_file,
-        output_file,
-        fwd_lib,
-        max_mismatches,
-        threads,
-        min_alignment_length,
-        min_mapping_ratio,
-        index_dir,
-        index_only,
-        batch_size,
-    )
+    try:
+        map_file(
+            ref_file,
+            r1_file,
+            r2_file,
+            output_file,
+            fwd_lib,
+            max_mismatches,
+            threads,
+            min_alignment_length,
+            min_mapping_ratio,
+            index_dir,
+            index_only,
+            batch_size,
+        )
+    except FileNotFoundError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise click.Abort()
 
     if index_only:
         print(f"\n✅ Index building completed! Indices saved to: {index_dir}")

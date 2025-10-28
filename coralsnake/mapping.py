@@ -507,6 +507,14 @@ def map_file(
     batch_size=1000,
 ):
     """Map FASTQ reads to reference with dual-base conversion chemistry."""
+    # Preflight: validate input files early to avoid spawning workers on bad paths
+    if not index_only:
+        if not r1_file or not os.path.exists(r1_file):
+            raise FileNotFoundError(f"Input R1 file not found: {r1_file}")
+        if r2_file is not None and not os.path.exists(r2_file):
+            raise FileNotFoundError(f"Input R2 file not found: {r2_file}")
+    if ref_file and not os.path.exists(ref_file):
+        raise FileNotFoundError(f"Reference file not found: {ref_file}")
     # Determine index directory path and auto-clean temp via atexit
     if index_dir:
         os.makedirs(index_dir, exist_ok=True)
