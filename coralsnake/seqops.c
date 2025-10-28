@@ -251,6 +251,7 @@ static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
     }
     
     // Process file line by line
+    size_t line_count = 0;
     while (fgets(line_buffer, 1048576, input_file)) {
         if (line_buffer[0] == '>') {
             // Header line - write directly
@@ -265,6 +266,10 @@ static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
                 }
             }
             fputs(line_buffer, output_file);
+        }
+        // Flush every 1000 lines so file size grows for progress tracking
+        if (++line_count % 1000 == 0) {
+            fflush(output_file);
         }
     }
     
