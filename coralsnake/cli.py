@@ -156,7 +156,7 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
-@click.option("-r", "--ref-file", help="reference file", required=True)
+@click.option("-r", "--ref-file", help="reference file", required=False)
 @click.option("-1", "--r1-file", help="r1 file", required=False)
 @click.option("-2", "--r2-file", help="r2 file", required=False)
 @click.option("-o", "--output-file", help="output bam file", required=False)
@@ -248,6 +248,17 @@ def map(
         if not output_file:
             click.echo("❌ Error: -o/--output-file is required for mapping", err=True)
             raise click.Abort()
+        # If index-dir is provided and both indices exist, ref-file can be omitted
+        if not ref_file:
+            if not index_dir:
+                click.echo("❌ Error: --ref-file is required unless --index-dir is provided", err=True)
+                raise click.Abort()
+            import os
+            idx0_file = os.path.join(index_dir, "ref.orig.mmi")
+            idx_mk_file = os.path.join(index_dir, "ref.mk.mmi")
+            if not (os.path.exists(idx0_file) and os.path.exists(idx_mk_file)):
+                click.echo("❌ Error: --ref-file is required because indices not found in --index-dir", err=True)
+                raise click.Abort()
 
     fwd_lib = strand.lower() == "forward"
     map_file(

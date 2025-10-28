@@ -15,70 +15,48 @@ import shutil
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import ExitStack
 
-import mappy as mp
 import pysam
 from rich.progress import Progress, SpinnerColumn, TextColumn
+
+from bwamem import BwaAligner, BwaIndexer, fastx_read, read_paired_fastx
 
 from .utils import format_duration, mk_conversion, km_conversion, convert_file_realtime
 from . import seqops
 
 
 def _prepare_indices(ref_file, index_base_dir, threads):
-    """Create MK FASTA and write both .mmi index files. Returns (idx0_file, idx_mk_file)."""
-    idx0_file = os.path.join(index_base_dir, "ref.orig.mmi")
-    idx_mk_file = os.path.join(index_base_dir, "ref.mk.mmi")
-    mk_file = os.path.join(index_base_dir, "ref.mk.fa")
+    """Create MK FASTA and build both BWA indices. Returns (orig_fa, mk_index_prefix)."""
+    os.makedirs(index_base_dir, exist_ok=True)
+    orig_fa = os.path.join(index_base_dir, "ref.orig.fa")
+    if os.path.abspath(ref_file) != os.path.abspath(orig_fa):
+        shutil.copyfile(ref_file, orig_fa)
 
-    # Convert reference to MK (A->G, C->T)
-    convert_file_realtime(ref_file, mk_file, "AC", "GT")
+    mk_fa = os.path.join(index_base_dir, "ref.mk.fa")
+    convert_file_realtime(ref_file, mk_fa, "AC", "GT")
 
-    # Build original reference index
-    _ = mp.Aligner(
-        fn_idx_in=ref_file,
-        preset="sr",
-        n_threads=threads,
-        k=10,
-        w=10,
-        min_cnt=0,
-        min_chain_score=0,
-        best_n=50,
-        fn_idx_out=idx0_file,
-    )
+    indexer = BwaIndexer()
+    orig_prefix = os.path.splitext(orig_fa)[0]
+    mk_prefix = os.path.splitext(mk_fa)[0]
+    indexer.build_index(orig_fa, prefix=orig_prefix)
+    indexer.build_index(mk_fa, prefix=mk_prefix)
 
-    # Build MK reference index
-    _ = mp.Aligner(
-        fn_idx_in=mk_file,
-        preset="sr",
-        n_threads=threads,
-        k=10,
-        w=10,
-        min_cnt=0,
-        min_chain_score=0,
-        best_n=50,
-        fn_idx_out=idx_mk_file,
-    )
-
-    # Remove MK FASTA (indices are sufficient)
-    if os.path.exists(mk_file):
-        os.remove(mk_file)
-
-    return idx0_file, idx_mk_file
+    return orig_fa, mk_prefix
 
 
 def _load_aligners(idx0_file, idx_mk_file, threads):
-    """Load aligners from existing .mmi files."""
-    idx0 = mp.Aligner(fn_idx_in=idx0_file, preset="sr", n_threads=threads)
-    idx_mk = mp.Aligner(fn_idx_in=idx_mk_file, preset="sr", n_threads=threads)
-    return idx0, idx_mk
+    """No-op for BWA; kept for compatibility with call sites."""
+    return None, None
 
 
 def _ensure_indices(ref_file, index_base_dir, threads):
-    """Ensure both index files exist; build them if missing. Returns (idx0_file, idx_mk_file)."""
-    idx0_file = os.path.join(index_base_dir, "ref.orig.mmi")
-    idx_mk_file = os.path.join(index_base_dir, "ref.mk.mmi")
-    if not (os.path.exists(idx0_file) and os.path.exists(idx_mk_file)):
-        idx0_file, idx_mk_file = _prepare_indices(ref_file, index_base_dir, threads)
-    return idx0_file, idx_mk_file
+    """Ensure orig FASTA and MK BWA index exist. Returns (orig_fa, mk_index_prefix)."""
+    orig_fa = os.path.join(index_base_dir, "ref.orig.fa")
+    mk_prefix = os.path.join(index_base_dir, "ref.mk")
+    req = [".amb", ".ann", ".bwt", ".pac", ".sa"]
+    mk_ok = all(os.path.exists(mk_prefix + ext) for ext in req)
+    if not (os.path.exists(orig_fa) and mk_ok):
+        orig_fa, mk_prefix = _prepare_indices(ref_file, index_base_dir, threads)
+    return orig_fa, mk_prefix
 
 
 def _map_batch_worker(
@@ -90,9 +68,9 @@ def _map_batch_worker(
     min_mapping_ratio,
 ):
     """Map a batch of reads; return one run_mapping result per input read."""
-    # Use per-process cached aligners initialized by _init_worker
-    idx0 = _ALIGNER_IDX0
-    idx_mk = _ALIGNER_IDXMK
+    # Use per-process cached resources initialized by _init_worker
+    idx0 = None
+    idx_mk = None
 
     # timing removed
     results = []
@@ -139,14 +117,35 @@ def _map_batch_worker(
 
 
 # Per-process cached aligners (initialized once per worker)
-_ALIGNER_IDX0 = None
-_ALIGNER_IDXMK = None
+_ALIGNER_ORIG = None
+_ALIGNER_MK = None
 
 
-def _init_worker(idx0_file, idx_mk_file, threads):
-    global _ALIGNER_IDX0, _ALIGNER_IDXMK
-    _ALIGNER_IDX0 = mp.Aligner(fn_idx_in=idx0_file, preset="sr", n_threads=threads)
-    _ALIGNER_IDXMK = mp.Aligner(fn_idx_in=idx_mk_file, preset="sr", n_threads=threads)
+def _init_worker(orig_fa, mk_index_prefix, threads):
+    global _ALIGNER_ORIG, _ALIGNER_MK
+    _ALIGNER_ORIG = BwaAligner(
+        os.path.splitext(orig_fa)[0],
+        softclip_supplementary=True,
+        mark_secondary=True,
+        clip_penalties=(6, 6),
+        unpaired_penalty=24,
+        min_score=20,
+        insert_model=(80, 60, 450),
+    )
+    _ALIGNER_MK = BwaAligner(
+        mk_index_prefix,
+        softclip_supplementary=True,
+        mark_secondary=True,
+        clip_penalties=(6, 6),
+        unpaired_penalty=24,
+        min_score=20,
+        insert_model=(80, 60, 450),
+    )
+
+
+def _revcomp(seq):
+    comp = str.maketrans("ACGTNacgtn", "TGCANtgcan")
+    return seq.translate(comp)[::-1]
 
 
 def find_properly_paired_hits(hits, fwd=True):
@@ -220,18 +219,25 @@ def run_mapping_se(
             seq1_conv = km_conversion(seq1) if fwd_lib else mk_conversion(seq1)
 
         # Iterate hits
+        # Align converted read to MK reference using BWA
+        hits = tuple(_ALIGNER_MK.align(seq1_conv))
+        for h in hits:
+            try:
+                h.read_num = 1
+            except Exception:
+                pass
         for hit in filter_hits(
-            idx_mk.map(seq1_conv, cs=False, MD=False),
+            hits,
             seq1,
             None,
             min_alignment_length,
             min_mapping_ratio,
         ):
-            ref = idx0.seq(hit.ctg, hit.r_st, hit.r_en)
+            ref = _ALIGNER_ORIG.seq(hit.ctg, hit.r_st, hit.r_en)
             read_reverse = hit.strand == -1
             if read_reverse:
                 flag = 16
-                s = mp.revcomp(seq1)
+                s = _revcomp(seq1)
                 q = qua1[::-1]
             else:
                 flag = 0
@@ -317,9 +323,23 @@ def run_mapping_pe(
                 seq1_conv = mk_conversion(seq1)
                 seq2_conv = km_conversion(seq2)
 
+        # Align both converted reads independently to MK reference
+        hits1 = tuple(_ALIGNER_MK.align(seq1_conv))
+        for h in hits1:
+            try:
+                h.read_num = 1
+            except Exception:
+                pass
+        hits2 = tuple(_ALIGNER_MK.align(seq2_conv))
+        for h in hits2:
+            try:
+                h.read_num = 2
+            except Exception:
+                pass
+        combined_hits = hits1 + hits2
         for hit1, hit2 in find_properly_paired_hits(
             filter_hits(
-                idx_mk.map(seq1_conv, seq2=seq2_conv, cs=False, MD=False),
+                combined_hits,
                 seq1,
                 seq2,
                 min_alignment_length,
@@ -328,18 +348,18 @@ def run_mapping_pe(
             fwd=True,
         ):
             tlen = max(hit1.r_en, hit2.r_en) - min(hit1.r_st, hit2.r_st)
-            ref1 = idx0.seq(hit1.ctg, hit1.r_st, hit1.r_en)
-            ref2 = idx0.seq(hit2.ctg, hit2.r_st, hit2.r_en)
+            ref1 = _ALIGNER_ORIG.seq(hit1.ctg, hit1.r_st, hit1.r_en)
+            ref2 = _ALIGNER_ORIG.seq(hit2.ctg, hit2.r_st, hit2.r_en)
             read1_reverse = hit1.strand == -1
             read2_reverse = hit2.strand == -1
             if read1_reverse:
-                s1 = mp.revcomp(seq1)
+                s1 = _revcomp(seq1)
                 q1 = qua1[::-1]
             else:
                 s1 = seq1
                 q1 = qua1
             if read2_reverse:
-                s2 = mp.revcomp(seq2)
+                s2 = _revcomp(seq2)
                 q2 = qua2[::-1]
             else:
                 s2 = seq2
@@ -513,8 +533,9 @@ def map_file(
 
     # BAM header
     header = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": []}
-    for name, seq, *_ in mp.fastx_read(ref_file):
-        header["SQ"].append({"SN": name, "LN": len(seq)})
+    fa_for_header = ref_file if ref_file else os.path.join(index_base_dir, "ref.orig.fa")
+    for rec in fastx_read(fa_for_header):
+        header["SQ"].append({"SN": rec.name, "LN": rec.length})
 
     # Streaming batches in parallel (no file splitting). threads = workers
     paired = r2_file is not None
@@ -552,7 +573,7 @@ def map_file(
             progress.update(task, description=f"[green]{mapped_reads:,}[/green] / [white]{processed_reads:,}[/white] {unit} ([magenta]{elapsed}[/magenta])")
 
         if not paired:
-            it1 = mp.fastx_read(r1_file)
+            it1 = ( (rec.name, rec.sequence, rec.quality) for rec in fastx_read(r1_file) )
             batch = []
             with ProcessPoolExecutor(max_workers=max(1, threads), initializer=_init_worker, initargs=(idx0_file, idx_mk_file, threads)) as ex:
                 futures = []
@@ -576,12 +597,11 @@ def map_file(
                 for fut in as_completed(futures):
                     write_mapped(fut.result())
         else:
-            it1 = mp.fastx_read(r1_file)
-            it2 = mp.fastx_read(r2_file)
+            it_pairs = ( ((r1.name, r1.sequence, r1.quality), (r2.name, r2.sequence, r2.quality)) for r1, r2 in read_paired_fastx(r1_file, r2_file) )
             batch = []
             with ProcessPoolExecutor(max_workers=max(1, threads), initializer=_init_worker, initargs=(idx0_file, idx_mk_file, threads)) as ex:
                 futures = []
-                for rec1, rec2 in zip(it1, it2):
+                for rec1, rec2 in it_pairs:
                     base1 = rec1[0].split()[0].rstrip('/1').rstrip('/2')
                     base2 = rec2[0].split()[0].rstrip('/1').rstrip('/2')
                     if base1 != base2:
