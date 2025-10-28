@@ -2,8 +2,8 @@
 #include <string.h>
 #include <zlib.h>
 
-// Fast base conversion function
-static PyObject* fast_base_conversion(PyObject* self, PyObject* args) {
+// Base conversion function
+static PyObject* base_conversion(PyObject* self, PyObject* args) {
     const char* seq;
     const char* from_bases;
     const char* to_bases;
@@ -49,8 +49,8 @@ static PyObject* fast_base_conversion(PyObject* self, PyObject* args) {
     return result;
 }
 
-// Fast reverse complement function
-static PyObject* fast_reverse_complement(PyObject* self, PyObject* args) {
+// Reverse complement function
+static PyObject* reverse_complement(PyObject* self, PyObject* args) {
     const char* seq;
     Py_ssize_t seq_len;
     
@@ -93,8 +93,8 @@ static PyObject* fast_reverse_complement(PyObject* self, PyObject* args) {
     return result;
 }
 
-// Fast MD tag and conversion statistics calculation
-static PyObject* fast_cal_md_and_tag(PyObject* self, PyObject* args) {
+// MD tag and conversion statistics calculation
+static PyObject* cal_md_and_tag(PyObject* self, PyObject* args) {
     PyObject* cigar_list;
     const char* seq;
     const char* ref;
@@ -202,8 +202,8 @@ static PyObject* fast_cal_md_and_tag(PyObject* self, PyObject* args) {
     return Py_BuildValue("(Oiiiiii)", md_tag, yf, zf, yc, zc, ns, nc);
 }
 
-// Fast FASTA file conversion (line-by-line, memory efficient)
-static PyObject* fast_convert_fasta_file(PyObject* self, PyObject* args) {
+// FASTA file conversion (line-by-line, memory efficient)
+static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
     const char* input_path;
     const char* output_path;
     const char* from_bases;
@@ -276,8 +276,8 @@ static PyObject* fast_convert_fasta_file(PyObject* self, PyObject* args) {
     Py_RETURN_NONE;
 }
 
-// Fast directional score calculation
-static PyObject* fast_calculate_directional_score(PyObject* self, PyObject* args) {
+// Directional score calculation
+static PyObject* calculate_directional_score(PyObject* self, PyObject* args) {
     PyObject* cigar_list;
     const char* seq;
     const char* ref;
@@ -373,11 +373,11 @@ static PyObject* fast_calculate_directional_score(PyObject* self, PyObject* args
 
 // Method definitions
 static PyMethodDef SeqOpsMethods[] = {
-    {"fast_base_conversion", fast_base_conversion, METH_VARARGS, "Fast base conversion"},
-    {"fast_reverse_complement", fast_reverse_complement, METH_VARARGS, "Fast reverse complement"},
-    {"fast_cal_md_and_tag", fast_cal_md_and_tag, METH_VARARGS, "Fast MD tag and conversion stats calculation"},
-    {"fast_calculate_directional_score", fast_calculate_directional_score, METH_VARARGS, "Fast directional score calculation"},
-    {"fast_convert_fasta_file", fast_convert_fasta_file, METH_VARARGS, "Fast FASTA file conversion (line-by-line)"},
+    {"base_conversion", base_conversion, METH_VARARGS, "Base conversion"},
+    {"reverse_complement", reverse_complement, METH_VARARGS, "Reverse complement"},
+    {"cal_md_and_tag", cal_md_and_tag, METH_VARARGS, "MD tag and conversion stats calculation"},
+    {"calculate_directional_score", calculate_directional_score, METH_VARARGS, "Directional score calculation"},
+    {"convert_fasta_file", convert_fasta_file, METH_VARARGS, "FASTA file conversion (line-by-line)"},
     {NULL, NULL, 0, NULL}
 };
 
