@@ -13,8 +13,7 @@ import os
 import random
 import shutil
 import tempfile
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import ExitStack
 
 import pysam
@@ -25,18 +24,18 @@ from . import seqops
 from .utils import convert_file_realtime, format_duration, km_conversion, mk_conversion
 
 
-def _prepare_indices_with_progress(
+## (removed) _prepare_indices_with_progress: replaced by async version
+
+
+async def _build_indices_with_progress_async(
     ref_file: str,
     index_base_dir: str,
-    progress: Progress,
-    task_orig: int,
-    task_mk: int,
+    on_update,
     poll_interval: float = 0.2,
 ):
-    """Build ORIG and MK indices concurrently and update provided progress tasks.
+    """Build ORIG and MK indices concurrently using asyncio."""
+    import asyncio
 
-    Returns (orig_fa_path, mk_prefix_path).
-    """
     os.makedirs(index_base_dir, exist_ok=True)
     # ORIG
     orig_fa = os.path.join(index_base_dir, "ref.orig.fa")
@@ -45,32 +44,48 @@ def _prepare_indices_with_progress(
     orig_prefix = os.path.splitext(orig_fa)[0]
     # MK
     mk_fa = os.path.join(index_base_dir, "ref.mk.fa")
-    progress.update(task_mk, description="Converting reference to MK format...")
-    convert_file_realtime(ref_file, mk_fa, "AC", "GT")
-    progress.update(task_mk, description="Reference converted to MK format")
     mk_prefix = os.path.splitext(mk_fa)[0]
+    try:
+        input_size = os.path.getsize(ref_file)
+    except OSError:
+        input_size = 1
 
+    on_update("Converting... 0.0%", 0.0, 0.0)
+
+    # Conversion in executor
+    loop = asyncio.get_event_loop()
+    conv_task = loop.run_in_executor(None, convert_file_realtime, ref_file, mk_fa, "AC", "GT")
+
+    # Poll conversion progress
+    while not conv_task.done():
+        try:
+            out_size = os.path.getsize(mk_fa)
+        except OSError:
+            out_size = 0
+        conv_pct = min(100.0, 100.0 * (out_size / float(input_size))) if input_size > 0 else 0.0
+        on_update(f"Converting... {conv_pct:.1f}%", 0.0, 0.0)
+        await asyncio.sleep(poll_interval)
+
+    await conv_task
+    on_update("Converted", 0.0, 0.0)
+
+    # Build both indices concurrently
     indexer1 = BwaIndexer()
     indexer2 = BwaIndexer()
 
-    def build_orig():
-        indexer1.build_index(orig_fa, prefix=orig_prefix, capture_progress=True)
+    task1 = loop.run_in_executor(None, indexer1.build_index, orig_fa, orig_prefix, True)
+    task2 = loop.run_in_executor(None, indexer2.build_index, mk_fa, mk_prefix, True)
 
-    def build_mk():
-        indexer2.build_index(mk_fa, prefix=mk_prefix, capture_progress=True)
+    while not (task1.done() and task2.done()):
+        p1 = indexer1.progress_percent or 0.0
+        p2 = indexer2.progress_percent or 0.0
+        on_update("Converted", p1, p2)
+        await asyncio.sleep(poll_interval)
 
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        fut1 = ex.submit(build_orig)
-        fut2 = ex.submit(build_mk)
-        while not (fut1.done() and fut2.done()):
-            p1 = indexer1.progress_percent or 0.0
-            p2 = indexer2.progress_percent or 0.0
-            progress.update(task_orig, description=f"Indexing ORIG... {p1:.1f}%")
-            progress.update(task_mk, description=f"Indexing MK... {p2:.1f}%")
-            time.sleep(poll_interval)
-        fut1.result()
-        fut2.result()
+    await task1
+    await task2
 
+    on_update("Done", 100.0, 100.0)
     return orig_fa, mk_prefix
 
 
@@ -80,76 +95,9 @@ def _build_indices_with_progress(
     on_update,
     poll_interval: float = 0.2,
 ):
-    """Build ORIG and MK indices concurrently and invoke on_update(conv_status, p1, p2)."""
-    os.makedirs(index_base_dir, exist_ok=True)
-    # ORIG
-    orig_fa = os.path.join(index_base_dir, "ref.orig.fa")
-    if os.path.abspath(ref_file) != os.path.abspath(orig_fa):
-        shutil.copyfile(ref_file, orig_fa)
-    orig_prefix = os.path.splitext(orig_fa)[0]
-    # MK: convert first (synchronous, with progress tracking in a thread)
-    mk_fa = os.path.join(index_base_dir, "ref.mk.fa")
-    mk_prefix = os.path.splitext(mk_fa)[0]
-    try:
-        input_size = os.path.getsize(ref_file)
-    except OSError:
-        input_size = 1  # avoid division by zero
-
-    on_update("Converting... 0.0%", 0.0, 0.0)
-
-    # Run conversion in a thread while polling file size
-    import threading
-
-    conv_done = threading.Event()
-
-    def do_conversion():
-        convert_file_realtime(ref_file, mk_fa, "AC", "GT")
-        conv_done.set()
-
-    conv_thread = threading.Thread(target=do_conversion, daemon=True)
-    conv_thread.start()
-
-    # Poll conversion progress by checking output file size
-    # Note: C extension releases GIL during I/O, so this should work
-    while not conv_done.is_set():
-        try:
-            out_size = os.path.getsize(mk_fa)
-        except OSError:
-            out_size = 0
-        if input_size > 0:
-            conv_pct = min(100.0, 100.0 * (out_size / float(input_size)))
-        else:
-            conv_pct = 0.0
-        # Force update with percentage
-        on_update(f"Converting... {conv_pct:.1f}%", 0.0, 0.0)
-        conv_done.wait(poll_interval)  # Use wait instead of sleep for faster response
-
-    conv_thread.join()
-    on_update("Converted", 0.0, 0.0)
-
-    # Now build both indices in parallel
-    indexer1 = BwaIndexer()
-    indexer2 = BwaIndexer()
-
-    def build_orig():
-        indexer1.build_index(orig_fa, prefix=orig_prefix, capture_progress=True)
-
-    def build_mk():
-        indexer2.build_index(mk_fa, prefix=mk_prefix, capture_progress=True)
-
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        fut1 = ex.submit(build_orig)
-        fut2 = ex.submit(build_mk)
-        while not (fut1.done() and fut2.done()):
-            p1 = indexer1.progress_percent or 0.0
-            p2 = indexer2.progress_percent or 0.0
-            on_update("Converted", p1, p2)
-            time.sleep(poll_interval)
-        fut1.result()
-        fut2.result()
-
-    on_update("Done", 100.0, 100.0)
-    return orig_fa, mk_prefix
+    """Synchronous wrapper for async build."""
+    import asyncio
+    return asyncio.run(_build_indices_with_progress_async(ref_file, index_base_dir, on_update, poll_interval))
 
 
 ## (removed) _ensure_indices: inlined async index building with progress in map_file
