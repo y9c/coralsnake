@@ -13,6 +13,7 @@ import os
 import random
 import shutil
 import tempfile
+import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import ExitStack
 
@@ -47,8 +48,6 @@ def _build_indices_with_progress(
     mk_prefix = os.path.splitext(mk_fa)[0]
 
     # Start ORIG index in parallel with conversion (they're independent)
-    import time
-    
     indexer1 = BwaIndexer()
     indexer2 = BwaIndexer()
 
@@ -589,6 +588,7 @@ def map_file(
             def on_update(conv, p1, p2):
                 progress.update(task, conv=conv, p1=p1, p2=p2)
                 progress.refresh()
+                time.sleep(0.001)  # Force thread context switch for Rich display
             _build_indices_with_progress(ref_file, index_base_dir, on_update)
             progress.update(task, description="✓ Indices ready", conv="Done", p1=100.0, p2=100.0)
             progress.refresh()
@@ -614,6 +614,7 @@ def map_file(
                 def on_update(conv, p1, p2):
                     progress.update(task, conv=conv, p1=p1, p2=p2)
                     progress.refresh()
+                    time.sleep(0.001)  # Force thread context switch for Rich display
                 idx0_file, idx_mk_file = _build_indices_with_progress(
                     ref_file, index_base_dir, on_update
                 )
