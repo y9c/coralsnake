@@ -56,14 +56,20 @@ async def _build_indices_with_progress_async(
     loop = asyncio.get_event_loop()
     conv_task = loop.run_in_executor(None, convert_file_realtime, ref_file, mk_fa, "AC", "GT")
 
+    # Give conversion a moment to create the file
+    await asyncio.sleep(0.1)
+
     # Poll conversion progress
     while not conv_task.done():
         try:
             out_size = os.path.getsize(mk_fa)
         except OSError:
             out_size = 0
-        conv_pct = min(100.0, 100.0 * (out_size / float(input_size))) if input_size > 0 else 0.0
-        on_update(f"Converting... {conv_pct:.1f}%", 0.0, 0.0)
+        if out_size > 0 and input_size > 0:
+            conv_pct = min(100.0, 100.0 * (out_size / float(input_size)))
+            on_update(f"Converting... {conv_pct:.1f}%", 0.0, 0.0)
+        else:
+            on_update("Converting... (starting)", 0.0, 0.0)
         await asyncio.sleep(poll_interval)
 
     await conv_task
