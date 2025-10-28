@@ -91,12 +91,10 @@ def _map_batch_worker(
     if not paired:
         for name1, seq1, qua1 in batch:
             results.append(
-                run_mapping(
+                run_mapping_se(
                     name1,
                     seq1,
-                    None,
                     qua1,
-                    None,
                     fwd_lib,
                     max_mismatches,
                     min_alignment_length,
@@ -110,7 +108,7 @@ def _map_batch_worker(
             if base1 != base2:
                 raise ValueError(f"r1 and r2 not in the same order: {name1} vs {name2}")
             results.append(
-                run_mapping(
+                run_mapping_pe(
                     name1,
                     seq1,
                     seq2,
@@ -469,39 +467,7 @@ def run_mapping_pe(
     return mapped
 
 
-def run_mapping(
-    name,
-    seq1,
-    seq2,
-    qua1,
-    qua2,
-    fwd_lib=True,
-    max_mismatches=10,
-    min_alignment_length=20,
-    min_mapping_ratio=0.5,
-):
-    """Dispatch to SE/PE mapping based on presence of seq2."""
-    if seq2 is None:
-        return run_mapping_se(
-            name,
-            seq1,
-            qua1,
-            fwd_lib,
-            max_mismatches,
-            min_alignment_length,
-            min_mapping_ratio,
-        )
-    return run_mapping_pe(
-        name,
-        seq1,
-        seq2,
-        qua1,
-        qua2,
-        fwd_lib,
-        max_mismatches,
-        min_alignment_length,
-        min_mapping_ratio,
-    )
+## (removed) run_mapping: worker dispatches directly to SE/PE
 
 
 def create_bam_record(header, map_data, is_secondary):
