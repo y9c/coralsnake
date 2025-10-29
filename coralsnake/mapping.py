@@ -174,8 +174,6 @@ def _init_worker(orig_fa, mk_index_prefix, orientation_filter):
     )
 
 
-# Use C implementation for better performance
-_revcomp = seqops.reverse_complement
 
 
 def find_properly_paired_hits(hits, fwd=True):
@@ -267,7 +265,7 @@ def run_mapping_se(
             read_reverse = hit.strand == -1
             if read_reverse:
                 flag = 16
-                s = _revcomp(seq1)
+                s = seqops.reverse_complement(seq1)
                 q = qua1[::-1]
             else:
                 flag = 0
@@ -385,13 +383,13 @@ def run_mapping_pe(
             read1_reverse = hit1.strand == -1
             read2_reverse = hit2.strand == -1
             if read1_reverse:
-                s1 = _revcomp(seq1)
+                s1 = seqops.reverse_complement(seq1)
                 q1 = qua1[::-1]
             else:
                 s1 = seq1
                 q1 = qua1
             if read2_reverse:
-                s2 = _revcomp(seq2)
+                s2 = seqops.reverse_complement(seq2)
                 q2 = qua2[::-1]
             else:
                 s2 = seq2
