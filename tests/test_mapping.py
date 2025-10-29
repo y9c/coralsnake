@@ -23,7 +23,7 @@ def test_map_pe_integration(tmp_path: Path):
         r1_file=str(r1),
         r2_file=str(r2),
         output_file=out_bam,
-        fwd_lib=True,
+        forward_library=True,
         max_mismatches=0,
         threads=2,
         min_alignment_length=8,

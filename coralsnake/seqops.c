@@ -250,8 +250,7 @@ static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
         return PyErr_NoMemory();
     }
     
-    // Process file line by line (release GIL for long-running I/O)
-    Py_BEGIN_ALLOW_THREADS
+    // Process file line by line
     while (fgets(line_buffer, 1048576, input_file)) {
         if (line_buffer[0] == '>') {
             // Header line - write directly
@@ -268,7 +267,6 @@ static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
             fputs(line_buffer, output_file);
         }
     }
-    Py_END_ALLOW_THREADS
     
     // Clean up
     free(line_buffer);
