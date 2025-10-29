@@ -156,7 +156,7 @@ _ALIGNER_MK = None
 _ORIENTATION_FILTER = None
 
 
-def _init_worker(orig_fa, mk_index_prefix, threads, orientation_filter):
+def _init_worker(orig_fa, mk_index_prefix, orientation_filter):
     global _ALIGNER_ORIG, _ALIGNER_MK, _ORIENTATION_FILTER
     _ORIENTATION_FILTER = orientation_filter
     _ALIGNER_ORIG = BwaAligner(
@@ -703,7 +703,7 @@ def map_file(
                 max_workers=max(1, threads),
                 mp_context=mp.get_context("spawn"),
                 initializer=_init_worker,
-                initargs=(idx0_file, idx_mk_file, threads, orientation_filter),
+                initargs=(idx0_file, idx_mk_file, orientation_filter),
             ) as ex:
                 futures = []
                 for rec in it1:
@@ -750,7 +750,7 @@ def map_file(
                 max_workers=max(1, threads),
                 mp_context=mp.get_context("spawn"),
                 initializer=_init_worker,
-                initargs=(idx0_file, idx_mk_file, threads, orientation_filter),
+                initargs=(idx0_file, idx_mk_file, orientation_filter),
             ) as ex:
                 futures = []
                 for rec1, rec2 in it_pairs:
