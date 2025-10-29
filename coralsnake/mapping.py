@@ -48,16 +48,14 @@ def _build_indices_with_progress(
     mk_prefix = os.path.splitext(mk_fa)[0]
 
     # Start ORIG index in parallel with conversion (they're independent)
-    indexer1 = BwaIndexer()
-    indexer2 = BwaIndexer()
+    indexer1 = BwaIndexer(verbose=2, capture_progress=True)
+    indexer2 = BwaIndexer(verbose=2, capture_progress=True)
 
     def build_orig():
-        indexer1.build_index(
-            orig_fa, prefix=orig_prefix, verbose=2, capture_progress=True
-        )
+        indexer1.build_index(orig_fa, prefix=orig_prefix)
 
     def build_mk():
-        indexer2.build_index(mk_fa, prefix=mk_prefix, verbose=2, capture_progress=True)
+        indexer2.build_index(mk_fa, prefix=mk_prefix)
 
     def do_conversion():
         convert_file_realtime(ref_file, mk_fa, "AC", "GT")
@@ -157,23 +155,23 @@ def _init_worker(orig_fa, mk_index_prefix, orientation_filter, forward_library):
     global _ALIGNER_ORIG, _ALIGNER_MK, _ORIENTATION_FILTER, _FORWARD_LIBRARY
     _ORIENTATION_FILTER = orientation_filter
     _FORWARD_LIBRARY = forward_library
-    
+
     orig_prefix = os.path.splitext(orig_fa)[0]
-    # NOTE: clip_penalties parameter removed due to segfault in bwamem 0.0.14
-    # when combined with softclip_supplementary and mark_secondary
     _ALIGNER_ORIG = BwaAligner(
         orig_prefix,
         softclip_supplementary=True,
         mark_secondary=True,
+        clip_penalties=(6, 6),
         unpaired_penalty=24,
         min_score=20,
         insert_model=(80, 60, 450),
     )
-    
+
     _ALIGNER_MK = BwaAligner(
         mk_index_prefix,
         softclip_supplementary=True,
         mark_secondary=True,
+        clip_penalties=(6, 6),
         unpaired_penalty=24,
         min_score=20,
         insert_model=(80, 60, 450),

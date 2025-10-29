@@ -191,6 +191,7 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     BWA-MEM parameters used by default:
     - Softclip supplementary alignments (softclip_supplementary=True)
     - Mark secondary alignments (mark_secondary=True)
+    - Clipping penalties: -L 6,6 (clip_penalties=(6,6))
     - Unpaired read penalty: -U 24 (unpaired_penalty=24)
     - Minimum score threshold: -T 20 (min_score=20)
     - Insert size model: -I 80,60,450 (mean=80, std=60, max=450)

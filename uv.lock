@@ -4,17 +4,17 @@ requires-python = ">=3.12"
 
 [[package]]
 name = "bwamem"
-version = "0.0.14"
+version = "0.0.19"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cffi" },
     { name = "setuptools" },
     { name = "wheel" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e7/72/6309e6e1fbcff2c071933456118664439f0eedefff329ea30ecb825f10db/bwamem-0.0.14.tar.gz", hash = "sha256:d1b2830a40e08e6a93474dd1287c1b4a76517a16fff75883148f8d34e16379ca", size = 1126474, upload-time = "2025-10-29T14:31:09.543Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b2/a5/e60aba04826832a51c1f5fc3e982e6a43056b0aaf8246b0cb4c0b91e0fe2/bwamem-0.0.19.tar.gz", hash = "sha256:ad9c5e192d129e314701040030067bb30ea8bcb094bcaa0d448bb95f396caf0b", size = 1126300, upload-time = "2025-10-29T15:46:02.128Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9c/3d/4a99f3bf41787b0fe04a000effa2a9b2f5b4da568edfbd9a149535d6ce36/bwamem-0.0.14-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:74ec8c8a6bbca8671941945dda8701a410e5029c70ea25579277e95c1a27f8c7", size = 376387, upload-time = "2025-10-29T14:31:06.22Z" },
-    { url = "https://files.pythonhosted.org/packages/99/0e/632803ae4472f917fa620e271cba4372b6c2d8afee0d0e5d2842d2a0a4b4/bwamem-0.0.14-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:43a76792a9daf050ddf6ac6e6ed88fcae57b3945945e60771222fe61c99b6e3c", size = 376389, upload-time = "2025-10-29T14:31:08.037Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/93/bef325640dab682b218f53b6f60a3d168c035298ff7b0d48213bf087ec77/bwamem-0.0.19-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a221677b0a6c2396fccb624ee25347274950fe94750693dc25b19f783d375238", size = 376327, upload-time = "2025-10-29T15:45:59.189Z" },
+    { url = "https://files.pythonhosted.org/packages/d3/67/e604001159137c7587968b82ead7ea5c030b0af7cdcdda332ddf4cbdc123/bwamem-0.0.19-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f48d47b00c82ac96bb0e17fb9dd2691b067232d5ddb67e3ea1b228de2b6e3e66", size = 376332, upload-time = "2025-10-29T15:46:00.483Z" },
 ]
 
 [[package]]
@@ -119,7 +119,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bwamem", specifier = ">=0.0.14" },
+    { name = "bwamem", specifier = "==0.0.19" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pyfamsa", specifier = ">=0.4" },
     { name = "pysam", specifier = ">=0.22" },
