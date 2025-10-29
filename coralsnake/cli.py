@@ -161,12 +161,6 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
 @click.option("-2", "--r2-file", help="r2 file", required=False)
 @click.option("-o", "--output-file", help="output bam file", required=False)
 @click.option(
-    "--strand",
-    type=click.Choice(["forward", "reverse"], case_sensitive=False),
-    default="forward",
-    help="Library strand orientation (default: forward)",
-)
-@click.option(
     "--max-mismatches",
     "-m",
     type=int,
@@ -210,24 +204,46 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     default=1000,
     help="Number of reads per batch per worker (default: 1000)",
 )
+# Strand-specific mapping options (grouped)
 @click.option(
-    "--forward-only",
-    is_flag=True,
-    default=False,
-    help="Only map to forward strand (orientation 1). Mutually exclusive with --reverse-only. (default: False)",
+    "--forward-lib",
+    "--forward-library",
+    "library_type",
+    flag_value="forward",
+    default=True,
+    help="[Library] Forward library orientation (default)",
 )
 @click.option(
-    "--reverse-only",
-    is_flag=True,
-    default=False,
-    help="Only map to reverse strand (orientation 2). Mutually exclusive with --forward-only. (default: False)",
+    "--reverse-lib",
+    "--reverse-library",
+    "library_type",
+    flag_value="reverse",
+    help="[Library] Reverse library orientation",
+)
+@click.option(
+    "--forward-ref",
+    "reference_strand",
+    flag_value="forward",
+    help="[Reference] Only map to forward reference strand",
+)
+@click.option(
+    "--reverse-ref",
+    "reference_strand",
+    flag_value="reverse",
+    help="[Reference] Only map to reverse reference strand",
+)
+@click.option(
+    "--double-ref",
+    "reference_strand",
+    flag_value="double",
+    default=True,
+    help="[Reference] Map to both reference strands (default)",
 )
 def map(
     ref_file,
     r1_file,
     r2_file,
     output_file,
-    strand,
     max_mismatches,
     threads,
     min_alignment_length,
@@ -235,18 +251,12 @@ def map(
     index_dir,
     index_only,
     batch_size,
-    forward_only,
-    reverse_only,
+    library_type,
+    reference_strand,
 ):
     from .mapping import map_file
 
     # Validate arguments
-    if forward_only and reverse_only:
-        click.echo(
-            "❌ Error: --forward-only and --reverse-only are mutually exclusive", err=True
-        )
-        raise click.Abort()
-    
     if index_only:
         if not index_dir:
             click.echo(
@@ -282,14 +292,16 @@ def map(
                 )
                 raise click.Abort()
 
-    fwd_lib = strand.lower() == "forward"
+    # Process library type
+    fwd_lib = library_type == "forward"
     
-    # Determine orientation filter
+    # Determine orientation filter based on reference strand
     orientation_filter = None
-    if forward_only:
+    if reference_strand == "forward":
         orientation_filter = 1
-    elif reverse_only:
+    elif reference_strand == "reverse":
         orientation_filter = 2
+    # else: reference_strand == "double", orientation_filter = None (map both)
     
     try:
         map_file(
