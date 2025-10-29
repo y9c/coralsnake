@@ -5,33 +5,16 @@ requires-python = ">=3.12"
 [[package]]
 name = "bwamem"
 version = "0.0.24"
-source = { directory = "../bwamem" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cffi" },
     { name = "setuptools" },
     { name = "wheel" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "cffi", specifier = ">=1.0.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=6.0" },
-    { name = "pytest-cov", marker = "extra == 'dev'" },
-    { name = "ruff", marker = "extra == 'dev'" },
-    { name = "setuptools", specifier = ">=75.3.2" },
-    { name = "sphinx", marker = "extra == 'docs'" },
-    { name = "sphinx-rtd-theme", marker = "extra == 'docs'" },
-    { name = "twine", marker = "extra == 'dev'" },
-    { name = "wheel", specifier = ">=0.45.1" },
-]
-provides-extras = ["dev", "docs"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8.3.5" },
-    { name = "pytest-cov", specifier = ">=5.0.0" },
-    { name = "ruff", specifier = ">=0.1.0" },
-    { name = "twine", specifier = ">=6.1.0" },
+sdist = { url = "https://files.pythonhosted.org/packages/dd/dc/51d74345fe0e2b3e0add9801234c9368d689f9ac32c86124ee583a9e1e1b/bwamem-0.0.24.tar.gz", hash = "sha256:1c97e3ac88a06f50f8b65c6fa2e31a00880bf030f46708d108467c854f318175", size = 1126548, upload-time = "2025-10-29T18:11:46.128Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3a/8c/715b2e9aa49759a8042a24bd51c6dcdff08a333a703b0dd613c68374fc09/bwamem-0.0.24-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:54e1354a27ece52f200a74a71fb3edff811d48ed44ebf13c27e44cdc451ab87e", size = 376356, upload-time = "2025-10-29T18:11:43.405Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/ea/4c9dce02a9b46f2e1f5c36e708c19be1d3110ddb42336f4ee493e7f30ea9/bwamem-0.0.24-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1359e40144a5686a121e3738f5269850a9bb22bc07c0a58d36c7d2db07c7eb04", size = 376360, upload-time = "2025-10-29T18:11:44.649Z" },
 ]
 
 [[package]]
@@ -136,7 +119,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bwamem", directory = "../bwamem" },
+    { name = "bwamem", specifier = ">=0.0.24" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pyfamsa", specifier = ">=0.4" },
     { name = "pysam", specifier = ">=0.22" },
