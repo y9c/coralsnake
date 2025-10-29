@@ -210,6 +210,18 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     default=1000,
     help="Number of reads per batch per worker (default: 1000)",
 )
+@click.option(
+    "--forward-only",
+    is_flag=True,
+    default=False,
+    help="Only map to forward strand (orientation 1). Mutually exclusive with --reverse-only. (default: False)",
+)
+@click.option(
+    "--reverse-only",
+    is_flag=True,
+    default=False,
+    help="Only map to reverse strand (orientation 2). Mutually exclusive with --forward-only. (default: False)",
+)
 def map(
     ref_file,
     r1_file,
@@ -223,10 +235,18 @@ def map(
     index_dir,
     index_only,
     batch_size,
+    forward_only,
+    reverse_only,
 ):
     from .mapping import map_file
 
     # Validate arguments
+    if forward_only and reverse_only:
+        click.echo(
+            "❌ Error: --forward-only and --reverse-only are mutually exclusive", err=True
+        )
+        raise click.Abort()
+    
     if index_only:
         if not index_dir:
             click.echo(
@@ -263,6 +283,14 @@ def map(
                 raise click.Abort()
 
     fwd_lib = strand.lower() == "forward"
+    
+    # Determine orientation filter
+    orientation_filter = None
+    if forward_only:
+        orientation_filter = 1
+    elif reverse_only:
+        orientation_filter = 2
+    
     try:
         map_file(
             ref_file,
@@ -277,6 +305,7 @@ def map(
             index_dir,
             index_only,
             batch_size,
+            orientation_filter,
         )
     except FileNotFoundError as e:
         click.echo(f"❌ {e}", err=True)

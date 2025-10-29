@@ -153,10 +153,12 @@ def _map_batch_worker(
 # Per-process cached aligners (initialized once per worker)
 _ALIGNER_ORIG = None
 _ALIGNER_MK = None
+_ORIENTATION_FILTER = None
 
 
-def _init_worker(orig_fa, mk_index_prefix, threads):
-    global _ALIGNER_ORIG, _ALIGNER_MK
+def _init_worker(orig_fa, mk_index_prefix, threads, orientation_filter):
+    global _ALIGNER_ORIG, _ALIGNER_MK, _ORIENTATION_FILTER
+    _ORIENTATION_FILTER = orientation_filter
     _ALIGNER_ORIG = BwaAligner(
         os.path.splitext(orig_fa)[0],
         softclip_supplementary=True,
@@ -243,7 +245,9 @@ def run_mapping_se(
 ):
     """Map one single-end read and return scored alignments."""
     mapped = []
-    for orientation in [1, 2]:
+    # Filter orientations if specified
+    orientations = [1, 2] if _ORIENTATION_FILTER is None else [_ORIENTATION_FILTER]
+    for orientation in orientations:
         # Build converted read
         if orientation == 1:
             seq1_conv = mk_conversion(seq1) if fwd_lib else km_conversion(seq1)
@@ -338,7 +342,9 @@ def run_mapping_pe(
 ):
     """Map one paired-end read and return scored alignment pairs."""
     mapped = []
-    for orientation in [1, 2]:
+    # Filter orientations if specified
+    orientations = [1, 2] if _ORIENTATION_FILTER is None else [_ORIENTATION_FILTER]
+    for orientation in orientations:
         # Build converted reads
         if orientation == 1:
             if fwd_lib:
@@ -531,8 +537,14 @@ def map_file(
     index_dir=None,
     index_only=False,
     batch_size=1000,
+    orientation_filter=None,
 ):
-    """Map FASTQ reads to reference with dual-base conversion chemistry."""
+    """Map FASTQ reads to reference with dual-base conversion chemistry.
+    
+    Args:
+        orientation_filter: If specified, only map to this orientation (1 or 2).
+                          None means map to both orientations (default).
+    """
     # Preflight: validate input files early to avoid spawning workers on bad paths
     if not index_only:
         if not r1_file or not os.path.exists(r1_file):
@@ -691,7 +703,7 @@ def map_file(
                 max_workers=max(1, threads),
                 mp_context=mp.get_context("spawn"),
                 initializer=_init_worker,
-                initargs=(idx0_file, idx_mk_file, threads),
+                initargs=(idx0_file, idx_mk_file, threads, orientation_filter),
             ) as ex:
                 futures = []
                 for rec in it1:
@@ -738,7 +750,7 @@ def map_file(
                 max_workers=max(1, threads),
                 mp_context=mp.get_context("spawn"),
                 initializer=_init_worker,
-                initargs=(idx0_file, idx_mk_file, threads),
+                initargs=(idx0_file, idx_mk_file, threads, orientation_filter),
             ) as ex:
                 futures = []
                 for rec1, rec2 in it_pairs:
