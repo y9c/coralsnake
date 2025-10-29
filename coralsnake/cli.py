@@ -21,11 +21,23 @@ click.rich_click.OPTION_GROUPS = {
         },
         {
             "name": "Strand-Specific Mapping",
-            "options": ["--forward-lib", "--reverse-lib", "--forward-ref", "--reverse-ref", "--double-ref"],
+            "options": [
+                "--forward-lib",
+                "--reverse-lib",
+                "--forward-ref",
+                "--reverse-ref",
+                "--double-ref",
+            ],
         },
         {
             "name": "Mapping Parameters",
-            "options": ["-m", "-t", "--min-alignment-length", "--min-mapping-ratio", "--batch-size"],
+            "options": [
+                "-m",
+                "-t",
+                "--min-alignment-length",
+                "--min-mapping-ratio",
+                "--batch-size",
+            ],
         },
         {
             "name": "Index Options",
@@ -177,9 +189,8 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     help="""Map reads to reference genome using BWA-MEM.
     
     BWA-MEM parameters used by default:
-    - Softclip supplementary alignments (mark_secondary=True)
+    - Softclip supplementary alignments (softclip_supplementary=True)
     - Mark secondary alignments (mark_secondary=True)
-    - Clipping penalties: -L 6,6 (clip_penalties=(6,6))
     - Unpaired read penalty: -U 24 (unpaired_penalty=24)
     - Minimum score threshold: -T 20 (min_score=20)
     - Insert size model: -I 80,60,450 (mean=80, std=60, max=450)
@@ -330,7 +341,7 @@ def map(
 
     # Determine forward library flag
     forward_library = library_type == "forward"
-    
+
     # Determine orientation filter based on reference strand
     orientation_filter = None
     if reference_strand == "forward":
@@ -338,7 +349,7 @@ def map(
     elif reference_strand == "reverse":
         orientation_filter = 2
     # else: reference_strand == "double", orientation_filter = None (map both)
-    
+
     try:
         map_file(
             ref_file,

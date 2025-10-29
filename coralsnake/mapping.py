@@ -36,7 +36,7 @@ def _build_indices_with_progress(
 ):
     """Build indices with progress using threads (not async - Rich doesn't play well with asyncio.run)."""
     from concurrent.futures import ThreadPoolExecutor
-    
+
     os.makedirs(index_base_dir, exist_ok=True)
     # ORIG
     orig_fa = os.path.join(index_base_dir, "ref.orig.fa")
@@ -52,11 +52,13 @@ def _build_indices_with_progress(
     indexer2 = BwaIndexer()
 
     def build_orig():
-        indexer1.build_index(orig_fa, prefix=orig_prefix, capture_progress=True)
+        indexer1.build_index(
+            orig_fa, prefix=orig_prefix, verbose=2, capture_progress=True
+        )
 
     def build_mk():
-        indexer2.build_index(mk_fa, prefix=mk_prefix, capture_progress=True)
-    
+        indexer2.build_index(mk_fa, prefix=mk_prefix, verbose=2, capture_progress=True)
+
     def do_conversion():
         convert_file_realtime(ref_file, mk_fa, "AC", "GT")
 
@@ -64,7 +66,7 @@ def _build_indices_with_progress(
         # Start ORIG index and conversion in parallel
         fut_orig = ex.submit(build_orig)
         fut_conv = ex.submit(do_conversion)
-        
+
         # Poll while conversion runs
         conv_status = "Converting..."
         while not fut_conv.done():
@@ -72,25 +74,25 @@ def _build_indices_with_progress(
             p1 = 100.0 if fut_orig.done() else (indexer1.progress_percent or 0.0)
             on_update(conv_status, p1, 0.0)
             time.sleep(poll_interval)
-        
+
         fut_conv.result()
         conv_status = "Converted"
-        
+
         # Start MK index after conversion completes
         fut_mk = ex.submit(build_mk)
-        
+
         # Poll both indices (do-while pattern: always run at least once)
         while True:
             # If future is done but progress still 0, it completed too fast - set to 100%
             p1 = 100.0 if fut_orig.done() else (indexer1.progress_percent or 0.0)
             p2 = 100.0 if fut_mk.done() else (indexer2.progress_percent or 0.0)
             on_update(conv_status, p1, p2)
-            
+
             if fut_orig.done() and fut_mk.done():
                 break
-            
+
             time.sleep(poll_interval)
-        
+
         fut_orig.result()
         fut_mk.result()
 
@@ -155,26 +157,27 @@ def _init_worker(orig_fa, mk_index_prefix, orientation_filter, forward_library):
     global _ALIGNER_ORIG, _ALIGNER_MK, _ORIENTATION_FILTER, _FORWARD_LIBRARY
     _ORIENTATION_FILTER = orientation_filter
     _FORWARD_LIBRARY = forward_library
+    
+    orig_prefix = os.path.splitext(orig_fa)[0]
+    # NOTE: clip_penalties parameter removed due to segfault in bwamem 0.0.14
+    # when combined with softclip_supplementary and mark_secondary
     _ALIGNER_ORIG = BwaAligner(
-        os.path.splitext(orig_fa)[0],
+        orig_prefix,
         softclip_supplementary=True,
         mark_secondary=True,
-        clip_penalties=(6, 6),
         unpaired_penalty=24,
         min_score=20,
         insert_model=(80, 60, 450),
     )
+    
     _ALIGNER_MK = BwaAligner(
         mk_index_prefix,
         softclip_supplementary=True,
         mark_secondary=True,
-        clip_penalties=(6, 6),
         unpaired_penalty=24,
         min_score=20,
         insert_model=(80, 60, 450),
     )
-
-
 
 
 def find_properly_paired_hits(hits, fwd=True):
@@ -533,7 +536,7 @@ def map_file(
     orientation_filter=None,
 ):
     """Map FASTQ reads to reference with dual-base conversion chemistry.
-    
+
     Args:
         forward_library: True for forward library, False for reverse library.
         orientation_filter: If specified, only map to this orientation (1 or 2).
@@ -561,14 +564,19 @@ def map_file(
     # Indexing with step-level progress (orig + MK)
     orig_fa_path = os.path.join(index_base_dir, "ref.orig.fa")
     mk_prefix_path = os.path.join(index_base_dir, "ref.mk")
-    mk_index_ready = all(os.path.exists(mk_prefix_path + ext) for ext in [".amb", ".ann", ".bwt", ".pac", ".sa"])
+    mk_index_ready = all(
+        os.path.exists(mk_prefix_path + ext)
+        for ext in [".amb", ".ann", ".bwt", ".pac", ".sa"]
+    )
     orig_ready = os.path.exists(orig_fa_path)
 
     with Progress(
         SpinnerColumn(style="cyan"),
         TextColumn("[bold green]Index[/bold green]"),
         TextColumn("{task.description}"),
-        TextColumn("| [yellow]{task.fields[conv]}[/yellow] | ORIG: [cyan]{task.fields[p1]:>5.1f}%[/cyan] | MK: [cyan]{task.fields[p2]:>5.1f}%[/cyan] ([magenta]{task.fields[elapsed]}[/magenta])"),
+        TextColumn(
+            "| [yellow]{task.fields[conv]}[/yellow] | ORIG: [cyan]{task.fields[p1]:>5.1f}%[/cyan] | MK: [cyan]{task.fields[p2]:>5.1f}%[/cyan] ([magenta]{task.fields[elapsed]}[/magenta])"
+        ),
         transient=False,
     ) as progress:
         if index_only:
@@ -583,15 +591,24 @@ def map_file(
                 elapsed="0.00s",
             )
             start_time = time.time()
+
             def on_update(conv, p1, p2):
                 elapsed = time.time() - start_time
                 elapsed_str = format_duration(elapsed)
                 progress.update(task, conv=conv, p1=p1, p2=p2, elapsed=elapsed_str)
                 progress.refresh()
                 time.sleep(0.001)  # Force thread context switch for Rich display
+
             _build_indices_with_progress(ref_file, index_base_dir, on_update)
             elapsed = time.time() - start_time
-            progress.update(task, description="✓ Indices ready", conv="Done", p1=100.0, p2=100.0, elapsed=format_duration(elapsed))
+            progress.update(
+                task,
+                description="✓ Indices ready",
+                conv="Done",
+                p1=100.0,
+                p2=100.0,
+                elapsed=format_duration(elapsed),
+            )
             progress.refresh()
             return
         else:
@@ -615,17 +632,26 @@ def map_file(
                     elapsed="0.00s",
                 )
                 start_time = time.time()
+
                 def on_update(conv, p1, p2):
                     elapsed = time.time() - start_time
                     elapsed_str = format_duration(elapsed)
                     progress.update(task, conv=conv, p1=p1, p2=p2, elapsed=elapsed_str)
                     progress.refresh()
                     time.sleep(0.001)  # Force thread context switch for Rich display
+
                 idx0_file, idx_mk_file = _build_indices_with_progress(
                     ref_file, index_base_dir, on_update
                 )
                 elapsed = time.time() - start_time
-                progress.update(task, description="✓ Indices ready", conv="Done", p1=100.0, p2=100.0, elapsed=format_duration(elapsed))
+                progress.update(
+                    task,
+                    description="✓ Indices ready",
+                    conv="Done",
+                    p1=100.0,
+                    p2=100.0,
+                    elapsed=format_duration(elapsed),
+                )
                 progress.refresh()
 
     if index_only:
