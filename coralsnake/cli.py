@@ -22,11 +22,11 @@ click.rich_click.OPTION_GROUPS = {
         {
             "name": "Strand-Specific Mapping",
             "options": [
-                "--forward-lib",
-                "--reverse-lib",
-                "--forward-ref",
-                "--reverse-ref",
-                "--double-ref",
+                "--fwd-lib",
+                "--rev-lib",
+                "--fwd-ref",
+                "--rev-ref",
+                "--dbl-ref",
             ],
         },
         {
@@ -251,7 +251,7 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
 )
 # Strand-specific mapping options (grouped)
 @click.option(
-    "--forward-lib",
+    "--fwd-lib",
     "--forward-library",
     "library_type",
     flag_value="forward",
@@ -259,28 +259,28 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     help="[Library] Forward library orientation (default)",
 )
 @click.option(
-    "--reverse-lib",
+    "--rev-lib",
     "--reverse-library",
     "library_type",
     flag_value="reverse",
     help="[Library] Reverse library orientation",
 )
 @click.option(
-    "--forward-ref",
+    "--fwd-ref",
     "--forward-reference",
     "reference_strand",
     flag_value="forward",
     help="[Reference] Only map to forward reference strand",
 )
 @click.option(
-    "--reverse-ref",
+    "--rev-ref",
     "--reverse-reference",
     "reference_strand",
     flag_value="reverse",
     help="[Reference] Only map to reverse reference strand",
 )
 @click.option(
-    "--double-ref",
+    "--dbl-ref",
     "--double-reference",
     "reference_strand",
     flag_value="double",
