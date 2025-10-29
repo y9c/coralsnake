@@ -101,7 +101,7 @@ def _build_indices_with_progress(
 def _map_batch_worker(
     batch,
     paired,
-    fwd_lib,
+    forward_library,
     max_mismatches,
     min_alignment_length,
     min_mapping_ratio,
@@ -116,7 +116,7 @@ def _map_batch_worker(
                     name1,
                     seq1,
                     qua1,
-                    fwd_lib,
+                    forward_library,
                     max_mismatches,
                     min_alignment_length,
                     min_mapping_ratio,
@@ -135,7 +135,7 @@ def _map_batch_worker(
                     seq2,
                     qua1,
                     qua2,
-                    fwd_lib,
+                    forward_library,
                     max_mismatches,
                     min_alignment_length,
                     min_mapping_ratio,
@@ -230,7 +230,7 @@ def run_mapping_se(
     name,
     seq1,
     qua1,
-    fwd_lib=True,
+    forward_library=True,
     max_mismatches=10,
     min_alignment_length=20,
     min_mapping_ratio=0.5,
@@ -242,9 +242,9 @@ def run_mapping_se(
     for orientation in orientations:
         # Build converted read
         if orientation == 1:
-            seq1_conv = mk_conversion(seq1) if fwd_lib else km_conversion(seq1)
+            seq1_conv = mk_conversion(seq1) if forward_library else km_conversion(seq1)
         else:
-            seq1_conv = km_conversion(seq1) if fwd_lib else mk_conversion(seq1)
+            seq1_conv = km_conversion(seq1) if forward_library else mk_conversion(seq1)
 
         # Iterate hits
         # Align converted read to MK reference using BWA
@@ -327,7 +327,7 @@ def run_mapping_pe(
     seq2,
     qua1,
     qua2,
-    fwd_lib=True,
+    forward_library=True,
     max_mismatches=10,
     min_alignment_length=20,
     min_mapping_ratio=0.5,
@@ -339,14 +339,14 @@ def run_mapping_pe(
     for orientation in orientations:
         # Build converted reads
         if orientation == 1:
-            if fwd_lib:
+            if forward_library:
                 seq1_conv = mk_conversion(seq1)
                 seq2_conv = km_conversion(seq2)
             else:
                 seq1_conv = km_conversion(seq1)
                 seq2_conv = mk_conversion(seq2)
         else:
-            if fwd_lib:
+            if forward_library:
                 seq1_conv = km_conversion(seq1)
                 seq2_conv = mk_conversion(seq2)
             else:
@@ -521,7 +521,7 @@ def map_file(
     r1_file,
     r2_file,
     output_file,
-    fwd_lib=True,
+    forward_library=True,
     max_mismatches=10,
     threads=8,
     min_alignment_length=20,
@@ -534,6 +534,7 @@ def map_file(
     """Map FASTQ reads to reference with dual-base conversion chemistry.
     
     Args:
+        forward_library: True for forward library, False for reverse library.
         orientation_filter: If specified, only map to this orientation (1 or 2).
                           None means map to both orientations (default).
     """
@@ -706,7 +707,7 @@ def map_file(
                                 _map_batch_worker,
                                 list(batch),
                                 False,
-                                fwd_lib,
+                                forward_library,
                                 max_mismatches,
                                 min_alignment_length,
                                 min_mapping_ratio,
@@ -724,7 +725,7 @@ def map_file(
                             _map_batch_worker,
                             list(batch),
                             False,
-                            fwd_lib,
+                            forward_library,
                             max_mismatches,
                             min_alignment_length,
                             min_mapping_ratio,
@@ -759,7 +760,7 @@ def map_file(
                                 _map_batch_worker,
                                 list(batch),
                                 True,
-                                fwd_lib,
+                                forward_library,
                                 max_mismatches,
                                 min_alignment_length,
                                 min_mapping_ratio,
@@ -777,7 +778,7 @@ def map_file(
                             _map_batch_worker,
                             list(batch),
                             True,
-                            fwd_lib,
+                            forward_library,
                             max_mismatches,
                             min_alignment_length,
                             min_mapping_ratio,

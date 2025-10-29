@@ -292,8 +292,8 @@ def map(
                 )
                 raise click.Abort()
 
-    # Process library type
-    fwd_lib = library_type == "forward"
+    # Determine forward library flag
+    forward_library = library_type == "forward"
     
     # Determine orientation filter based on reference strand
     orientation_filter = None
@@ -309,7 +309,7 @@ def map(
             r1_file,
             r2_file,
             output_file,
-            fwd_lib,
+            forward_library,
             max_mismatches,
             threads,
             min_alignment_length,
