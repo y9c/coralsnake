@@ -101,7 +101,6 @@ def _build_indices_with_progress(
 def _map_batch_worker(
     batch,
     paired,
-    forward_library,
     max_mismatches,
     min_alignment_length,
     min_mapping_ratio,
@@ -116,7 +115,7 @@ def _map_batch_worker(
                     name1,
                     seq1,
                     qua1,
-                    forward_library,
+                    _FORWARD_LIBRARY,
                     max_mismatches,
                     min_alignment_length,
                     min_mapping_ratio,
@@ -135,7 +134,7 @@ def _map_batch_worker(
                     seq2,
                     qua1,
                     qua2,
-                    forward_library,
+                    _FORWARD_LIBRARY,
                     max_mismatches,
                     min_alignment_length,
                     min_mapping_ratio,
@@ -149,11 +148,13 @@ def _map_batch_worker(
 _ALIGNER_ORIG = None
 _ALIGNER_MK = None
 _ORIENTATION_FILTER = None
+_FORWARD_LIBRARY = None
 
 
-def _init_worker(orig_fa, mk_index_prefix, orientation_filter):
-    global _ALIGNER_ORIG, _ALIGNER_MK, _ORIENTATION_FILTER
+def _init_worker(orig_fa, mk_index_prefix, orientation_filter, forward_library):
+    global _ALIGNER_ORIG, _ALIGNER_MK, _ORIENTATION_FILTER, _FORWARD_LIBRARY
     _ORIENTATION_FILTER = orientation_filter
+    _FORWARD_LIBRARY = forward_library
     _ALIGNER_ORIG = BwaAligner(
         os.path.splitext(orig_fa)[0],
         softclip_supplementary=True,
@@ -696,7 +697,7 @@ def map_file(
                 max_workers=max(1, threads),
                 mp_context=mp.get_context("spawn"),
                 initializer=_init_worker,
-                initargs=(idx0_file, idx_mk_file, orientation_filter),
+                initargs=(idx0_file, idx_mk_file, orientation_filter, forward_library),
             ) as ex:
                 futures = []
                 for rec in it1:
@@ -707,7 +708,6 @@ def map_file(
                                 _map_batch_worker,
                                 list(batch),
                                 False,
-                                forward_library,
                                 max_mismatches,
                                 min_alignment_length,
                                 min_mapping_ratio,
@@ -725,7 +725,6 @@ def map_file(
                             _map_batch_worker,
                             list(batch),
                             False,
-                            forward_library,
                             max_mismatches,
                             min_alignment_length,
                             min_mapping_ratio,
@@ -743,7 +742,7 @@ def map_file(
                 max_workers=max(1, threads),
                 mp_context=mp.get_context("spawn"),
                 initializer=_init_worker,
-                initargs=(idx0_file, idx_mk_file, orientation_filter),
+                initargs=(idx0_file, idx_mk_file, orientation_filter, forward_library),
             ) as ex:
                 futures = []
                 for rec1, rec2 in it_pairs:
@@ -760,7 +759,6 @@ def map_file(
                                 _map_batch_worker,
                                 list(batch),
                                 True,
-                                forward_library,
                                 max_mismatches,
                                 min_alignment_length,
                                 min_mapping_ratio,
@@ -778,7 +776,6 @@ def map_file(
                             _map_batch_worker,
                             list(batch),
                             True,
-                            forward_library,
                             max_mismatches,
                             min_alignment_length,
                             min_mapping_ratio,
