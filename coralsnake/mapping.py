@@ -25,9 +25,6 @@ from . import seqops
 from .utils import convert_file_realtime, format_duration, km_conversion, mk_conversion
 
 
-## (removed) async version: asyncio.run() blocks Rich progress updates
-
-
 def _build_indices_with_progress(
     ref_file: str,
     index_base_dir: str,
@@ -156,9 +153,12 @@ def _init_worker(orig_fa, mk_index_prefix, orientation_filter, forward_library):
     _ORIENTATION_FILTER = orientation_filter
     _FORWARD_LIBRARY = forward_library
 
+    # Use shorter seeds (10 instead of default 19) for better sensitivity with modified bases
+    # Note: The optind bug in bwamem has been fixed, so aligner creation order doesn't matter
     orig_prefix = os.path.splitext(orig_fa)[0]
     _ALIGNER_ORIG = BwaAligner(
         orig_prefix,
+        min_seed_len=10,
         softclip_supplementary=True,
         mark_secondary=True,
         clip_penalties=(6, 6),
@@ -169,6 +169,7 @@ def _init_worker(orig_fa, mk_index_prefix, orientation_filter, forward_library):
 
     _ALIGNER_MK = BwaAligner(
         mk_index_prefix,
+        min_seed_len=10,
         softclip_supplementary=True,
         mark_secondary=True,
         clip_penalties=(6, 6),
@@ -730,15 +731,21 @@ def map_file(
                     if paired:
                         name1, seq1, qua1, name2, seq2, qua2 = read_info
                         # Flag 77 = paired, unmapped, mate unmapped, first in pair
-                        a1 = create_unmapped_record(bam_out.header, name1, seq1, qua1, 77)
+                        a1 = create_unmapped_record(
+                            bam_out.header, name1, seq1, qua1, 77
+                        )
                         # Flag 141 = paired, unmapped, mate unmapped, second in pair
-                        a2 = create_unmapped_record(bam_out.header, name2, seq2, qua2, 141)
+                        a2 = create_unmapped_record(
+                            bam_out.header, name2, seq2, qua2, 141
+                        )
                         bam_out.write(a1)
                         bam_out.write(a2)
                     else:
                         name1, seq1, qua1 = read_info
                         # Flag 4 = unmapped
-                        a1 = create_unmapped_record(bam_out.header, name1, seq1, qua1, 4)
+                        a1 = create_unmapped_record(
+                            bam_out.header, name1, seq1, qua1, 4
+                        )
                         bam_out.write(a1)
                 processed_reads += 1
             elapsed = format_duration(progress.tasks[task].elapsed)

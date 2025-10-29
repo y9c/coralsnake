@@ -33,10 +33,10 @@ click.rich_click.OPTION_GROUPS = {
             "name": "Mapping Parameters",
             "options": [
                 "-m",
-                "-t",
                 "--min-alignment-length",
                 "--min-mapping-ratio",
                 "--batch-size",
+                "-t",
             ],
         },
         {
