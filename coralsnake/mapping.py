@@ -153,12 +153,14 @@ def _init_worker(orig_fa, mk_index_prefix, orientation_filter, forward_library):
     _ORIENTATION_FILTER = orientation_filter
     _FORWARD_LIBRARY = forward_library
 
-    # Use shorter seeds (10 instead of default 19) for better sensitivity with modified bases
+    # Use shorter seeds (12 instead of default 19) for better sensitivity with modified bases
+    # Use higher max_occ (10000) to allow more seed occurrences in large genomes
     # Note: The optind bug in bwamem has been fixed, so aligner creation order doesn't matter
     orig_prefix = os.path.splitext(orig_fa)[0]
     _ALIGNER_ORIG = BwaAligner(
         orig_prefix,
-        min_seed_len=10,
+        min_seed_len=12,
+        max_occ=10000,
         softclip_supplementary=True,
         mark_secondary=True,
         clip_penalties=(6, 6),
@@ -169,7 +171,8 @@ def _init_worker(orig_fa, mk_index_prefix, orientation_filter, forward_library):
 
     _ALIGNER_MK = BwaAligner(
         mk_index_prefix,
-        min_seed_len=10,
+        min_seed_len=12,
+        max_occ=10000,
         softclip_supplementary=True,
         mark_secondary=True,
         clip_penalties=(6, 6),

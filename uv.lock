@@ -4,17 +4,34 @@ requires-python = ">=3.12"
 
 [[package]]
 name = "bwamem"
-version = "0.0.23"
-source = { registry = "https://pypi.org/simple" }
+version = "0.0.24"
+source = { directory = "../bwamem" }
 dependencies = [
     { name = "cffi" },
     { name = "setuptools" },
     { name = "wheel" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c6/84/ed95b0950f80e1f898d034e6b63477f98494e28d21c307d234632be3f28b/bwamem-0.0.23.tar.gz", hash = "sha256:703b11ec22e201744f645a2e27a0e99bd29d46fe6d11e5c9abde6a80588736a5", size = 1126422, upload-time = "2025-10-29T17:30:45.371Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/bd/f2/91a41a77c44b17e5bf4a0a77bcc64cde8784b5d6aa7f942aba3ca26a32b4/bwamem-0.0.23-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:5c2832b1953f8ede7156b515b27d3762df7f1b2a32c2176abaa611dda1c789d4", size = 376306, upload-time = "2025-10-29T17:30:42.529Z" },
-    { url = "https://files.pythonhosted.org/packages/3f/ea/332ee381d2fff09da0052789a80d0e12e72dd6f4db29f6142068e54eb10f/bwamem-0.0.23-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a8592763e5706428f73475921bc3eb0f555939ba04fb8b72138f9af7339fc5d7", size = 376311, upload-time = "2025-10-29T17:30:43.999Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "cffi", specifier = ">=1.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=6.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'" },
+    { name = "ruff", marker = "extra == 'dev'" },
+    { name = "setuptools", specifier = ">=75.3.2" },
+    { name = "sphinx", marker = "extra == 'docs'" },
+    { name = "sphinx-rtd-theme", marker = "extra == 'docs'" },
+    { name = "twine", marker = "extra == 'dev'" },
+    { name = "wheel", specifier = ">=0.45.1" },
+]
+provides-extras = ["dev", "docs"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3.5" },
+    { name = "pytest-cov", specifier = ">=5.0.0" },
+    { name = "ruff", specifier = ">=0.1.0" },
+    { name = "twine", specifier = ">=6.1.0" },
 ]
 
 [[package]]
@@ -97,7 +114,7 @@ wheels = [
 
 [[package]]
 name = "coralsnake"
-version = "0.0.131"
+version = "0.0.132"
 source = { editable = "." }
 dependencies = [
     { name = "bwamem" },
@@ -119,7 +136,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bwamem", specifier = ">=0.0.23" },
+    { name = "bwamem", directory = "../bwamem" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pyfamsa", specifier = ">=0.4" },
     { name = "pysam", specifier = ">=0.22" },
