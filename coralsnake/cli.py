@@ -12,6 +12,28 @@ click.rich_click.COMMAND_GROUPS = {
         },
     ]
 }
+
+click.rich_click.OPTION_GROUPS = {
+    "coralsnake map": [
+        {
+            "name": "Input/Output",
+            "options": ["-r", "-1", "-2", "-o"],
+        },
+        {
+            "name": "Strand-Specific Mapping",
+            "options": ["--forward-lib", "--reverse-lib", "--forward-ref", "--reverse-ref", "--double-ref"],
+        },
+        {
+            "name": "Mapping Parameters",
+            "options": ["-m", "-t", "--min-alignment-length", "--min-mapping-ratio", "--batch-size"],
+        },
+        {
+            "name": "Index Options",
+            "options": ["--index-dir", "--index-only"],
+        },
+    ],
+}
+
 click.rich_click.STYLE_OPTION = "bold green"
 # click.rich_click.STYLE_COMMAND = "bold blue"
 
@@ -152,7 +174,18 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
 
 
 @cli.command(
-    help="Map reads to reference genome.",
+    help="""Map reads to reference genome using BWA-MEM.
+    
+    BWA-MEM parameters used by default:
+    - Softclip supplementary alignments (mark_secondary=True)
+    - Mark secondary alignments (mark_secondary=True)
+    - Clipping penalties: -L 6,6 (clip_penalties=(6,6))
+    - Unpaired read penalty: -U 24 (unpaired_penalty=24)
+    - Minimum score threshold: -T 20 (min_score=20)
+    - Insert size model: -I 80,60,450 (mean=80, std=60, max=450)
+    
+    These parameters optimize mapping for dual-base conversion chemistry (MK/KM).
+    """,
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
