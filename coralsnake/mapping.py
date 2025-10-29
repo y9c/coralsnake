@@ -98,9 +98,6 @@ def _build_indices_with_progress(
     return orig_fa, mk_prefix
 
 
-## (removed) _ensure_indices: inlined async index building with progress in map_file
-
-
 def _map_batch_worker(
     batch,
     paired,
@@ -111,8 +108,6 @@ def _map_batch_worker(
 ):
     """Map a batch of reads; return one run_mapping result per input read."""
     # Use per-process cached resources initialized by _init_worker
-
-    # timing removed
     results = []
     if not paired:
         for name1, seq1, qua1 in batch:
@@ -179,9 +174,8 @@ def _init_worker(orig_fa, mk_index_prefix, orientation_filter):
     )
 
 
-def _revcomp(seq):
-    comp = str.maketrans("ACGTNacgtn", "TGCANtgcan")
-    return seq.translate(comp)[::-1]
+# Use C implementation for better performance
+_revcomp = seqops.reverse_complement
 
 
 def find_properly_paired_hits(hits, fwd=True):
