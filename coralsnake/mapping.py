@@ -105,41 +105,41 @@ def _map_batch_worker(
     min_alignment_length,
     min_mapping_ratio,
 ):
-    """Map a batch of reads; return one run_mapping result per input read."""
+    """Map a batch of reads; return (read_info, mapping_result) tuples."""
     # Use per-process cached resources initialized by _init_worker
     results = []
     if not paired:
         for name1, seq1, qua1 in batch:
-            results.append(
-                run_mapping_se(
-                    name1,
-                    seq1,
-                    qua1,
-                    _FORWARD_LIBRARY,
-                    max_mismatches,
-                    min_alignment_length,
-                    min_mapping_ratio,
-                )
+            mapping_result = run_mapping_se(
+                name1,
+                seq1,
+                qua1,
+                _FORWARD_LIBRARY,
+                max_mismatches,
+                min_alignment_length,
+                min_mapping_ratio,
             )
+            # Return (read_info, mapping_result) tuple
+            results.append(((name1, seq1, qua1), mapping_result))
     else:
         for (name1, seq1, qua1), (name2, seq2, qua2) in batch:
             base1 = name1.split()[0].rstrip("/1").rstrip("/2")
             base2 = name2.split()[0].rstrip("/1").rstrip("/2")
             if base1 != base2:
                 raise ValueError(f"r1 and r2 not in the same order: {name1} vs {name2}")
-            results.append(
-                run_mapping_pe(
-                    name1,
-                    seq1,
-                    seq2,
-                    qua1,
-                    qua2,
-                    _FORWARD_LIBRARY,
-                    max_mismatches,
-                    min_alignment_length,
-                    min_mapping_ratio,
-                )
+            mapping_result = run_mapping_pe(
+                name1,
+                seq1,
+                seq2,
+                qua1,
+                qua2,
+                _FORWARD_LIBRARY,
+                max_mismatches,
+                min_alignment_length,
+                min_mapping_ratio,
             )
+            # Return (read_info, mapping_result) tuple
+            results.append(((name1, seq1, qua1, name2, seq2, qua2), mapping_result))
 
     return results
 
@@ -518,6 +518,23 @@ def create_bam_record(header, map_data, is_secondary):
     return a
 
 
+def create_unmapped_record(header, name, seq, qual, flag):
+    """Create an unmapped pysam.AlignedSegment."""
+    a = pysam.AlignedSegment(header=header)
+    a.query_name = name.split()[0]
+    a.flag = flag
+    a.reference_id = -1
+    a.reference_start = -1
+    a.mapping_quality = 0
+    a.cigarstring = None
+    a.next_reference_id = -1
+    a.next_reference_start = -1
+    a.template_length = 0
+    a.query_sequence = seq
+    a.query_qualities = pysam.qualitystring_to_array(qual)
+    return a
+
+
 def map_file(
     ref_file,
     r1_file,
@@ -685,29 +702,45 @@ def map_file(
         processed_reads = 0
         mapped_reads = 0
 
-        def write_mapped(mapped):
+        def write_mapped(batch_results):
             nonlocal processed_reads, mapped_reads
-            for read_result in mapped:
-                for i, item in enumerate(read_result):
-                    if paired and len(item) == 3:
-                        map1, map2 = item[1], item[2]
-                        a1 = create_bam_record(
-                            bam_out.header, map1, is_secondary=(i > 0)
-                        )
-                        a2 = create_bam_record(
-                            bam_out.header, map2, is_secondary=(i > 0)
-                        )
+            for read_info, mapping_result in batch_results:
+                if mapping_result:
+                    # Write mapped reads
+                    for i, item in enumerate(mapping_result):
+                        if paired and len(item) == 3:
+                            map1, map2 = item[1], item[2]
+                            a1 = create_bam_record(
+                                bam_out.header, map1, is_secondary=(i > 0)
+                            )
+                            a2 = create_bam_record(
+                                bam_out.header, map2, is_secondary=(i > 0)
+                            )
+                            bam_out.write(a1)
+                            bam_out.write(a2)
+                        else:
+                            map1 = item[1]
+                            a1 = create_bam_record(
+                                bam_out.header, map1, is_secondary=(i > 0)
+                            )
+                            bam_out.write(a1)
+                    mapped_reads += 1
+                else:
+                    # Write unmapped reads
+                    if paired:
+                        name1, seq1, qua1, name2, seq2, qua2 = read_info
+                        # Flag 77 = paired, unmapped, mate unmapped, first in pair
+                        a1 = create_unmapped_record(bam_out.header, name1, seq1, qua1, 77)
+                        # Flag 141 = paired, unmapped, mate unmapped, second in pair
+                        a2 = create_unmapped_record(bam_out.header, name2, seq2, qua2, 141)
                         bam_out.write(a1)
                         bam_out.write(a2)
                     else:
-                        map1 = item[1]
-                        a1 = create_bam_record(
-                            bam_out.header, map1, is_secondary=(i > 0)
-                        )
+                        name1, seq1, qua1 = read_info
+                        # Flag 4 = unmapped
+                        a1 = create_unmapped_record(bam_out.header, name1, seq1, qua1, 4)
                         bam_out.write(a1)
                 processed_reads += 1
-                if read_result:
-                    mapped_reads += 1
             elapsed = format_duration(progress.tasks[task].elapsed)
             progress.update(
                 task,
