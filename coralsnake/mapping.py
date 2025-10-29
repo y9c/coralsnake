@@ -562,7 +562,7 @@ def map_file(
         SpinnerColumn(style="cyan"),
         TextColumn("[bold green]Index[/bold green]"),
         TextColumn("{task.description}"),
-        TextColumn("| [yellow]{task.fields[conv]}[/yellow] | ORIG: [cyan]{task.fields[p1]:>5.1f}%[/cyan] | MK: [magenta]{task.fields[p2]:>5.1f}%[/magenta] ([dim]{task.fields[elapsed]}[/dim])"),
+        TextColumn("| [yellow]{task.fields[conv]}[/yellow] | ORIG: [cyan]{task.fields[p1]:>5.1f}%[/cyan] | MK: [cyan]{task.fields[p2]:>5.1f}%[/cyan] ([magenta]{task.fields[elapsed]}[/magenta])"),
         transient=False,
     ) as progress:
         if index_only:
@@ -579,13 +579,13 @@ def map_file(
             start_time = time.time()
             def on_update(conv, p1, p2):
                 elapsed = time.time() - start_time
-                elapsed_str = f"{elapsed:.2f}s"
+                elapsed_str = format_duration(elapsed)
                 progress.update(task, conv=conv, p1=p1, p2=p2, elapsed=elapsed_str)
                 progress.refresh()
                 time.sleep(0.001)  # Force thread context switch for Rich display
             _build_indices_with_progress(ref_file, index_base_dir, on_update)
             elapsed = time.time() - start_time
-            progress.update(task, description="✓ Indices ready", conv="Done", p1=100.0, p2=100.0, elapsed=f"{elapsed:.2f}s")
+            progress.update(task, description="✓ Indices ready", conv="Done", p1=100.0, p2=100.0, elapsed=format_duration(elapsed))
             progress.refresh()
             return
         else:
@@ -611,7 +611,7 @@ def map_file(
                 start_time = time.time()
                 def on_update(conv, p1, p2):
                     elapsed = time.time() - start_time
-                    elapsed_str = f"{elapsed:.2f}s"
+                    elapsed_str = format_duration(elapsed)
                     progress.update(task, conv=conv, p1=p1, p2=p2, elapsed=elapsed_str)
                     progress.refresh()
                     time.sleep(0.001)  # Force thread context switch for Rich display
@@ -619,7 +619,7 @@ def map_file(
                     ref_file, index_base_dir, on_update
                 )
                 elapsed = time.time() - start_time
-                progress.update(task, description="✓ Indices ready", conv="Done", p1=100.0, p2=100.0, elapsed=f"{elapsed:.2f}s")
+                progress.update(task, description="✓ Indices ready", conv="Done", p1=100.0, p2=100.0, elapsed=format_duration(elapsed))
                 progress.refresh()
 
     if index_only:
