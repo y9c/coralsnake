@@ -222,18 +222,21 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
 )
 @click.option(
     "--forward-ref",
+    "--forward-reference",
     "reference_strand",
     flag_value="forward",
     help="[Reference] Only map to forward reference strand",
 )
 @click.option(
     "--reverse-ref",
+    "--reverse-reference",
     "reference_strand",
     flag_value="reverse",
     help="[Reference] Only map to reverse reference strand",
 )
 @click.option(
     "--double-ref",
+    "--double-reference",
     "reference_strand",
     flag_value="double",
     default=True,
