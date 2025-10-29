@@ -52,32 +52,10 @@ def _build_indices_with_progress(
     indexer2 = BwaIndexer()
 
     def build_orig():
-        # Suppress BWA stdout output (bwamem only captures stderr)
-        import sys
-        old_stdout = os.dup(1)
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(devnull, 1)
-        try:
-            indexer1.build_index(orig_fa, prefix=orig_prefix, capture_progress=True)
-        finally:
-            os.dup2(old_stdout, 1)
-            os.close(old_stdout)
-            os.close(devnull)
-            sys.stdout.flush()
+        indexer1.build_index(orig_fa, prefix=orig_prefix, capture_progress=True)
 
     def build_mk():
-        # Suppress BWA stdout output (bwamem only captures stderr)
-        import sys
-        old_stdout = os.dup(1)
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(devnull, 1)
-        try:
-            indexer2.build_index(mk_fa, prefix=mk_prefix, capture_progress=True)
-        finally:
-            os.dup2(old_stdout, 1)
-            os.close(old_stdout)
-            os.close(devnull)
-            sys.stdout.flush()
+        indexer2.build_index(mk_fa, prefix=mk_prefix, capture_progress=True)
     
     def do_conversion():
         convert_file_realtime(ref_file, mk_fa, "AC", "GT")
