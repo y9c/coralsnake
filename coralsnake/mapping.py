@@ -562,8 +562,8 @@ def map_file(
         SpinnerColumn(style="cyan"),
         TextColumn("[bold green]Index[/bold green]"),
         TextColumn("{task.description}"),
-        TextColumn("| [yellow]{task.fields[conv]}[/yellow] | ORIG: [cyan]{task.fields[p1]:>5.1f}%[/cyan] | MK: [magenta]{task.fields[p2]:>5.1f}%[/magenta]"),
-        transient=True,
+        TextColumn("| [yellow]{task.fields[conv]}[/yellow] | ORIG: [cyan]{task.fields[p1]:>5.1f}%[/cyan] | MK: [magenta]{task.fields[p2]:>5.1f}%[/magenta] ([dim]{task.fields[elapsed]}[/dim])"),
+        transient=False,
     ) as progress:
         if index_only:
             if not ref_file:
@@ -574,13 +574,18 @@ def map_file(
                 conv="Starting",
                 p1=0.0,
                 p2=0.0,
+                elapsed="0.00s",
             )
+            start_time = time.time()
             def on_update(conv, p1, p2):
-                progress.update(task, conv=conv, p1=p1, p2=p2)
+                elapsed = time.time() - start_time
+                elapsed_str = f"{elapsed:.2f}s"
+                progress.update(task, conv=conv, p1=p1, p2=p2, elapsed=elapsed_str)
                 progress.refresh()
                 time.sleep(0.001)  # Force thread context switch for Rich display
             _build_indices_with_progress(ref_file, index_base_dir, on_update)
-            progress.update(task, description="✓ Indices ready", conv="Done", p1=100.0, p2=100.0)
+            elapsed = time.time() - start_time
+            progress.update(task, description="✓ Indices ready", conv="Done", p1=100.0, p2=100.0, elapsed=f"{elapsed:.2f}s")
             progress.refresh()
             return
         else:
@@ -591,6 +596,7 @@ def map_file(
                     conv="Done",
                     p1=100.0,
                     p2=100.0,
+                    elapsed="0.00s",
                 )
                 idx0_file, idx_mk_file = orig_fa_path, mk_prefix_path
             else:
@@ -600,15 +606,20 @@ def map_file(
                     conv="Starting",
                     p1=0.0,
                     p2=0.0,
+                    elapsed="0.00s",
                 )
+                start_time = time.time()
                 def on_update(conv, p1, p2):
-                    progress.update(task, conv=conv, p1=p1, p2=p2)
+                    elapsed = time.time() - start_time
+                    elapsed_str = f"{elapsed:.2f}s"
+                    progress.update(task, conv=conv, p1=p1, p2=p2, elapsed=elapsed_str)
                     progress.refresh()
                     time.sleep(0.001)  # Force thread context switch for Rich display
                 idx0_file, idx_mk_file = _build_indices_with_progress(
                     ref_file, index_base_dir, on_update
                 )
-                progress.update(task, description="✓ Indices ready", conv="Done", p1=100.0, p2=100.0)
+                elapsed = time.time() - start_time
+                progress.update(task, description="✓ Indices ready", conv="Done", p1=100.0, p2=100.0, elapsed=f"{elapsed:.2f}s")
                 progress.refresh()
 
     if index_only:
