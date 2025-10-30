@@ -266,10 +266,7 @@ def run_mapping_se(
         # Align converted read to MK reference using BWA (use first reference for SE)
         hits = tuple(_ALIGNERS_MK[0].align(seq1_conv))
         for h in hits:
-            try:
-                h.read_num = 1
-            except Exception:
-                pass
+            h.read_num = 1
         for hit in filter_hits(
             hits,
             seq1,
