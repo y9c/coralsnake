@@ -22,7 +22,7 @@ from bwamem import BwaAligner, BwaIndexer, fastx_read, read_paired_fastx
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from . import seqops
-from .utils import convert_file_realtime, format_duration, km_conversion, mk_conversion
+from .utils import convert_file_realtime, format_duration, km_conversion, mk_conversion, reverse_complement
 
 
 def _build_indices_with_progress(
@@ -40,7 +40,7 @@ def _build_indices_with_progress(
     if os.path.abspath(ref_file) != os.path.abspath(orig_fa):
         shutil.copyfile(ref_file, orig_fa)
     orig_prefix = os.path.splitext(orig_fa)[0]
-    # MK
+    # MK (A→G, C→T) - single converted reference for both orientations
     mk_fa = os.path.join(index_base_dir, "ref.mk.fa")
     mk_prefix = os.path.splitext(mk_fa)[0]
 
@@ -344,20 +344,28 @@ def run_mapping_pe(
     orientations = [1, 2] if _ORIENTATION_FILTER is None else [_ORIENTATION_FILTER]
     for orientation in orientations:
         # Build converted reads
+        # CRITICAL: Both reads MUST use the same chemistry (MK) for mate rescue to work!
+        # Since PE reads sequence opposite strands, Read2 needs RC before MK conversion.
         if orientation == 1:
             if forward_library:
+                # Orientation 1, forward library
+                # Read1: forward strand → MK conversion
+                # Read2: reverse strand → RC + MK conversion
                 seq1_conv = mk_conversion(seq1)
-                seq2_conv = km_conversion(seq2)
+                seq2_conv = mk_conversion(reverse_complement(seq2))
             else:
-                seq1_conv = km_conversion(seq1)
+                # Orientation 1, reverse library
+                seq1_conv = mk_conversion(reverse_complement(seq1))
                 seq2_conv = mk_conversion(seq2)
         else:
             if forward_library:
-                seq1_conv = km_conversion(seq1)
+                # Orientation 2, forward library (opposite of orientation 1)
+                seq1_conv = mk_conversion(reverse_complement(seq1))
                 seq2_conv = mk_conversion(seq2)
             else:
+                # Orientation 2, reverse library
                 seq1_conv = mk_conversion(seq1)
-                seq2_conv = km_conversion(seq2)
+                seq2_conv = mk_conversion(reverse_complement(seq2))
 
         # Align reads using BWA's paired-end mode (with mate rescue)
         pe_alignments = tuple(_ALIGNER_MK.align(seq1_conv, seq2_conv))
