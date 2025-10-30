@@ -19,7 +19,7 @@ def test_map_pe_integration(tmp_path: Path):
     index_dir = str(tmp_path / "idx")
 
     map_file(
-        ref_file=str(ref),
+        ref_files=[str(ref)],
         r1_file=str(r1),
         r2_file=str(r2),
         output_file=out_bam,
@@ -47,7 +47,7 @@ def test_index_only(tmp_path: Path):
 
     index_dir = tmp_path / "idx"
     map_file(
-        ref_file=str(ref),
+        ref_files=[str(ref)],
         r1_file=None,
         r2_file=None,
         output_file=str(tmp_path / "dummy.bam"),
