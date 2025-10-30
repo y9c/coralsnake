@@ -462,277 +462,277 @@ def run_mapping_pe(
                 # Fetch original reference for scoring
                 ref1 = _ALIGNERS_ORIG[ref_idx].seq(hit1.ctg, hit1.r_st, hit1.r_en)
                 ref2 = _ALIGNERS_ORIG[ref_idx].seq(hit2.ctg, hit2.r_st, hit2.r_en)
-            
-            # Determine biological strand orientation
-            # hit.strand is relative to MK reference, but we need biological orientation
-            # accounting for pre-conversion reverse complement
-            
-            # Read1 biological orientation
-            if orientation == 1:
-                # Orientation 1: Read1 was not RC'd before MK conversion
-                read1_reverse = hit1.strand == -1
-            else:
-                # Orientation 2: Read1 was RC'd before MK conversion
-                # So if it maps forward to MK ref, it's actually reverse biologically
-                read1_reverse = hit1.strand == 1
-            
-            # Read2 biological orientation
-            if orientation == 1:
-                if forward_library:
-                    # Read2 was RC'd before MK conversion
+                
+                # Determine biological strand orientation
+                # hit.strand is relative to MK reference, but we need biological orientation
+                # accounting for pre-conversion reverse complement
+                
+                # Read1 biological orientation
+                if orientation == 1:
+                    # Orientation 1: Read1 was not RC'd before MK conversion
+                    read1_reverse = hit1.strand == -1
+                else:
+                    # Orientation 2: Read1 was RC'd before MK conversion
                     # So if it maps forward to MK ref, it's actually reverse biologically
-                    read2_reverse = hit2.strand == 1
-                else:
-                    # Read2 was not RC'd
-                    read2_reverse = hit2.strand == -1
-            else:
-                if forward_library:
-                    # Read2 was not RC'd
-                    read2_reverse = hit2.strand == -1
-                else:
-                    # Read2 was RC'd
-                    read2_reverse = hit2.strand == 1
-            
-            # For scoring, use the sequences as they were presented to BWA
-            if read1_reverse:
-                s1 = seqops.reverse_complement(seq1)
-                q1 = qua1[::-1]
-            else:
-                s1 = seq1
-                q1 = qua1
+                    read1_reverse = hit1.strand == 1
                 
-            # For Read2, use the pre-RC'd version if it was RC'd before alignment
-            if orientation == 1:
-                if forward_library:
-                    # seq2 was RC'd before conversion, so use RC for scoring
-                    s2 = seqops.reverse_complement(seq2)
-                    q2 = qua2[::-1]
+                # Read2 biological orientation
+                if orientation == 1:
+                    if forward_library:
+                        # Read2 was RC'd before MK conversion
+                        # So if it maps forward to MK ref, it's actually reverse biologically
+                        read2_reverse = hit2.strand == 1
+                    else:
+                        # Read2 was not RC'd
+                        read2_reverse = hit2.strand == -1
                 else:
-                    s2 = seq2
-                    q2 = qua2
-            else:  # orientation == 2
-                if forward_library:
-                    s2 = seq2
-                    q2 = qua2
-                else:
-                    s2 = seqops.reverse_complement(seq2)
-                    q2 = qua2[::-1]
-
-            # Set SAM flags based on biological strand orientation
-            if read1_reverse and not read2_reverse:
-                flag1, flag2 = 83, 163
-            elif not read1_reverse and read2_reverse:
-                flag1, flag2 = 99, 147
-            else:
-                flag1, flag2 = 67, 131
-
-            cigar_str1 = hit1.cigar_str
-            cigar1 = hit1.cigar
-            if hit1.q_st > 0:
-                cigar_str1 = f"{hit1.q_st}S" + cigar_str1
-                cigar1 = [[hit1.q_st, 4]] + cigar1
-            if hit1.q_en < len(s1):
-                cigar_str1 = cigar_str1 + f"{len(s1) - hit1.q_en}S"
-                cigar1 = cigar1 + [[len(s1) - hit1.q_en, 4]]
-            cigar_str2 = hit2.cigar_str
-            cigar2 = hit2.cigar
-            if hit2.q_st > 0:
-                cigar_str2 = f"{hit2.q_st}S" + cigar_str2
-                cigar2 = [[hit2.q_st, 4]] + cigar2
-            if hit2.q_en < len(s2):
-                cigar_str2 = cigar_str2 + f"{len(s2) - hit2.q_en}S"
-                cigar2 = cigar2 + [[len(s2) - hit2.q_en, 4]]
-
-            is_orientation1 = orientation == 1
-            score1, _w1, bad_mm1 = calculate_directional_score(
-                cigar1, s1, ref1, is_orientation1
-            )
-            score2, _w2, bad_mm2 = calculate_directional_score(
-                cigar2, s2, ref2, is_orientation1
-            )
-            if (bad_mm1 + bad_mm2) > max_mismatches:
-                continue
-
-            md1, yf1, zf1, yc1, zc1, ns1, nc1 = cal_md_and_tag(
-                cigar1, s1, ref1, is_orientation1
-            )
-            md2, yf2, zf2, yc2, zc2, ns2, nc2 = cal_md_and_tag(
-                cigar2, s2, ref2, is_orientation1
-            )
-            combined_score = score1 + score2
-            mapq = min(60, min(score1, score2))
-            common_tags = [("ST", orientation)]
-            tags1 = common_tags + [
-                ("MD", md1),
-                ("AS", score1),
-                ("Yf", yf1),
-                ("Zf", zf1),
-                ("Yc", yc1),
-                ("Zc", zc1),
-                ("NS", ns1),
-                ("NC", nc1),
-            ]
-            map1 = [
-                name,
-                flag1,
-                hit1.ctg,
-                hit1.r_st + 1,
-                mapq,
-                cigar_str1,
-                hit2.ctg,
-                hit2.r_st + 1,
-                tlen,
-                s1,
-                q1,
-            ] + tags1
-            tags2 = common_tags + [
-                ("MD", md2),
-                ("AS", score2),
-                ("Yf", yf2),
-                ("Zf", zf2),
-                ("Yc", yc2),
-                ("Zc", zc2),
-                ("NS", ns2),
-                ("NC", nc2),
-            ]
-            map2 = [
-                name,
-                flag2,
-                hit2.ctg,
-                hit2.r_st + 1,
-                mapq,
-                cigar_str2,
-                hit1.ctg,
-                hit1.r_st + 1,
-                -tlen,
-                s2,
-                q2,
-            ] + tags2
-            mapped.append([combined_score, map1, map2])
-        
-        # If no paired hits found, keep single-read mappings (mate unmapped)
-        if not paired_hits:
-            # Separate hits by read number
-            read1_hits = [h for h in filtered_hits if hasattr(h, 'read_num') and h.read_num == 1]
-            read2_hits = [h for h in filtered_hits if hasattr(h, 'read_num') and h.read_num == 2]
-            
-            # Process read1 single mappings
-            for hit in read1_hits:
-                ref = _ALIGNERS_ORIG[ref_idx].seq(hit.ctg, hit.r_st, hit.r_en)
-                read_reverse = hit.strand == -1
-                if read_reverse:
-                    # Flag 89 = paired, mapped, mate unmapped, read reverse, first in pair
-                    flag = 89
-                    s = seqops.reverse_complement(seq1)
-                    q = qua1[::-1]
-                else:
-                    # Flag 73 = paired, mapped, mate unmapped, first in pair  
-                    flag = 73
-                    s = seq1
-                    q = qua1
+                    if forward_library:
+                        # Read2 was not RC'd
+                        read2_reverse = hit2.strand == -1
+                    else:
+                        # Read2 was RC'd
+                        read2_reverse = hit2.strand == 1
                 
-                cigar_str = hit.cigar_str
-                cigar = hit.cigar
-                if hit.q_st > 0:
-                    cigar_str = f"{hit.q_st}S" + cigar_str
-                    cigar = [[hit.q_st, 4]] + cigar
-                if hit.q_en < len(s):
-                    cigar_str = cigar_str + f"{len(s) - hit.q_en}S"
-                    cigar = cigar + [[len(s) - hit.q_en, 4]]
-                
+                # For scoring, use the sequences as they were presented to BWA
+                if read1_reverse:
+                    s1 = seqops.reverse_complement(seq1)
+                    q1 = qua1[::-1]
+                else:
+                    s1 = seq1
+                    q1 = qua1
+                    
+                # For Read2, use the pre-RC'd version if it was RC'd before alignment
+                if orientation == 1:
+                    if forward_library:
+                        # seq2 was RC'd before conversion, so use RC for scoring
+                        s2 = seqops.reverse_complement(seq2)
+                        q2 = qua2[::-1]
+                    else:
+                        s2 = seq2
+                        q2 = qua2
+                else:  # orientation == 2
+                    if forward_library:
+                        s2 = seq2
+                        q2 = qua2
+                    else:
+                        s2 = seqops.reverse_complement(seq2)
+                        q2 = qua2[::-1]
+
+                # Set SAM flags based on biological strand orientation
+                if read1_reverse and not read2_reverse:
+                    flag1, flag2 = 83, 163
+                elif not read1_reverse and read2_reverse:
+                    flag1, flag2 = 99, 147
+                else:
+                    flag1, flag2 = 67, 131
+
+                cigar_str1 = hit1.cigar_str
+                cigar1 = hit1.cigar
+                if hit1.q_st > 0:
+                    cigar_str1 = f"{hit1.q_st}S" + cigar_str1
+                    cigar1 = [[hit1.q_st, 4]] + cigar1
+                if hit1.q_en < len(s1):
+                    cigar_str1 = cigar_str1 + f"{len(s1) - hit1.q_en}S"
+                    cigar1 = cigar1 + [[len(s1) - hit1.q_en, 4]]
+                cigar_str2 = hit2.cigar_str
+                cigar2 = hit2.cigar
+                if hit2.q_st > 0:
+                    cigar_str2 = f"{hit2.q_st}S" + cigar_str2
+                    cigar2 = [[hit2.q_st, 4]] + cigar2
+                if hit2.q_en < len(s2):
+                    cigar_str2 = cigar_str2 + f"{len(s2) - hit2.q_en}S"
+                    cigar2 = cigar2 + [[len(s2) - hit2.q_en, 4]]
+
                 is_orientation1 = orientation == 1
-                score, _wrong_conv, bad_mm = calculate_directional_score(
-                    cigar, s, ref, is_orientation1
+                score1, _w1, bad_mm1 = calculate_directional_score(
+                    cigar1, s1, ref1, is_orientation1
                 )
-                if bad_mm > max_mismatches // 2:
+                score2, _w2, bad_mm2 = calculate_directional_score(
+                    cigar2, s2, ref2, is_orientation1
+                )
+                if (bad_mm1 + bad_mm2) > max_mismatches:
                     continue
-                
-                md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(cigar, s, ref, is_orientation1)
-                mapq = min(60, score)
-                tags = [
-                    ("MD", md),
-                    ("ST", orientation),
-                    ("AS", score),
-                    ("Yf", yf),
-                    ("Zf", zf),
-                    ("Yc", yc),
-                    ("Zc", zc),
-                    ("NS", ns),
-                    ("NC", nc),
+
+                md1, yf1, zf1, yc1, zc1, ns1, nc1 = cal_md_and_tag(
+                    cigar1, s1, ref1, is_orientation1
+                )
+                md2, yf2, zf2, yc2, zc2, ns2, nc2 = cal_md_and_tag(
+                    cigar2, s2, ref2, is_orientation1
+                )
+                combined_score = score1 + score2
+                mapq = min(60, min(score1, score2))
+                common_tags = [("ST", orientation)]
+                tags1 = common_tags + [
+                    ("MD", md1),
+                    ("AS", score1),
+                    ("Yf", yf1),
+                    ("Zf", zf1),
+                    ("Yc", yc1),
+                    ("Zc", zc1),
+                    ("NS", ns1),
+                    ("NC", nc1),
                 ]
                 map1 = [
                     name,
-                    flag,
-                    hit.ctg,
-                    hit.r_st + 1,
+                    flag1,
+                    hit1.ctg,
+                    hit1.r_st + 1,
                     mapq,
-                    cigar_str,
-                    "*",  # Mate unmapped
-                    0,
-                    0,
-                    s,
-                    q,
-                ] + tags
-                mapped.append([score, map1])
-            
-            # Process read2 single mappings
-            for hit in read2_hits:
-                ref = _ALIGNERS_ORIG[ref_idx].seq(hit.ctg, hit.r_st, hit.r_en)
-                read_reverse = hit.strand == -1
-                if read_reverse:
-                    # Flag 153 = paired, mapped, mate unmapped, read reverse, second in pair
-                    flag = 153
-                    s = seqops.reverse_complement(seq2)
-                    q = qua2[::-1]
-                else:
-                    # Flag 137 = paired, mapped, mate unmapped, second in pair
-                    flag = 137
-                    s = seq2
-                    q = qua2
-                
-                cigar_str = hit.cigar_str
-                cigar = hit.cigar
-                if hit.q_st > 0:
-                    cigar_str = f"{hit.q_st}S" + cigar_str
-                    cigar = [[hit.q_st, 4]] + cigar
-                if hit.q_en < len(s):
-                    cigar_str = cigar_str + f"{len(s) - hit.q_en}S"
-                    cigar = cigar + [[len(s) - hit.q_en, 4]]
-                
-                is_orientation1 = orientation == 1
-                score, _wrong_conv, bad_mm = calculate_directional_score(
-                    cigar, s, ref, is_orientation1
-                )
-                if bad_mm > max_mismatches // 2:
-                    continue
-                
-                md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(cigar, s, ref, is_orientation1)
-                mapq = min(60, score)
-                tags = [
-                    ("MD", md),
-                    ("ST", orientation),
-                    ("AS", score),
-                    ("Yf", yf),
-                    ("Zf", zf),
-                    ("Yc", yc),
-                    ("Zc", zc),
-                    ("NS", ns),
-                    ("NC", nc),
+                    cigar_str1,
+                    hit2.ctg,
+                    hit2.r_st + 1,
+                    tlen,
+                    s1,
+                    q1,
+                ] + tags1
+                tags2 = common_tags + [
+                    ("MD", md2),
+                    ("AS", score2),
+                    ("Yf", yf2),
+                    ("Zf", zf2),
+                    ("Yc", yc2),
+                    ("Zc", zc2),
+                    ("NS", ns2),
+                    ("NC", nc2),
                 ]
                 map2 = [
                     name,
-                    flag,
-                    hit.ctg,
-                    hit.r_st + 1,
+                    flag2,
+                    hit2.ctg,
+                    hit2.r_st + 1,
                     mapq,
-                    cigar_str,
-                    "*",  # Mate unmapped
-                    0,
-                    0,
-                    s,
-                    q,
-                ] + tags
-                mapped.append([score, map2])
+                    cigar_str2,
+                    hit1.ctg,
+                    hit1.r_st + 1,
+                    -tlen,
+                    s2,
+                    q2,
+                ] + tags2
+                mapped.append([combined_score, map1, map2])
+            
+            # If no paired hits found, keep single-read mappings (mate unmapped)
+            if not paired_hits:
+                # Separate hits by read number
+                read1_hits = [h for h in filtered_hits if hasattr(h, 'read_num') and h.read_num == 1]
+                read2_hits = [h for h in filtered_hits if hasattr(h, 'read_num') and h.read_num == 2]
+                
+                # Process read1 single mappings
+                for hit in read1_hits:
+                    ref = _ALIGNERS_ORIG[ref_idx].seq(hit.ctg, hit.r_st, hit.r_en)
+                    read_reverse = hit.strand == -1
+                    if read_reverse:
+                        # Flag 89 = paired, mapped, mate unmapped, read reverse, first in pair
+                        flag = 89
+                        s = seqops.reverse_complement(seq1)
+                        q = qua1[::-1]
+                    else:
+                        # Flag 73 = paired, mapped, mate unmapped, first in pair  
+                        flag = 73
+                        s = seq1
+                        q = qua1
+                    
+                    cigar_str = hit.cigar_str
+                    cigar = hit.cigar
+                    if hit.q_st > 0:
+                        cigar_str = f"{hit.q_st}S" + cigar_str
+                        cigar = [[hit.q_st, 4]] + cigar
+                    if hit.q_en < len(s):
+                        cigar_str = cigar_str + f"{len(s) - hit.q_en}S"
+                        cigar = cigar + [[len(s) - hit.q_en, 4]]
+                    
+                    is_orientation1 = orientation == 1
+                    score, _wrong_conv, bad_mm = calculate_directional_score(
+                        cigar, s, ref, is_orientation1
+                    )
+                    if bad_mm > max_mismatches // 2:
+                        continue
+                    
+                    md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(cigar, s, ref, is_orientation1)
+                    mapq = min(60, score)
+                    tags = [
+                        ("MD", md),
+                        ("ST", orientation),
+                        ("AS", score),
+                        ("Yf", yf),
+                        ("Zf", zf),
+                        ("Yc", yc),
+                        ("Zc", zc),
+                        ("NS", ns),
+                        ("NC", nc),
+                    ]
+                    map1 = [
+                        name,
+                        flag,
+                        hit.ctg,
+                        hit.r_st + 1,
+                        mapq,
+                        cigar_str,
+                        "*",  # Mate unmapped
+                        0,
+                        0,
+                        s,
+                        q,
+                    ] + tags
+                    mapped.append([score, map1])
+                
+                # Process read2 single mappings
+                for hit in read2_hits:
+                    ref = _ALIGNERS_ORIG[ref_idx].seq(hit.ctg, hit.r_st, hit.r_en)
+                    read_reverse = hit.strand == -1
+                    if read_reverse:
+                        # Flag 153 = paired, mapped, mate unmapped, read reverse, second in pair
+                        flag = 153
+                        s = seqops.reverse_complement(seq2)
+                        q = qua2[::-1]
+                    else:
+                        # Flag 137 = paired, mapped, mate unmapped, second in pair
+                        flag = 137
+                        s = seq2
+                        q = qua2
+                    
+                    cigar_str = hit.cigar_str
+                    cigar = hit.cigar
+                    if hit.q_st > 0:
+                        cigar_str = f"{hit.q_st}S" + cigar_str
+                        cigar = [[hit.q_st, 4]] + cigar
+                    if hit.q_en < len(s):
+                        cigar_str = cigar_str + f"{len(s) - hit.q_en}S"
+                        cigar = cigar + [[len(s) - hit.q_en, 4]]
+                    
+                    is_orientation1 = orientation == 1
+                    score, _wrong_conv, bad_mm = calculate_directional_score(
+                        cigar, s, ref, is_orientation1
+                    )
+                    if bad_mm > max_mismatches // 2:
+                        continue
+                    
+                    md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(cigar, s, ref, is_orientation1)
+                    mapq = min(60, score)
+                    tags = [
+                        ("MD", md),
+                        ("ST", orientation),
+                        ("AS", score),
+                        ("Yf", yf),
+                        ("Zf", zf),
+                        ("Yc", yc),
+                        ("Zc", zc),
+                        ("NS", ns),
+                        ("NC", nc),
+                    ]
+                    map2 = [
+                        name,
+                        flag,
+                        hit.ctg,
+                        hit.r_st + 1,
+                        mapq,
+                        cigar_str,
+                        "*",  # Mate unmapped
+                        0,
+                        0,
+                        s,
+                        q,
+                    ] + tags
+                    mapped.append([score, map2])
         
         # Process results for this reference
         if mapped:
