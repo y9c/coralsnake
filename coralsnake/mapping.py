@@ -359,20 +359,31 @@ def run_mapping_pe(
                 seq1_conv = mk_conversion(seq1)
                 seq2_conv = km_conversion(seq2)
 
-        # Align both converted reads independently to MK reference
-        hits1 = tuple(_ALIGNER_MK.align(seq1_conv))
-        for h in hits1:
-            try:
-                h.read_num = 1
-            except Exception:
-                pass
-        hits2 = tuple(_ALIGNER_MK.align(seq2_conv))
-        for h in hits2:
-            try:
-                h.read_num = 2
-            except Exception:
-                pass
-        combined_hits = hits1 + hits2
+        # Align reads using BWA's paired-end mode (with mate rescue)
+        pe_alignments = tuple(_ALIGNER_MK.align(seq1_conv, seq2_conv))
+        
+        # Extract hits from PE alignments and mark read numbers
+        # pe_alignments is a tuple of PairedAlignment(read1, read2, is_proper_pair, insert_size)
+        # Deduplicate hits by (ctg, r_st, r_en, strand) since PE mode can return
+        # the same hit multiple times in different pair combinations
+        seen_hits1 = {}
+        seen_hits2 = {}
+        
+        for paired_aln in pe_alignments:
+            if paired_aln.read1:
+                hit_key = (paired_aln.read1.ctg, paired_aln.read1.r_st, paired_aln.read1.r_en, paired_aln.read1.strand)
+                if hit_key not in seen_hits1:
+                    paired_aln.read1.read_num = 1
+                    seen_hits1[hit_key] = paired_aln.read1
+            if paired_aln.read2:
+                hit_key = (paired_aln.read2.ctg, paired_aln.read2.r_st, paired_aln.read2.r_en, paired_aln.read2.strand)
+                if hit_key not in seen_hits2:
+                    paired_aln.read2.read_num = 2
+                    seen_hits2[hit_key] = paired_aln.read2
+        
+        hits1 = list(seen_hits1.values())
+        hits2 = list(seen_hits2.values())
+        combined_hits = tuple(hits1) + tuple(hits2)
         filtered_hits = filter_hits(
             combined_hits,
             seq1,
