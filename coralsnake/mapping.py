@@ -373,16 +373,18 @@ def run_mapping_pe(
             except Exception:
                 pass
         combined_hits = hits1 + hits2
-        for hit1, hit2 in find_properly_paired_hits(
-            filter_hits(
-                combined_hits,
-                seq1,
-                seq2,
-                min_alignment_length,
-                min_mapping_ratio,
-            ),
-            fwd=True,
-        ):
+        filtered_hits = filter_hits(
+            combined_hits,
+            seq1,
+            seq2,
+            min_alignment_length,
+            min_mapping_ratio,
+        )
+        
+        # Try to find properly paired hits
+        paired_hits = list(find_properly_paired_hits(filtered_hits, fwd=True))
+        
+        for hit1, hit2 in paired_hits:
             tlen = max(hit1.r_en, hit2.r_en) - min(hit1.r_st, hit2.r_st)
             ref1 = _ALIGNER_ORIG.seq(hit1.ctg, hit1.r_st, hit1.r_en)
             ref2 = _ALIGNER_ORIG.seq(hit2.ctg, hit2.r_st, hit2.r_en)
@@ -491,6 +493,130 @@ def run_mapping_pe(
                 q2,
             ] + tags2
             mapped.append([combined_score, map1, map2])
+        
+        # If no paired hits found, keep single-read mappings (mate unmapped)
+        if not paired_hits:
+            # Separate hits by read number
+            read1_hits = [h for h in filtered_hits if hasattr(h, 'read_num') and h.read_num == 1]
+            read2_hits = [h for h in filtered_hits if hasattr(h, 'read_num') and h.read_num == 2]
+            
+            # Process read1 single mappings
+            for hit in read1_hits:
+                ref = _ALIGNER_ORIG.seq(hit.ctg, hit.r_st, hit.r_en)
+                read_reverse = hit.strand == -1
+                if read_reverse:
+                    # Flag 89 = paired, mapped, mate unmapped, read reverse, first in pair
+                    flag = 89
+                    s = seqops.reverse_complement(seq1)
+                    q = qua1[::-1]
+                else:
+                    # Flag 73 = paired, mapped, mate unmapped, first in pair  
+                    flag = 73
+                    s = seq1
+                    q = qua1
+                
+                cigar_str = hit.cigar_str
+                cigar = hit.cigar
+                if hit.q_st > 0:
+                    cigar_str = f"{hit.q_st}S" + cigar_str
+                    cigar = [[hit.q_st, 4]] + cigar
+                if hit.q_en < len(s):
+                    cigar_str = cigar_str + f"{len(s) - hit.q_en}S"
+                    cigar = cigar + [[len(s) - hit.q_en, 4]]
+                
+                is_orientation1 = orientation == 1
+                score, _wrong_conv, bad_mm = calculate_directional_score(
+                    cigar, s, ref, is_orientation1
+                )
+                if bad_mm > max_mismatches // 2:
+                    continue
+                
+                md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(cigar, s, ref, is_orientation1)
+                mapq = min(60, score)
+                tags = [
+                    ("MD", md),
+                    ("ST", orientation),
+                    ("AS", score),
+                    ("Yf", yf),
+                    ("Zf", zf),
+                    ("Yc", yc),
+                    ("Zc", zc),
+                    ("NS", ns),
+                    ("NC", nc),
+                ]
+                map1 = [
+                    name,
+                    flag,
+                    hit.ctg,
+                    hit.r_st + 1,
+                    mapq,
+                    cigar_str,
+                    "*",  # Mate unmapped
+                    0,
+                    0,
+                    s,
+                    q,
+                ] + tags
+                mapped.append([score, map1])
+            
+            # Process read2 single mappings
+            for hit in read2_hits:
+                ref = _ALIGNER_ORIG.seq(hit.ctg, hit.r_st, hit.r_en)
+                read_reverse = hit.strand == -1
+                if read_reverse:
+                    # Flag 153 = paired, mapped, mate unmapped, read reverse, second in pair
+                    flag = 153
+                    s = seqops.reverse_complement(seq2)
+                    q = qua2[::-1]
+                else:
+                    # Flag 137 = paired, mapped, mate unmapped, second in pair
+                    flag = 137
+                    s = seq2
+                    q = qua2
+                
+                cigar_str = hit.cigar_str
+                cigar = hit.cigar
+                if hit.q_st > 0:
+                    cigar_str = f"{hit.q_st}S" + cigar_str
+                    cigar = [[hit.q_st, 4]] + cigar
+                if hit.q_en < len(s):
+                    cigar_str = cigar_str + f"{len(s) - hit.q_en}S"
+                    cigar = cigar + [[len(s) - hit.q_en, 4]]
+                
+                is_orientation1 = orientation == 1
+                score, _wrong_conv, bad_mm = calculate_directional_score(
+                    cigar, s, ref, is_orientation1
+                )
+                if bad_mm > max_mismatches // 2:
+                    continue
+                
+                md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(cigar, s, ref, is_orientation1)
+                mapq = min(60, score)
+                tags = [
+                    ("MD", md),
+                    ("ST", orientation),
+                    ("AS", score),
+                    ("Yf", yf),
+                    ("Zf", zf),
+                    ("Yc", yc),
+                    ("Zc", zc),
+                    ("NS", ns),
+                    ("NC", nc),
+                ]
+                map2 = [
+                    name,
+                    flag,
+                    hit.ctg,
+                    hit.r_st + 1,
+                    mapq,
+                    cigar_str,
+                    "*",  # Mate unmapped
+                    0,
+                    0,
+                    s,
+                    q,
+                ] + tags
+                mapped.append([score, map2])
 
     random.shuffle(mapped)
     mapped = sorted(mapped, key=lambda x: x[0], reverse=True)
@@ -713,6 +839,7 @@ def map_file(
                     # Write mapped reads
                     for i, item in enumerate(mapping_result):
                         if paired and len(item) == 3:
+                            # Properly paired reads
                             map1, map2 = item[1], item[2]
                             a1 = create_bam_record(
                                 bam_out.header, map1, is_secondary=(i > 0)
@@ -722,7 +849,36 @@ def map_file(
                             )
                             bam_out.write(a1)
                             bam_out.write(a2)
+                        elif paired and len(item) == 2:
+                            # Single-read mapping from PE mode (mate unmapped)
+                            map1 = item[1]
+                            a1 = create_bam_record(
+                                bam_out.header, map1, is_secondary=(i > 0)
+                            )
+                            bam_out.write(a1)
+                            # Also write the unmapped mate
+                            name1, seq1, qua1, name2, seq2, qua2 = read_info
+                            # Determine which read is mapped based on flag
+                            if map1[1] & 0x40:  # First in pair bit
+                                # Read1 is mapped, write unmapped read2
+                                # Flag 133 = paired, unmapped, mate mapped, second in pair
+                                a2 = create_unmapped_record(
+                                    bam_out.header, name2, seq2, qua2, 133
+                                )
+                                a2.next_reference_name = map1[2]  # Mate's contig
+                                a2.next_reference_start = map1[3] - 1  # Mate's position
+                                bam_out.write(a2)
+                            else:  # Second in pair
+                                # Read2 is mapped, write unmapped read1
+                                # Flag 69 = paired, unmapped, mate mapped, first in pair
+                                a1_unmapped = create_unmapped_record(
+                                    bam_out.header, name1, seq1, qua1, 69
+                                )
+                                a1_unmapped.next_reference_name = map1[2]  # Mate's contig
+                                a1_unmapped.next_reference_start = map1[3] - 1  # Mate's position
+                                bam_out.write(a1_unmapped)
                         else:
+                            # Single-end mapping
                             map1 = item[1]
                             a1 = create_bam_record(
                                 bam_out.header, map1, is_secondary=(i > 0)
