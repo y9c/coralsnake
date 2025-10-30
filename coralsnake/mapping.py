@@ -1007,23 +1007,6 @@ def map_file(
                 header["SQ"].append({"SN": rec.name, "LN": rec.length})
                 seen_seqs.add(rec.name)
 
-    # Warning for multi-reference + high thread count (memory issue)
-    if len(ref_indices) > 1 and threads > 4:
-        from rich.console import Console
-        console = Console(stderr=True)
-        console.print(
-            f"[yellow]⚠ Warning: Using {len(ref_indices)} references with {threads} threads.[/yellow]",
-            style="yellow"
-        )
-        console.print(
-            f"[yellow]  Each worker loads all references into memory (~{len(ref_indices)}x memory usage).[/yellow]",
-            style="yellow"
-        )
-        console.print(
-            f"[yellow]  If the process crashes, try reducing threads: -t 2 or -t 4[/yellow]",
-            style="yellow"
-        )
-    
     # Streaming batches in parallel (no file splitting). threads = workers
     paired = r2_file is not None
     with ExitStack() as stack:
