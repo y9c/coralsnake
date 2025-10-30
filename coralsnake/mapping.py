@@ -183,7 +183,11 @@ def _init_worker(orig_fa, mk_index_prefix, orientation_filter, forward_library):
 
 
 def find_properly_paired_hits(hits, fwd=True):
-    """Find read1/read2 hit pairs on the same contig, opposite strands, within 1 kb."""
+    """Find read1/read2 hit pairs on the same contig, within 1 kb.
+    
+    Note: Since we pre-convert Read2 with RC before alignment, both reads may map
+    to the same strand. The original opposite-strand check has been removed.
+    """
     parsed_hits = []
     # group by ref_name and separate read 1 and read 2
     ref_name_hits = {}
@@ -195,13 +199,13 @@ def find_properly_paired_hits(hits, fwd=True):
         if len(hits[0]) > 0 and len(hits[1]) > 0:
             for hit1 in hits[0]:
                 for hit2 in hits[1]:
-                    if hit1.strand + hit2.strand == 0:
-                        if fwd:
-                            if hit1.r_st < hit2.r_en and hit2.r_en - hit1.r_st < 1000:
-                                parsed_hits.append((hit1, hit2))
-                        else:
-                            if hit1.r_en > hit2.r_st and hit1.r_en - hit2.r_st < 1000:
-                                parsed_hits.append((hit1, hit2))
+                    # Removed opposite-strand check since we pre-RC Read2
+                    if fwd:
+                        if hit1.r_st < hit2.r_en and hit2.r_en - hit1.r_st < 1000:
+                            parsed_hits.append((hit1, hit2))
+                    else:
+                        if hit1.r_en > hit2.r_st and hit1.r_en - hit2.r_st < 1000:
+                            parsed_hits.append((hit1, hit2))
 
     return parsed_hits
 
@@ -392,6 +396,7 @@ def run_mapping_pe(
         hits1 = list(seen_hits1.values())
         hits2 = list(seen_hits2.values())
         combined_hits = tuple(hits1) + tuple(hits2)
+        
         filtered_hits = filter_hits(
             combined_hits,
             seq1,
