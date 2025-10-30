@@ -119,36 +119,44 @@ def _map_batch_worker(
     results = []
     if not paired:
         for name1, seq1, qua1 in batch:
-            mapping_result = run_mapping_se(
-                name1,
-                seq1,
-                qua1,
-                _FORWARD_LIBRARY,
-                max_mismatches,
-                min_alignment_length,
-                min_mapping_ratio,
-            )
-            # Return (read_info, mapping_result) tuple
-            results.append(((name1, seq1, qua1), mapping_result))
+            try:
+                mapping_result = run_mapping_se(
+                    name1,
+                    seq1,
+                    qua1,
+                    _FORWARD_LIBRARY,
+                    max_mismatches,
+                    min_alignment_length,
+                    min_mapping_ratio,
+                )
+                # Return (read_info, mapping_result) tuple
+                results.append(((name1, seq1, qua1), mapping_result))
+            except Exception as e:
+                print(f"ERROR processing read {name1}: {type(e).__name__}: {e}", flush=True)
+                raise
     else:
         for (name1, seq1, qua1), (name2, seq2, qua2) in batch:
-            base1 = name1.split()[0].rstrip("/1").rstrip("/2")
-            base2 = name2.split()[0].rstrip("/1").rstrip("/2")
-            if base1 != base2:
-                raise ValueError(f"r1 and r2 not in the same order: {name1} vs {name2}")
-            mapping_result = run_mapping_pe(
-                name1,
-                seq1,
-                seq2,
-                qua1,
-                qua2,
-                _FORWARD_LIBRARY,
-                max_mismatches,
-                min_alignment_length,
-                min_mapping_ratio,
-            )
-            # Return (read_info, mapping_result) tuple
-            results.append(((name1, seq1, qua1, name2, seq2, qua2), mapping_result))
+            try:
+                base1 = name1.split()[0].rstrip("/1").rstrip("/2")
+                base2 = name2.split()[0].rstrip("/1").rstrip("/2")
+                if base1 != base2:
+                    raise ValueError(f"r1 and r2 not in the same order: {name1} vs {name2}")
+                mapping_result = run_mapping_pe(
+                    name1,
+                    seq1,
+                    seq2,
+                    qua1,
+                    qua2,
+                    _FORWARD_LIBRARY,
+                    max_mismatches,
+                    min_alignment_length,
+                    min_mapping_ratio,
+                )
+                # Return (read_info, mapping_result) tuple
+                results.append(((name1, seq1, qua1, name2, seq2, qua2), mapping_result))
+            except Exception as e:
+                print(f"ERROR processing read pair {name1}: {type(e).__name__}: {e}", flush=True)
+                raise
 
     return results
 
