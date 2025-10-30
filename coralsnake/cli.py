@@ -201,7 +201,14 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
-@click.option("-r", "--ref-file", help="reference file", required=False)
+@click.option(
+    "-r",
+    "--ref-file",
+    "ref_files",
+    multiple=True,
+    help="Reference file(s). Can be specified multiple times for priority-based mapping (e.g., -r rRNA.fa -r tRNA.fa -r mRNA.fa). Higher priority references are checked first.",
+    required=False,
+)
 @click.option("-1", "--r1-file", help="r1 file", required=False)
 @click.option("-2", "--r2-file", help="r2 file", required=False)
 @click.option("-o", "--output-file", help="output bam file", required=False)
@@ -288,7 +295,7 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     help="[Reference] Map to both reference strands (default)",
 )
 def map(
-    ref_file,
+    ref_files,
     r1_file,
     r2_file,
     output_file,
@@ -303,6 +310,10 @@ def map(
     reference_strand,
 ):
     from .mapping import map_file
+    import os
+
+    # Convert tuple to list for easier handling
+    ref_files = list(ref_files) if ref_files else []
 
     # Validate arguments
     if index_only:
@@ -321,20 +332,24 @@ def map(
         if not output_file:
             click.echo("❌ Error: -o/--output-file is required for mapping", err=True)
             raise click.Abort()
-        # If index-dir is provided and both indices exist, ref-file can be omitted
-        if not ref_file:
+        # If index-dir is provided and indices exist, ref-files can be omitted
+        if not ref_files:
             if not index_dir:
                 click.echo(
                     "❌ Error: --ref-file is required unless --index-dir is provided",
                     err=True,
                 )
                 raise click.Abort()
-            import os
 
             # Check for BWA indices (.bwt is a good indicator)
-            idx0_file = os.path.join(index_dir, "ref.orig.bwt")
-            idx_mk_file = os.path.join(index_dir, "ref.mk.bwt")
-            if not (os.path.exists(idx0_file) and os.path.exists(idx_mk_file)):
+            # Look for ref1.orig.bwt, ref1.mk.bwt (or ref.orig.bwt, ref.mk.bwt for backward compatibility)
+            idx_files_exist = False
+            if os.path.exists(os.path.join(index_dir, "ref.orig.bwt")) and os.path.exists(os.path.join(index_dir, "ref.mk.bwt")):
+                idx_files_exist = True
+            elif os.path.exists(os.path.join(index_dir, "ref1.orig.bwt")) and os.path.exists(os.path.join(index_dir, "ref1.mk.bwt")):
+                idx_files_exist = True
+            
+            if not idx_files_exist:
                 click.echo(
                     "❌ Error: --ref-file is required because BWA indices not found in --index-dir",
                     err=True,
@@ -354,7 +369,7 @@ def map(
 
     try:
         map_file(
-            ref_file,
+            ref_files,
             r1_file,
             r2_file,
             output_file,

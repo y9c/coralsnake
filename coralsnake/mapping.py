@@ -30,16 +30,21 @@ def _build_indices_with_progress(
     index_base_dir: str,
     on_update,
     poll_interval: float = 0.1,
+    ref_suffix: str = "",
 ):
-    """Build indices with progress using threads (not async - Rich doesn't play well with asyncio.run)."""
+    """Build indices with progress using threads (not async - Rich doesn't play well with asyncio.run).
+    
+    Args:
+        ref_suffix: Suffix for index files (e.g., "1", "2" for multiple refs). Empty for backward compatibility.
+    """
     from concurrent.futures import ThreadPoolExecutor
 
     os.makedirs(index_base_dir, exist_ok=True)
     # ORIG
-    orig_fa = os.path.join(index_base_dir, "ref.orig.fa")
+    orig_fa = os.path.join(index_base_dir, f"ref{ref_suffix}.orig.fa")
     orig_prefix = os.path.splitext(orig_fa)[0]
     # MK (A→G, C→T) - single converted reference for both orientations
-    mk_fa = os.path.join(index_base_dir, "ref.mk.fa")
+    mk_fa = os.path.join(index_base_dir, f"ref{ref_suffix}.mk.fa")
     mk_prefix = os.path.splitext(mk_fa)[0]
     
     # If ref_file is None, indices should already exist - just return paths
@@ -149,44 +154,54 @@ def _map_batch_worker(
 
 
 # Per-process cached aligners (initialized once per worker)
-_ALIGNER_ORIG = None
-_ALIGNER_MK = None
+_ALIGNERS_ORIG = []
+_ALIGNERS_MK = []
 _ORIENTATION_FILTER = None
 _FORWARD_LIBRARY = None
 
 
-def _init_worker(orig_fa, mk_index_prefix, orientation_filter, forward_library):
-    global _ALIGNER_ORIG, _ALIGNER_MK, _ORIENTATION_FILTER, _FORWARD_LIBRARY
+def _init_worker(ref_indices, orientation_filter, forward_library):
+    """Initialize worker with multiple aligners for priority-based mapping.
+    
+    Args:
+        ref_indices: List of (orig_fa, mk_index_prefix, ref_suffix) tuples
+    """
+    global _ALIGNERS_ORIG, _ALIGNERS_MK, _ORIENTATION_FILTER, _FORWARD_LIBRARY
     _ORIENTATION_FILTER = orientation_filter
     _FORWARD_LIBRARY = forward_library
 
-    # Use shorter seeds (14 instead of default 19) for better sensitivity with modified bases
-    # Use moderately higher max_occ (1000 vs default 500) for repetitive elements
-    # Note: The optind bug in bwamem has been fixed, so aligner creation order doesn't matter
-    orig_prefix = os.path.splitext(orig_fa)[0]
-    _ALIGNER_ORIG = BwaAligner(
-        orig_prefix,
-        min_seed_len=14,
-        max_occ=1000,
-        softclip_supplementary=True,
-        mark_secondary=True,
-        clip_penalties=(6, 6),
-        unpaired_penalty=24,
-        min_score=20,
-        insert_model=(80, 60, 450),
-    )
-
-    _ALIGNER_MK = BwaAligner(
-        mk_index_prefix,
-        min_seed_len=14,
-        max_occ=1000,
-        softclip_supplementary=True,
-        mark_secondary=True,
-        clip_penalties=(6, 6),
-        unpaired_penalty=24,
-        min_score=20,
-        insert_model=(80, 60, 450),
-    )
+    # Create aligners for each reference
+    _ALIGNERS_ORIG = []
+    _ALIGNERS_MK = []
+    
+    for orig_fa, mk_index_prefix, _ in ref_indices:
+        # Use shorter seeds (14 instead of default 19) for better sensitivity with modified bases
+        # Use moderately higher max_occ (1000 vs default 500) for repetitive elements
+        orig_prefix = os.path.splitext(orig_fa)[0]
+        aligner_orig = BwaAligner(
+            orig_prefix,
+            min_seed_len=14,
+            max_occ=1000,
+            softclip_supplementary=True,
+            mark_secondary=True,
+            clip_penalties=(6, 6),
+            unpaired_penalty=24,
+            min_score=20,
+            insert_model=(80, 60, 450),
+        )
+        aligner_mk = BwaAligner(
+            mk_index_prefix,
+            min_seed_len=14,
+            max_occ=1000,
+            softclip_supplementary=True,
+            mark_secondary=True,
+            clip_penalties=(6, 6),
+            unpaired_penalty=24,
+            min_score=20,
+            insert_model=(80, 60, 450),
+        )
+        _ALIGNERS_ORIG.append(aligner_orig)
+        _ALIGNERS_MK.append(aligner_mk)
 
 
 def find_properly_paired_hits(hits, fwd=True):
@@ -264,8 +279,8 @@ def run_mapping_se(
             seq1_conv = km_conversion(seq1) if forward_library else mk_conversion(seq1)
 
         # Iterate hits
-        # Align converted read to MK reference using BWA
-        hits = tuple(_ALIGNER_MK.align(seq1_conv))
+        # Align converted read to MK reference using BWA (use first reference for SE)
+        hits = tuple(_ALIGNERS_MK[0].align(seq1_conv))
         for h in hits:
             try:
                 h.read_num = 1
@@ -278,7 +293,7 @@ def run_mapping_se(
             min_alignment_length,
             min_mapping_ratio,
         ):
-            ref = _ALIGNER_ORIG.seq(hit.ctg, hit.r_st, hit.r_en)
+            ref = _ALIGNERS_ORIG[0].seq(hit.ctg, hit.r_st, hit.r_en)
             read_reverse = hit.strand == -1
             if read_reverse:
                 flag = 16
@@ -349,95 +364,104 @@ def run_mapping_pe(
     min_alignment_length=20,
     min_mapping_ratio=0.5,
 ):
-    """Map one paired-end read and return scored alignment pairs."""
-    mapped = []
-    # Filter orientations if specified
-    orientations = [1, 2] if _ORIENTATION_FILTER is None else [_ORIENTATION_FILTER]
-    for orientation in orientations:
-        # Build converted reads
-        # CRITICAL: Both reads MUST use the same chemistry (MK) for mate rescue to work!
-        # Since PE reads sequence opposite strands, Read2 needs RC before MK conversion.
-        if orientation == 1:
-            if forward_library:
-                # Orientation 1, forward library
-                # Read1: forward strand → MK conversion
-                # Read2: reverse strand → RC + MK conversion
-                seq1_conv = mk_conversion(seq1)
-                seq2_conv = mk_conversion(reverse_complement(seq2))
+    """Map one paired-end read and return scored alignment pairs.
+    
+    Tries each reference in priority order (index 0 = highest priority).
+    Returns mappings from the highest-priority reference that has proper pairs,
+    or from the highest-priority reference with any mappings if no proper pairs found.
+    """
+    # Try each reference in priority order
+    all_results_by_ref = []  # List of (ref_idx, mapped_results)
+    
+    for ref_idx in range(len(_ALIGNERS_MK)):
+        mapped = []
+        # Filter orientations if specified
+        orientations = [1, 2] if _ORIENTATION_FILTER is None else [_ORIENTATION_FILTER]
+        for orientation in orientations:
+            # Build converted reads
+            # CRITICAL: Both reads MUST use the same chemistry (MK) for mate rescue to work!
+            # Since PE reads sequence opposite strands, Read2 needs RC before MK conversion.
+            if orientation == 1:
+                if forward_library:
+                    # Orientation 1, forward library
+                    # Read1: forward strand → MK conversion
+                    # Read2: reverse strand → RC + MK conversion
+                    seq1_conv = mk_conversion(seq1)
+                    seq2_conv = mk_conversion(reverse_complement(seq2))
+                else:
+                    # Orientation 1, reverse library
+                    seq1_conv = mk_conversion(reverse_complement(seq1))
+                    seq2_conv = mk_conversion(seq2)
             else:
-                # Orientation 1, reverse library
-                seq1_conv = mk_conversion(reverse_complement(seq1))
-                seq2_conv = mk_conversion(seq2)
-        else:
-            if forward_library:
-                # Orientation 2, forward library (opposite of orientation 1)
-                seq1_conv = mk_conversion(reverse_complement(seq1))
-                seq2_conv = mk_conversion(seq2)
-            else:
-                # Orientation 2, reverse library
-                seq1_conv = mk_conversion(seq1)
-                seq2_conv = mk_conversion(reverse_complement(seq2))
+                if forward_library:
+                    # Orientation 2, forward library (opposite of orientation 1)
+                    seq1_conv = mk_conversion(reverse_complement(seq1))
+                    seq2_conv = mk_conversion(seq2)
+                else:
+                    # Orientation 2, reverse library
+                    seq1_conv = mk_conversion(seq1)
+                    seq2_conv = mk_conversion(reverse_complement(seq2))
 
-        # Align reads using BWA's paired-end mode (with mate rescue)
-        pe_alignments = tuple(_ALIGNER_MK.align(seq1_conv, seq2_conv))
-        
-        # Extract hits from PE alignments and mark read numbers
-        # pe_alignments is a tuple of PairedAlignment(read1, read2, is_proper_pair, insert_size)
-        # Deduplicate hits by (ctg, r_st, r_en, strand) since PE mode can return
-        # the same hit multiple times in different pair combinations
-        seen_hits1 = {}
-        seen_hits2 = {}
-        
-        for paired_aln in pe_alignments:
-            if paired_aln.read1:
-                hit_key = (paired_aln.read1.ctg, paired_aln.read1.r_st, paired_aln.read1.r_en, paired_aln.read1.strand)
-                if hit_key not in seen_hits1:
-                    paired_aln.read1.read_num = 1
-                    seen_hits1[hit_key] = paired_aln.read1
-            if paired_aln.read2:
-                hit_key = (paired_aln.read2.ctg, paired_aln.read2.r_st, paired_aln.read2.r_en, paired_aln.read2.strand)
-                if hit_key not in seen_hits2:
-                    paired_aln.read2.read_num = 2
-                    seen_hits2[hit_key] = paired_aln.read2
-        
-        hits1 = list(seen_hits1.values())
-        hits2 = list(seen_hits2.values())
-        combined_hits = tuple(hits1) + tuple(hits2)
-        
-        filtered_hits = filter_hits(
-            combined_hits,
-            seq1,
-            seq2,
-            min_alignment_length,
-            min_mapping_ratio,
-        )
-        
-        # Try to find properly paired hits (same contig)
-        paired_hits = list(find_properly_paired_hits(filtered_hits, fwd=True))
-        
-        # If no same-contig pairs found, try cross-contig rescue
-        if not paired_hits:
-            # Separate hits by read number
-            read1_hits = [h for h in filtered_hits if hasattr(h, 'read_num') and h.read_num == 1]
-            read2_hits = [h for h in filtered_hits if hasattr(h, 'read_num') and h.read_num == 2]
+            # Align reads using BWA's paired-end mode (with mate rescue)
+            pe_alignments = tuple(_ALIGNERS_MK[ref_idx].align(seq1_conv, seq2_conv))
             
-            if read1_hits and read2_hits:
-                # Try rescue: use best hits from each read as anchors
-                # For each Read1 hit, check if any Read2 hit could pair with it (and vice versa)
-                # This allows cross-contig pairing which mate rescue might have found
-                for h1 in read1_hits[:3]:  # Try top 3 Read1 hits as anchors
-                    for h2 in read2_hits[:3]:  # Try top 3 Read2 hits as anchors
-                        # If reads are on different contigs, consider them as potential rescued pairs
-                        # This handles cases where mem_matesw found a hit on a different contig
-                        if h1.ctg != h2.ctg:
-                            # Cross-contig pair - likely from mate rescue
-                            paired_hits.append((h1, h2))
+            # Extract hits from PE alignments and mark read numbers
+            # pe_alignments is a tuple of PairedAlignment(read1, read2, is_proper_pair, insert_size)
+            # Deduplicate hits by (ctg, r_st, r_en, strand) since PE mode can return
+            # the same hit multiple times in different pair combinations
+            seen_hits1 = {}
+            seen_hits2 = {}
+            
+            for paired_aln in pe_alignments:
+                if paired_aln.read1:
+                    hit_key = (paired_aln.read1.ctg, paired_aln.read1.r_st, paired_aln.read1.r_en, paired_aln.read1.strand)
+                    if hit_key not in seen_hits1:
+                        paired_aln.read1.read_num = 1
+                        seen_hits1[hit_key] = paired_aln.read1
+                if paired_aln.read2:
+                    hit_key = (paired_aln.read2.ctg, paired_aln.read2.r_st, paired_aln.read2.r_en, paired_aln.read2.strand)
+                    if hit_key not in seen_hits2:
+                        paired_aln.read2.read_num = 2
+                        seen_hits2[hit_key] = paired_aln.read2
+            
+            hits1 = list(seen_hits1.values())
+            hits2 = list(seen_hits2.values())
+            combined_hits = tuple(hits1) + tuple(hits2)
+            
+            filtered_hits = filter_hits(
+                combined_hits,
+                seq1,
+                seq2,
+                min_alignment_length,
+                min_mapping_ratio,
+            )
+            
+            # Try to find properly paired hits (same contig)
+            paired_hits = list(find_properly_paired_hits(filtered_hits, fwd=True))
+            
+            # If no same-contig pairs found, try cross-contig rescue
+            if not paired_hits:
+                # Separate hits by read number
+                read1_hits = [h for h in filtered_hits if hasattr(h, 'read_num') and h.read_num == 1]
+                read2_hits = [h for h in filtered_hits if hasattr(h, 'read_num') and h.read_num == 2]
+                
+                if read1_hits and read2_hits:
+                    # Try rescue: use best hits from each read as anchors
+                    # For each Read1 hit, check if any Read2 hit could pair with it (and vice versa)
+                    # This allows cross-contig pairing which mate rescue might have found
+                    for h1 in read1_hits[:3]:  # Try top 3 Read1 hits as anchors
+                        for h2 in read2_hits[:3]:  # Try top 3 Read2 hits as anchors
+                            # If reads are on different contigs, consider them as potential rescued pairs
+                            # This handles cases where mem_matesw found a hit on a different contig
+                            if h1.ctg != h2.ctg:
+                                # Cross-contig pair - likely from mate rescue
+                                paired_hits.append((h1, h2))
         
-        for hit1, hit2 in paired_hits:
-            tlen = max(hit1.r_en, hit2.r_en) - min(hit1.r_st, hit2.r_st)
-            # Fetch original reference for scoring
-            ref1 = _ALIGNER_ORIG.seq(hit1.ctg, hit1.r_st, hit1.r_en)
-            ref2 = _ALIGNER_ORIG.seq(hit2.ctg, hit2.r_st, hit2.r_en)
+            for hit1, hit2 in paired_hits:
+                tlen = max(hit1.r_en, hit2.r_en) - min(hit1.r_st, hit2.r_st)
+                # Fetch original reference for scoring
+                ref1 = _ALIGNERS_ORIG[ref_idx].seq(hit1.ctg, hit1.r_st, hit1.r_en)
+                ref2 = _ALIGNERS_ORIG[ref_idx].seq(hit2.ctg, hit2.r_st, hit2.r_en)
             
             # Determine biological strand orientation
             # hit.strand is relative to MK reference, but we need biological orientation
@@ -594,7 +618,7 @@ def run_mapping_pe(
             
             # Process read1 single mappings
             for hit in read1_hits:
-                ref = _ALIGNER_ORIG.seq(hit.ctg, hit.r_st, hit.r_en)
+                ref = _ALIGNERS_ORIG[ref_idx].seq(hit.ctg, hit.r_st, hit.r_en)
                 read_reverse = hit.strand == -1
                 if read_reverse:
                     # Flag 89 = paired, mapped, mate unmapped, read reverse, first in pair
@@ -653,7 +677,7 @@ def run_mapping_pe(
             
             # Process read2 single mappings
             for hit in read2_hits:
-                ref = _ALIGNER_ORIG.seq(hit.ctg, hit.r_st, hit.r_en)
+                ref = _ALIGNERS_ORIG[ref_idx].seq(hit.ctg, hit.r_st, hit.r_en)
                 read_reverse = hit.strand == -1
                 if read_reverse:
                     # Flag 153 = paired, mapped, mate unmapped, read reverse, second in pair
@@ -709,10 +733,26 @@ def run_mapping_pe(
                     q,
                 ] + tags
                 mapped.append([score, map2])
-
-    random.shuffle(mapped)
-    mapped = sorted(mapped, key=lambda x: x[0], reverse=True)
-    return mapped
+        
+        # Process results for this reference
+        if mapped:
+            random.shuffle(mapped)
+            mapped = sorted(mapped, key=lambda x: x[0], reverse=True)
+            
+            # Check if we found properly-paired alignments (3-element results: [score, map1, map2])
+            has_proper_pair = any(len(result) == 3 for result in mapped)
+            if has_proper_pair:
+                # Found proper pairs on this reference - return immediately (don't try lower-priority refs)
+                return mapped
+            
+            # No proper pairs, but has single-read mappings - store for fallback
+            all_results_by_ref.append((ref_idx, mapped))
+    
+    # No proper pairs found in any reference - return best single-read mapping (highest priority)
+    if all_results_by_ref:
+        return all_results_by_ref[0][1]
+    
+    return []
 
 
 ## (removed) run_mapping: worker dispatches directly to SE/PE
@@ -758,7 +798,7 @@ def create_unmapped_record(header, name, seq, qual, flag):
 
 
 def map_file(
-    ref_file,
+    ref_files,
     r1_file,
     r2_file,
     output_file,
@@ -773,20 +813,32 @@ def map_file(
     orientation_filter=None,
 ):
     """Map FASTQ reads to reference with dual-base conversion chemistry.
+    
+    Supports priority-based mapping with multiple references. References are tried
+    in order, with properly-paired alignments from higher-priority references 
+    preferred over those from lower-priority ones.
 
     Args:
+        ref_files: List of reference file paths (in priority order, highest first).
+                  Can be empty if index_dir contains pre-built indices.
         forward_library: True for forward library, False for reverse library.
         orientation_filter: If specified, only map to this orientation (1 or 2).
                           None means map to both orientations (default).
     """
+    # Convert to list if needed
+    if isinstance(ref_files, (str, type(None))):
+        ref_files = [ref_files] if ref_files else []
+    
     # Preflight: validate input files early to avoid spawning workers on bad paths
     if not index_only:
         if not r1_file or not os.path.exists(r1_file):
             raise FileNotFoundError(f"Input R1 file not found: {r1_file}")
         if r2_file is not None and not os.path.exists(r2_file):
             raise FileNotFoundError(f"Input R2 file not found: {r2_file}")
-    if ref_file and not os.path.exists(ref_file):
-        raise FileNotFoundError(f"Reference file not found: {ref_file}")
+    
+    for i, ref_file in enumerate(ref_files, 1):
+        if ref_file and not os.path.exists(ref_file):
+            raise FileNotFoundError(f"Reference file {i} not found: {ref_file}")
     # Determine index directory path and auto-clean temp via atexit
     if index_dir:
         os.makedirs(index_dir, exist_ok=True)
@@ -798,15 +850,34 @@ def map_file(
             and shutil.rmtree(p, ignore_errors=True)
         )
 
-    # Indexing with step-level progress (orig + MK)
-    orig_fa_path = os.path.join(index_base_dir, "ref.orig.fa")
-    mk_prefix_path = os.path.join(index_base_dir, "ref.mk")
-    mk_index_ready = all(
-        os.path.exists(mk_prefix_path + ext)
-        for ext in [".amb", ".ann", ".bwt", ".pac", ".sa"]
-    )
-    orig_ready = os.path.exists(orig_fa_path)
-
+    # Determine which references to index (backward compatibility + multi-reference support)
+    # If no ref_files, check for existing indices
+    if not ref_files:
+        # Look for existing indices (single ref or multi-ref format)
+        if os.path.exists(os.path.join(index_base_dir, "ref.orig.fa")):
+            ref_indices = [(os.path.join(index_base_dir, "ref.orig.fa"), os.path.join(index_base_dir, "ref.mk"), "")]
+        else:
+            # Check for ref1, ref2, etc.
+            ref_indices = []
+            i = 1
+            while os.path.exists(os.path.join(index_base_dir, f"ref{i}.orig.fa")):
+                ref_indices.append((
+                    os.path.join(index_base_dir, f"ref{i}.orig.fa"),
+                    os.path.join(index_base_dir, f"ref{i}.mk"),
+                    str(i)
+                ))
+                i += 1
+            if not ref_indices:
+                raise RuntimeError("No reference files provided and no indices found in index-dir")
+    else:
+        # Single reference: use backward-compatible naming (ref.orig, ref.mk)
+        # Multiple references: use numbered naming (ref1, ref2, etc.)
+        if len(ref_files) == 1:
+            ref_indices = [(None, None, "")]  # Will be filled during indexing
+        else:
+            ref_indices = [(None, None, str(i)) for i in range(1, len(ref_files) + 1)]
+    
+    # Build indices for all references
     with Progress(
         SpinnerColumn(style="cyan"),
         TextColumn("[bold green]Index[/bold green]"),
@@ -817,51 +888,15 @@ def map_file(
         transient=False,
     ) as progress:
         if index_only:
-            if not ref_file:
+            if not ref_files:
                 raise RuntimeError("--index-only requires --ref-file to be provided")
-            task = progress.add_task(
-                "Preparing indices...",
-                total=None,
-                conv="Starting",
-                p1=0.0,
-                p2=0.0,
-                elapsed="0.00s",
-            )
-            start_time = time.time()
-
-            def on_update(conv, p1, p2):
-                elapsed = time.time() - start_time
-                elapsed_str = format_duration(elapsed)
-                progress.update(task, conv=conv, p1=p1, p2=p2, elapsed=elapsed_str)
-                progress.refresh()
-                time.sleep(0.001)  # Force thread context switch for Rich display
-
-            _build_indices_with_progress(ref_file, index_base_dir, on_update)
-            elapsed = time.time() - start_time
-            progress.update(
-                task,
-                description="✓ Indices ready",
-                conv="Done",
-                p1=100.0,
-                p2=100.0,
-                elapsed=format_duration(elapsed),
-            )
-            progress.refresh()
-            return
-        else:
-            if orig_ready and mk_index_ready:
+            
+            # Build indices for all references
+            for i, ref_file in enumerate(ref_files):
+                ref_suffix = ref_indices[i][2]
+                ref_name = f"Reference {i+1}" if len(ref_files) > 1 else "Reference"
                 task = progress.add_task(
-                    "✓ Indices ready",
-                    total=None,
-                    conv="Done",
-                    p1=100.0,
-                    p2=100.0,
-                    elapsed="0.00s",
-                )
-                idx0_file, idx_mk_file = orig_fa_path, mk_prefix_path
-            else:
-                task = progress.add_task(
-                    "Preparing indices...",
+                    f"Preparing {ref_name}...",
                     total=None,
                     conv="Starting",
                     p1=0.0,
@@ -875,32 +910,100 @@ def map_file(
                     elapsed_str = format_duration(elapsed)
                     progress.update(task, conv=conv, p1=p1, p2=p2, elapsed=elapsed_str)
                     progress.refresh()
-                    time.sleep(0.001)  # Force thread context switch for Rich display
+                    time.sleep(0.001)
 
-                idx0_file, idx_mk_file = _build_indices_with_progress(
-                    ref_file, index_base_dir, on_update
-                )
+                _build_indices_with_progress(ref_file, index_base_dir, on_update, ref_suffix=ref_suffix)
                 elapsed = time.time() - start_time
                 progress.update(
                     task,
-                    description="✓ Indices ready",
+                    description=f"✓ {ref_name} ready",
                     conv="Done",
                     p1=100.0,
                     p2=100.0,
                     elapsed=format_duration(elapsed),
                 )
                 progress.refresh()
+            return
+        else:
+            # Check if indices exist and build if needed
+            all_indices_ready = True
+            for i in range(len(ref_indices)):
+                ref_suffix = ref_indices[i][2]
+                orig_fa = os.path.join(index_base_dir, f"ref{ref_suffix}.orig.fa")
+                mk_prefix = os.path.join(index_base_dir, f"ref{ref_suffix}.mk")
+                mk_ready = all(os.path.exists(mk_prefix + ext) for ext in [".amb", ".ann", ".bwt", ".pac", ".sa"])
+                orig_ready = os.path.exists(orig_fa)
+                
+                if orig_ready and mk_ready:
+                    ref_indices[i] = (orig_fa, mk_prefix, ref_suffix)
+                else:
+                    all_indices_ready = False
+                    break
+            
+            if all_indices_ready:
+                task = progress.add_task(
+                    "✓ Indices ready",
+                    total=None,
+                    conv="Done",
+                    p1=100.0,
+                    p2=100.0,
+                    elapsed="0.00s",
+                )
+            else:
+                # Build missing indices
+                for i, ref_file in enumerate(ref_files):
+                    ref_suffix = ref_indices[i][2]
+                    ref_name = f"Reference {i+1}" if len(ref_files) > 1 else "Reference"
+                    orig_fa = os.path.join(index_base_dir, f"ref{ref_suffix}.orig.fa")
+                    mk_prefix = os.path.join(index_base_dir, f"ref{ref_suffix}.mk")
+                    mk_ready = all(os.path.exists(mk_prefix + ext) for ext in [".amb", ".ann", ".bwt", ".pac", ".sa"])
+                    orig_ready = os.path.exists(orig_fa)
+                    
+                    if orig_ready and mk_ready:
+                        ref_indices[i] = (orig_fa, mk_prefix, ref_suffix)
+                        continue
+                    
+                    task = progress.add_task(
+                        f"Preparing {ref_name}...",
+                        total=None,
+                        conv="Starting",
+                        p1=0.0,
+                        p2=0.0,
+                        elapsed="0.00s",
+                    )
+                    start_time = time.time()
+
+                    def on_update(conv, p1, p2):
+                        elapsed = time.time() - start_time
+                        elapsed_str = format_duration(elapsed)
+                        progress.update(task, conv=conv, p1=p1, p2=p2, elapsed=elapsed_str)
+                        progress.refresh()
+                        time.sleep(0.001)
+
+                    idx0, idx_mk = _build_indices_with_progress(ref_file, index_base_dir, on_update, ref_suffix=ref_suffix)
+                    ref_indices[i] = (idx0, idx_mk, ref_suffix)
+                    elapsed = time.time() - start_time
+                    progress.update(
+                        task,
+                        description=f"✓ {ref_name} ready",
+                        conv="Done",
+                        p1=100.0,
+                        p2=100.0,
+                        elapsed=format_duration(elapsed),
+                    )
+                    progress.refresh()
 
     if index_only:
         return
 
-    # BAM header
+    # BAM header: include all references (deduplicate by sequence name)
     header = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": []}
-    fa_for_header = (
-        ref_file if ref_file else os.path.join(index_base_dir, "ref.orig.fa")
-    )
-    for rec in fastx_read(fa_for_header):
-        header["SQ"].append({"SN": rec.name, "LN": rec.length})
+    seen_seqs = set()
+    for orig_fa, _, _ in ref_indices:
+        for rec in fastx_read(orig_fa):
+            if rec.name not in seen_seqs:
+                header["SQ"].append({"SN": rec.name, "LN": rec.length})
+                seen_seqs.add(rec.name)
 
     # Streaming batches in parallel (no file splitting). threads = workers
     paired = r2_file is not None
@@ -1020,7 +1123,7 @@ def map_file(
                 max_workers=max(1, threads),
                 mp_context=mp.get_context("spawn"),
                 initializer=_init_worker,
-                initargs=(idx0_file, idx_mk_file, orientation_filter, forward_library),
+                initargs=(ref_indices, orientation_filter, forward_library),
             ) as ex:
                 futures = []
                 for rec in it1:
@@ -1065,7 +1168,7 @@ def map_file(
                 max_workers=max(1, threads),
                 mp_context=mp.get_context("spawn"),
                 initializer=_init_worker,
-                initargs=(idx0_file, idx_mk_file, orientation_filter, forward_library),
+                initargs=(ref_indices, orientation_filter, forward_library),
             ) as ex:
                 futures = []
                 for rec1, rec2 in it_pairs:
