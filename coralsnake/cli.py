@@ -224,7 +224,7 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     "-t",
     type=int,
     default=8,
-    help="Number of threads for minimap2 indexing (default: 8). Note: Currently only used for index loading. Parallel read mapping is planned for future versions.",
+    help="Number of worker processes for parallel mapping (default: 8). For multi-reference mapping with large references, consider reducing to 2-4 to avoid memory issues.",
 )
 @click.option(
     "--min-alignment-length",
