@@ -861,13 +861,13 @@ def map_file(
         else:
             ref_indices = [(None, None, str(i)) for i in range(1, len(ref_files) + 1)]
     
-    # Build indices for all references
+    # Build indices for all references with unified progress bar
     with Progress(
         SpinnerColumn(style="cyan"),
         TextColumn("[bold green]Index[/bold green]"),
         TextColumn("{task.description}"),
         TextColumn(
-            "| [yellow]{task.fields[conv]}[/yellow] | ORIG: [cyan]{task.fields[p1]:>5.1f}%[/cyan] | MK: [cyan]{task.fields[p2]:>5.1f}%[/cyan] ([magenta]{task.fields[elapsed]}[/magenta])"
+            "| [yellow]{task.fields[status]}[/yellow] | [cyan]{task.fields[progress]}[/cyan] ([magenta]{task.fields[elapsed]}[/magenta])"
         ),
         transient=False,
     ) as progress:
@@ -875,42 +875,51 @@ def map_file(
             if not ref_files:
                 raise RuntimeError("--index-only requires --ref-file to be provided")
             
-            # Build indices for all references
-            for i, ref_file in enumerate(ref_files):
-                ref_suffix = ref_indices[i][2]
-                ref_name = f"Reference {i+1}" if len(ref_files) > 1 else "Reference"
-                task = progress.add_task(
-                    f"Preparing {ref_name}...",
-                    total=None,
-                    conv="Starting",
-                    p1=0.0,
-                    p2=0.0,
-                    elapsed="0.00s",
-                )
-                start_time = time.time()
-
+            # Unified progress for all references
+            total_refs = len(ref_files)
+            task = progress.add_task(
+                f"Building {total_refs} reference{'s' if total_refs > 1 else ''}...",
+                total=None,
+                status="Starting",
+                progress="0%",
+                elapsed="0.00s",
+            )
+            global_start = time.time()
+            
+            for i, ref_file in enumerate(ref_files, 1):
+                ref_suffix = ref_indices[i-1][2]
+                
                 def on_update(conv, p1, p2):
-                    elapsed = time.time() - start_time
-                    elapsed_str = format_duration(elapsed)
-                    progress.update(task, conv=conv, p1=p1, p2=p2, elapsed=elapsed_str)
+                    elapsed = time.time() - global_start
+                    # Calculate overall progress
+                    prev_refs_progress = (i - 1) * 100
+                    current_ref_progress = (p1 + p2) / 2
+                    overall_progress = (prev_refs_progress + current_ref_progress) / total_refs
+                    progress.update(
+                        task,
+                        status=f"Ref {i}/{total_refs}: {conv}",
+                        progress=f"{overall_progress:.1f}%",
+                        elapsed=format_duration(elapsed),
+                    )
                     progress.refresh()
                     time.sleep(0.001)
-
+                
                 _build_indices_with_progress(ref_file, index_base_dir, on_update, ref_suffix=ref_suffix)
-                elapsed = time.time() - start_time
-                progress.update(
-                    task,
-                    description=f"✓ {ref_name} ready",
-                    conv="Done",
-                    p1=100.0,
-                    p2=100.0,
-                    elapsed=format_duration(elapsed),
-                )
-                progress.refresh()
+            
+            elapsed = time.time() - global_start
+            progress.update(
+                task,
+                description=f"✓ {total_refs} reference{'s' if total_refs > 1 else ''} ready",
+                status="Done",
+                progress="100%",
+                elapsed=format_duration(elapsed),
+            )
             return
         else:
             # Check if indices exist and build if needed
             all_indices_ready = True
+            refs_to_build = []
+            
             for i in range(len(ref_indices)):
                 ref_suffix = ref_indices[i][2]
                 orig_fa = os.path.join(index_base_dir, f"ref{ref_suffix}.orig.fa")
@@ -922,60 +931,55 @@ def map_file(
                     ref_indices[i] = (orig_fa, mk_prefix, ref_suffix)
                 else:
                     all_indices_ready = False
-                    break
+                    refs_to_build.append((i, ref_files[i] if i < len(ref_files) else None, ref_suffix))
             
             if all_indices_ready:
                 task = progress.add_task(
                     "✓ Indices ready",
                     total=None,
-                    conv="Done",
-                    p1=100.0,
-                    p2=100.0,
+                    status="Done",
+                    progress="100%",
                     elapsed="0.00s",
                 )
             else:
-                # Build missing indices
-                for i, ref_file in enumerate(ref_files):
-                    ref_suffix = ref_indices[i][2]
-                    ref_name = f"Reference {i+1}" if len(ref_files) > 1 else "Reference"
-                    orig_fa = os.path.join(index_base_dir, f"ref{ref_suffix}.orig.fa")
-                    mk_prefix = os.path.join(index_base_dir, f"ref{ref_suffix}.mk")
-                    mk_ready = all(os.path.exists(mk_prefix + ext) for ext in [".amb", ".ann", ".bwt", ".pac", ".sa"])
-                    orig_ready = os.path.exists(orig_fa)
-                    
-                    if orig_ready and mk_ready:
-                        ref_indices[i] = (orig_fa, mk_prefix, ref_suffix)
-                        continue
-                    
-                    task = progress.add_task(
-                        f"Preparing {ref_name}...",
-                        total=None,
-                        conv="Starting",
-                        p1=0.0,
-                        p2=0.0,
-                        elapsed="0.00s",
-                    )
-                    start_time = time.time()
-
+                # Unified progress for building missing indices
+                total_refs = len(refs_to_build)
+                task = progress.add_task(
+                    f"Building {total_refs} reference{'s' if total_refs > 1 else ''}...",
+                    total=None,
+                    status="Starting",
+                    progress="0%",
+                    elapsed="0.00s",
+                )
+                global_start = time.time()
+                
+                for build_idx, (i, ref_file, ref_suffix) in enumerate(refs_to_build, 1):
                     def on_update(conv, p1, p2):
-                        elapsed = time.time() - start_time
-                        elapsed_str = format_duration(elapsed)
-                        progress.update(task, conv=conv, p1=p1, p2=p2, elapsed=elapsed_str)
+                        elapsed = time.time() - global_start
+                        # Calculate overall progress
+                        prev_refs_progress = (build_idx - 1) * 100
+                        current_ref_progress = (p1 + p2) / 2
+                        overall_progress = (prev_refs_progress + current_ref_progress) / total_refs
+                        progress.update(
+                            task,
+                            status=f"Ref {build_idx}/{total_refs}: {conv}",
+                            progress=f"{overall_progress:.1f}%",
+                            elapsed=format_duration(elapsed),
+                        )
                         progress.refresh()
                         time.sleep(0.001)
-
+                    
                     idx0, idx_mk = _build_indices_with_progress(ref_file, index_base_dir, on_update, ref_suffix=ref_suffix)
                     ref_indices[i] = (idx0, idx_mk, ref_suffix)
-                    elapsed = time.time() - start_time
-                    progress.update(
-                        task,
-                        description=f"✓ {ref_name} ready",
-                        conv="Done",
-                        p1=100.0,
-                        p2=100.0,
-                        elapsed=format_duration(elapsed),
-                    )
-                    progress.refresh()
+                
+                elapsed = time.time() - global_start
+                progress.update(
+                    task,
+                    description=f"✓ {total_refs} reference{'s' if total_refs > 1 else ''} ready",
+                    status="Done",
+                    progress="100%",
+                    elapsed=format_duration(elapsed),
+                )
 
     if index_only:
         return
