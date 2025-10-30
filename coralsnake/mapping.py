@@ -37,12 +37,19 @@ def _build_indices_with_progress(
     os.makedirs(index_base_dir, exist_ok=True)
     # ORIG
     orig_fa = os.path.join(index_base_dir, "ref.orig.fa")
-    if os.path.abspath(ref_file) != os.path.abspath(orig_fa):
-        shutil.copyfile(ref_file, orig_fa)
     orig_prefix = os.path.splitext(orig_fa)[0]
     # MK (A→G, C→T) - single converted reference for both orientations
     mk_fa = os.path.join(index_base_dir, "ref.mk.fa")
     mk_prefix = os.path.splitext(mk_fa)[0]
+    
+    # If ref_file is None, indices should already exist - just return paths
+    if ref_file is None:
+        on_update("Done", 100.0, 100.0)
+        return orig_fa, mk_prefix
+    
+    # Copy reference if needed
+    if os.path.abspath(ref_file) != os.path.abspath(orig_fa):
+        shutil.copyfile(ref_file, orig_fa)
 
     # Start ORIG index in parallel with conversion (they're independent)
     indexer1 = BwaIndexer(verbose=2, capture_progress=True)

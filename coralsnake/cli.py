@@ -331,11 +331,12 @@ def map(
                 raise click.Abort()
             import os
 
-            idx0_file = os.path.join(index_dir, "ref.orig.mmi")
-            idx_mk_file = os.path.join(index_dir, "ref.mk.mmi")
+            # Check for BWA indices (.bwt is a good indicator)
+            idx0_file = os.path.join(index_dir, "ref.orig.bwt")
+            idx_mk_file = os.path.join(index_dir, "ref.mk.bwt")
             if not (os.path.exists(idx0_file) and os.path.exists(idx_mk_file)):
                 click.echo(
-                    "❌ Error: --ref-file is required because indices not found in --index-dir",
+                    "❌ Error: --ref-file is required because BWA indices not found in --index-dir",
                     err=True,
                 )
                 raise click.Abort()
