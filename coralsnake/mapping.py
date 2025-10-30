@@ -870,20 +870,28 @@ def map_file(
                             # Also write the unmapped mate
                             name1, seq1, qua1, name2, seq2, qua2 = read_info
                             # Determine which read is mapped based on flag
-                            if map1[1] & 0x40:  # First in pair bit
+                            if map1[1] & 0x40:  # First in pair bit (0x40)
                                 # Read1 is mapped, write unmapped read2
-                                # Flag 133 = paired, unmapped, mate mapped, second in pair
+                                # Base flag: 128 (read2) + 4 (unmapped) + 1 (paired) = 133
+                                # Add 32 (mate reverse) if read1 is reverse
+                                flag2 = 133
+                                if map1[1] & 0x10:  # Mapped mate is reverse
+                                    flag2 |= 0x20  # Set mate reverse bit
                                 a2 = create_unmapped_record(
-                                    bam_out.header, name2, seq2, qua2, 133
+                                    bam_out.header, name2, seq2, qua2, flag2
                                 )
                                 a2.next_reference_name = map1[2]  # Mate's contig
                                 a2.next_reference_start = map1[3] - 1  # Mate's position
                                 bam_out.write(a2)
-                            else:  # Second in pair
+                            else:  # Second in pair (0x80)
                                 # Read2 is mapped, write unmapped read1
-                                # Flag 69 = paired, unmapped, mate mapped, first in pair
+                                # Base flag: 64 (read1) + 4 (unmapped) + 1 (paired) = 69
+                                # Add 32 (mate reverse) if read2 is reverse
+                                flag1 = 69
+                                if map1[1] & 0x10:  # Mapped mate is reverse
+                                    flag1 |= 0x20  # Set mate reverse bit
                                 a1_unmapped = create_unmapped_record(
-                                    bam_out.header, name1, seq1, qua1, 69
+                                    bam_out.header, name1, seq1, qua1, flag1
                                 )
                                 a1_unmapped.next_reference_name = map1[2]  # Mate's contig
                                 a1_unmapped.next_reference_start = map1[3] - 1  # Mate's position
