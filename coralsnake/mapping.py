@@ -14,7 +14,8 @@ import random
 import shutil
 import tempfile
 import time
-from concurrent.futures import ProcessPoolExecutor, BrokenProcessPool, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures.process import BrokenProcessPool
 from contextlib import ExitStack
 
 import pysam
