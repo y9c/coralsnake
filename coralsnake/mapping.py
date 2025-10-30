@@ -252,6 +252,10 @@ def run_mapping_se(
     min_mapping_ratio=0.5,
 ):
     """Map one single-end read and return scored alignments."""
+    # Skip very short references to prevent crashes
+    if not _check_reference_length(_ALIGNERS_MK[0]):
+        return []
+    
     mapped = []
     # Filter orientations if specified
     orientations = [1, 2] if _ORIENTATION_FILTER is None else [_ORIENTATION_FILTER]
@@ -334,6 +338,18 @@ def run_mapping_se(
     return mapped
 
 
+def _check_reference_length(aligner, min_length=100):
+    """Check if any contig in the reference is >= min_length.
+    
+    Very short references (all contigs < 100bp) can cause crashes in mate rescue.
+    """
+    for i in range(aligner.index.bns.n_seqs):
+        ctg_len = aligner.index.bns.anns[i].len
+        if ctg_len >= min_length:
+            return True
+    return False
+
+
 def run_mapping_pe(
     name,
     seq1,
@@ -355,6 +371,9 @@ def run_mapping_pe(
     all_results_by_ref = []  # List of (ref_idx, mapped_results)
     
     for ref_idx in range(len(_ALIGNERS_MK)):
+        # Skip very short references to prevent crashes in mate rescue
+        if not _check_reference_length(_ALIGNERS_MK[ref_idx]):
+            continue
         mapped = []
         # Filter orientations if specified
         orientations = [1, 2] if _ORIENTATION_FILTER is None else [_ORIENTATION_FILTER]
