@@ -405,27 +405,63 @@ def run_mapping_pe(
             min_mapping_ratio,
         )
         
-        # Try to find properly paired hits
+        # Try to find properly paired hits (same contig)
         paired_hits = list(find_properly_paired_hits(filtered_hits, fwd=True))
+        
+        # If no same-contig pairs found, try cross-contig rescue
+        if not paired_hits:
+            # Separate hits by read number
+            read1_hits = [h for h in filtered_hits if hasattr(h, 'read_num') and h.read_num == 1]
+            read2_hits = [h for h in filtered_hits if hasattr(h, 'read_num') and h.read_num == 2]
+            
+            if read1_hits and read2_hits:
+                # Try rescue: use best hits from each read as anchors
+                # For each Read1 hit, check if any Read2 hit could pair with it (and vice versa)
+                # This allows cross-contig pairing which mate rescue might have found
+                for h1 in read1_hits[:3]:  # Try top 3 Read1 hits as anchors
+                    for h2 in read2_hits[:3]:  # Try top 3 Read2 hits as anchors
+                        # If reads are on different contigs, consider them as potential rescued pairs
+                        # This handles cases where mem_matesw found a hit on a different contig
+                        if h1.ctg != h2.ctg:
+                            # Cross-contig pair - likely from mate rescue
+                            paired_hits.append((h1, h2))
         
         for hit1, hit2 in paired_hits:
             tlen = max(hit1.r_en, hit2.r_en) - min(hit1.r_st, hit2.r_st)
+            # Fetch original reference for scoring
             ref1 = _ALIGNER_ORIG.seq(hit1.ctg, hit1.r_st, hit1.r_en)
             ref2 = _ALIGNER_ORIG.seq(hit2.ctg, hit2.r_st, hit2.r_en)
+            
             read1_reverse = hit1.strand == -1
             read2_reverse = hit2.strand == -1
+            
+            # For scoring, we need to account for the fact that Read2 was RC'd before conversion
+            # Since we did: align(MK(seq1), MK(RC(seq2))) to ref_mk
+            # And hits map to forward strand, we need to use RC(seq2) for scoring
             if read1_reverse:
                 s1 = seqops.reverse_complement(seq1)
                 q1 = qua1[::-1]
             else:
                 s1 = seq1
                 q1 = qua1
-            if read2_reverse:
-                s2 = seqops.reverse_complement(seq2)
-                q2 = qua2[::-1]
-            else:
-                s2 = seq2
-                q2 = qua2
+                
+            # CRITICAL: Read2 was RC'd before alignment for orientation 1
+            # So we must use RC(seq2) for scoring, regardless of hit2.strand
+            if orientation == 1:
+                if forward_library:
+                    # seq2 was RC'd before conversion, so use RC for scoring
+                    s2 = seqops.reverse_complement(seq2)
+                    q2 = qua2[::-1]
+                else:
+                    s2 = seq2
+                    q2 = qua2
+            else:  # orientation == 2
+                if forward_library:
+                    s2 = seq2
+                    q2 = qua2
+                else:
+                    s2 = seqops.reverse_complement(seq2)
+                    q2 = qua2[::-1]
 
             if read1_reverse and not read2_reverse:
                 flag1, flag2 = 83, 163
