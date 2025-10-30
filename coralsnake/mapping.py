@@ -439,12 +439,37 @@ def run_mapping_pe(
             ref1 = _ALIGNER_ORIG.seq(hit1.ctg, hit1.r_st, hit1.r_en)
             ref2 = _ALIGNER_ORIG.seq(hit2.ctg, hit2.r_st, hit2.r_en)
             
-            read1_reverse = hit1.strand == -1
-            read2_reverse = hit2.strand == -1
+            # Determine biological strand orientation
+            # hit.strand is relative to MK reference, but we need biological orientation
+            # accounting for pre-conversion reverse complement
             
-            # For scoring, we need to account for the fact that Read2 was RC'd before conversion
-            # Since we did: align(MK(seq1), MK(RC(seq2))) to ref_mk
-            # And hits map to forward strand, we need to use RC(seq2) for scoring
+            # Read1 biological orientation
+            if orientation == 1:
+                # Orientation 1: Read1 was not RC'd before MK conversion
+                read1_reverse = hit1.strand == -1
+            else:
+                # Orientation 2: Read1 was RC'd before MK conversion
+                # So if it maps forward to MK ref, it's actually reverse biologically
+                read1_reverse = hit1.strand == 1
+            
+            # Read2 biological orientation
+            if orientation == 1:
+                if forward_library:
+                    # Read2 was RC'd before MK conversion
+                    # So if it maps forward to MK ref, it's actually reverse biologically
+                    read2_reverse = hit2.strand == 1
+                else:
+                    # Read2 was not RC'd
+                    read2_reverse = hit2.strand == -1
+            else:
+                if forward_library:
+                    # Read2 was not RC'd
+                    read2_reverse = hit2.strand == -1
+                else:
+                    # Read2 was RC'd
+                    read2_reverse = hit2.strand == 1
+            
+            # For scoring, use the sequences as they were presented to BWA
             if read1_reverse:
                 s1 = seqops.reverse_complement(seq1)
                 q1 = qua1[::-1]
@@ -452,8 +477,7 @@ def run_mapping_pe(
                 s1 = seq1
                 q1 = qua1
                 
-            # CRITICAL: Read2 was RC'd before alignment for orientation 1
-            # So we must use RC(seq2) for scoring, regardless of hit2.strand
+            # For Read2, use the pre-RC'd version if it was RC'd before alignment
             if orientation == 1:
                 if forward_library:
                     # seq2 was RC'd before conversion, so use RC for scoring
@@ -470,6 +494,7 @@ def run_mapping_pe(
                     s2 = seqops.reverse_complement(seq2)
                     q2 = qua2[::-1]
 
+            # Set SAM flags based on biological strand orientation
             if read1_reverse and not read2_reverse:
                 flag1, flag2 = 83, 163
             elif not read1_reverse and read2_reverse:
