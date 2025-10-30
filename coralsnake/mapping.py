@@ -129,8 +129,6 @@ def _map_batch_worker(
             base2 = name2.split()[0].rstrip("/1").rstrip("/2")
             if base1 != base2:
                 raise ValueError(f"r1 and r2 not in the same order: {name1} vs {name2}")
-            # Log current read for crash debugging
-            print(f"Processing: {name1}", flush=True)
             mapping_result = run_mapping_pe(
                 name1, seq1, seq2, qua1, qua2, _FORWARD_LIBRARY,
                 max_mismatches, min_alignment_length, min_mapping_ratio,
