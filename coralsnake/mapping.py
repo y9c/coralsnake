@@ -14,7 +14,7 @@ import random
 import shutil
 import tempfile
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, BrokenProcessPool, as_completed
 from contextlib import ExitStack
 
 import pysam
@@ -114,26 +114,39 @@ def _map_batch_worker(
     min_alignment_length,
     min_mapping_ratio,
 ):
-    """Map a batch of reads; return (read_info, mapping_result) tuples."""
+    """Map a batch of reads; return (read_info, mapping_result) tuples.
+    
+    Handles problematic reads by catching exceptions and returning empty results.
+    """
     results = []
     if not paired:
         for name1, seq1, qua1 in batch:
-            mapping_result = run_mapping_se(
-                name1, seq1, qua1, _FORWARD_LIBRARY,
-                max_mismatches, min_alignment_length, min_mapping_ratio,
-            )
-            results.append(((name1, seq1, qua1), mapping_result))
+            try:
+                mapping_result = run_mapping_se(
+                    name1, seq1, qua1, _FORWARD_LIBRARY,
+                    max_mismatches, min_alignment_length, min_mapping_ratio,
+                )
+                results.append(((name1, seq1, qua1), mapping_result))
+            except Exception as e:
+                # Skip problematic read and log error
+                print(f"WARNING: Skipping read {name1} due to error: {e}", flush=True)
+                results.append(((name1, seq1, qua1), []))
     else:
         for (name1, seq1, qua1), (name2, seq2, qua2) in batch:
-            base1 = name1.split()[0].rstrip("/1").rstrip("/2")
-            base2 = name2.split()[0].rstrip("/1").rstrip("/2")
-            if base1 != base2:
-                raise ValueError(f"r1 and r2 not in the same order: {name1} vs {name2}")
-            mapping_result = run_mapping_pe(
-                name1, seq1, seq2, qua1, qua2, _FORWARD_LIBRARY,
-                max_mismatches, min_alignment_length, min_mapping_ratio,
-            )
-            results.append(((name1, seq1, qua1, name2, seq2, qua2), mapping_result))
+            try:
+                base1 = name1.split()[0].rstrip("/1").rstrip("/2")
+                base2 = name2.split()[0].rstrip("/1").rstrip("/2")
+                if base1 != base2:
+                    raise ValueError(f"r1 and r2 not in the same order: {name1} vs {name2}")
+                mapping_result = run_mapping_pe(
+                    name1, seq1, seq2, qua1, qua2, _FORWARD_LIBRARY,
+                    max_mismatches, min_alignment_length, min_mapping_ratio,
+                )
+                results.append(((name1, seq1, qua1, name2, seq2, qua2), mapping_result))
+            except Exception as e:
+                # Skip problematic read pair and log error
+                print(f"WARNING: Skipping read pair {name1} due to error: {e}", flush=True)
+                results.append(((name1, seq1, qua1, name2, seq2, qua2), []))
     return results
 
 
@@ -1148,7 +1161,10 @@ def map_file(
                     # Drain completed futures to avoid initial stall
                     for fut in futures[:]:
                         if fut.done():
-                            write_mapped(fut.result())
+                            try:
+                                write_mapped(fut.result())
+                            except BrokenProcessPool:
+                                print(f"\nWARNING: Worker process crashed. Skipping batch.", flush=True)
                             futures.remove(fut)
                 if batch:
                     futures.append(
@@ -1162,7 +1178,10 @@ def map_file(
                         )
                     )
                 for fut in as_completed(futures):
-                    write_mapped(fut.result())
+                    try:
+                        write_mapped(fut.result())
+                    except BrokenProcessPool:
+                        print(f"\nWARNING: Worker process crashed. Skipping batch.", flush=True)
         else:
             it_pairs = (
                 ((r1.name, r1.sequence, r1.quality), (r2.name, r2.sequence, r2.quality))
@@ -1199,7 +1218,10 @@ def map_file(
                     # Drain completed futures to avoid initial stall
                     for fut in futures[:]:
                         if fut.done():
-                            write_mapped(fut.result())
+                            try:
+                                write_mapped(fut.result())
+                            except BrokenProcessPool:
+                                print(f"\nWARNING: Worker process crashed. Skipping batch.", flush=True)
                             futures.remove(fut)
                 if batch:
                     futures.append(
@@ -1213,4 +1235,7 @@ def map_file(
                         )
                     )
                 for fut in as_completed(futures):
-                    write_mapped(fut.result())
+                    try:
+                        write_mapped(fut.result())
+                    except BrokenProcessPool:
+                        print(f"\nWARNING: Worker process crashed. Skipping batch.", flush=True)
