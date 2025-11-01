@@ -18,28 +18,31 @@ class OptionEatAll(click.Option):
         super(OptionEatAll, self).__init__(*args, **kwargs)
         self._previous_parser_process = None
         self._eat_all_parser = None
+        # Ensure multiple is set to handle multiple values properly
+        self.multiple = True
 
     def add_to_parser(self, parser, ctx):
         def parser_process(value, state):
             # method to hook to the parser.process
             done = False
-            value = [value]
+            values = [value]
             if self.save_other_options:
                 # grab everything up to the next option
                 while state.rargs and not done:
                     for prefix in self._eat_all_parser.prefixes:
                         if state.rargs[0].startswith(prefix):
                             done = True
+                            break
                     if not done:
-                        value.append(state.rargs.pop(0))
+                        values.append(state.rargs.pop(0))
             else:
                 # grab everything remaining
-                value += state.rargs
+                values += state.rargs
                 state.rargs[:] = []
-            value = tuple(value)
 
-            # call the actual process
-            self._previous_parser_process(value, state)
+            # Process each value individually through Click's mechanism
+            for v in values:
+                self._previous_parser_process(v, state)
 
         retval = super(OptionEatAll, self).add_to_parser(parser, ctx)
         for name in self.opts:
