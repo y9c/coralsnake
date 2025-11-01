@@ -269,91 +269,107 @@ def run_mapping_se(
     min_alignment_length=20,
     min_mapping_ratio=0.5,
 ):
-    """Map one single-end read and return (ref_idx, scored alignments)."""
-    # Skip very short references to prevent crashes
-    if not _check_reference_length(_ALIGNERS_MK[0]):
-        return (0, [])
+    """Map one single-end read and return (ref_idx, scored alignments).
 
-    mapped = []
-    # Filter orientations if specified
-    orientations = [1, 2] if _ORIENTATION_FILTER is None else [_ORIENTATION_FILTER]
-    for orientation in orientations:
-        # Build converted read
-        if orientation == 1:
-            seq1_conv = mk_conversion(seq1) if forward_library else km_conversion(seq1)
-        else:
-            seq1_conv = km_conversion(seq1) if forward_library else mk_conversion(seq1)
+    Tries each reference in priority order (index 0 = highest priority).
+    Returns (ref_idx, mappings) from the first reference that has mappings.
+    """
+    # Try each reference in priority order
+    for ref_idx in range(len(_ALIGNERS_MK)):
+        # Skip very short references to prevent crashes
+        if not _check_reference_length(_ALIGNERS_MK[ref_idx]):
+            continue
 
-        # Iterate hits
-        # Align converted read to MK reference using BWA (use first reference for SE)
-        hits = tuple(_ALIGNERS_MK[0].align(seq1_conv))
-        for h in hits:
-            h.read_num = 1
-        for hit in filter_hits(
-            hits,
-            seq1,
-            None,
-            min_alignment_length,
-            min_mapping_ratio,
-        ):
-            ref = _ALIGNERS_ORIG[0].seq(hit.ctg, hit.r_st, hit.r_en)
-            read_reverse = hit.strand == -1
-            if read_reverse:
-                flag = 16
-                s = seqops.reverse_complement(seq1)
-                q = qua1[::-1]
+        mapped = []
+        # Filter orientations if specified
+        orientations = [1, 2] if _ORIENTATION_FILTER is None else [_ORIENTATION_FILTER]
+        for orientation in orientations:
+            # Build converted read
+            if orientation == 1:
+                seq1_conv = (
+                    mk_conversion(seq1) if forward_library else km_conversion(seq1)
+                )
             else:
-                flag = 0
-                s = seq1
-                q = qua1
+                seq1_conv = (
+                    km_conversion(seq1) if forward_library else mk_conversion(seq1)
+                )
 
-            cigar_str = hit.cigar_str
-            cigar = hit.cigar
-            if hit.q_st > 0:
-                cigar_str = f"{hit.q_st}S" + cigar_str
-                cigar = [[hit.q_st, 4]] + cigar
-            if hit.q_en < len(s):
-                cigar_str = cigar_str + f"{len(s) - hit.q_en}S"
-                cigar = cigar + [[len(s) - hit.q_en, 4]]
+            # Iterate hits - align to current reference
+            hits = tuple(_ALIGNERS_MK[ref_idx].align(seq1_conv))
+            for h in hits:
+                h.read_num = 1
+            for hit in filter_hits(
+                hits,
+                seq1,
+                None,
+                min_alignment_length,
+                min_mapping_ratio,
+            ):
+                ref = _ALIGNERS_ORIG[ref_idx].seq(hit.ctg, hit.r_st, hit.r_en)
+                read_reverse = hit.strand == -1
+                if read_reverse:
+                    flag = 16
+                    s = seqops.reverse_complement(seq1)
+                    q = qua1[::-1]
+                else:
+                    flag = 0
+                    s = seq1
+                    q = qua1
 
-            is_orientation1 = orientation == 1
-            score, _wrong_conv, bad_mm = calculate_directional_score(
-                cigar, s, ref, is_orientation1
-            )
-            if bad_mm > max_mismatches // 2:
-                continue
+                cigar_str = hit.cigar_str
+                cigar = hit.cigar
+                if hit.q_st > 0:
+                    cigar_str = f"{hit.q_st}S" + cigar_str
+                    cigar = [[hit.q_st, 4]] + cigar
+                if hit.q_en < len(s):
+                    cigar_str = cigar_str + f"{len(s) - hit.q_en}S"
+                    cigar = cigar + [[len(s) - hit.q_en, 4]]
 
-            md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(cigar, s, ref, is_orientation1)
-            mapq = min(60, score)
-            tags = [
-                ("MD", md),
-                ("ST", orientation),
-                ("AS", score),
-                ("Yf", yf),
-                ("Zf", zf),
-                ("Yc", yc),
-                ("Zc", zc),
-                ("NS", ns),
-                ("NC", nc),
-            ]
-            map1 = [
-                name,
-                flag,
-                hit.ctg,
-                hit.r_st + 1,
-                mapq,
-                cigar_str,
-                "*",
-                0,
-                0,
-                s,
-                q,
-            ] + tags
-            mapped.append([score, map1])
+                is_orientation1 = orientation == 1
+                score, _wrong_conv, bad_mm = calculate_directional_score(
+                    cigar, s, ref, is_orientation1
+                )
+                if bad_mm > max_mismatches // 2:
+                    continue
 
-    random.shuffle(mapped)
-    mapped = sorted(mapped, key=lambda x: x[0], reverse=True)
-    return (0, mapped)  # For SE, always return ref_idx 0
+                md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
+                    cigar, s, ref, is_orientation1
+                )
+                mapq = min(60, score)
+                tags = [
+                    ("MD", md),
+                    ("ST", orientation),
+                    ("AS", score),
+                    ("Yf", yf),
+                    ("Zf", zf),
+                    ("Yc", yc),
+                    ("Zc", zc),
+                    ("NS", ns),
+                    ("NC", nc),
+                ]
+                map1 = [
+                    name,
+                    flag,
+                    hit.ctg,
+                    hit.r_st + 1,
+                    mapq,
+                    cigar_str,
+                    "*",
+                    0,
+                    0,
+                    s,
+                    q,
+                ] + tags
+                mapped.append([score, map1])
+
+        # If we found mappings for this reference, return immediately
+        if mapped:
+            random.shuffle(mapped)
+            mapped = sorted(mapped, key=lambda x: x[0], reverse=True)
+            return (ref_idx, mapped)
+
+    # No mappings found in any reference
+    return (-1, [])  # Return -1 to indicate unmapped
 
 
 def _check_reference_length(aligner, min_length=100):
@@ -790,7 +806,7 @@ def run_mapping_pe(
             # Check if we found properly-paired alignments (3-element results: [score, map1, map2])
             has_proper_pair = any(len(result) == 3 for result in mapped)
             if has_proper_pair:
-                # Found proper pairs on this reference - return immediately (don't try lower-priority refs)
+                # Found proper pairs - return immediately with this reference's results
                 return (ref_idx, mapped)
 
             # No proper pairs, but has single-read mappings - store for fallback
@@ -800,7 +816,7 @@ def run_mapping_pe(
     if all_results_by_ref:
         return all_results_by_ref[0]  # Returns (ref_idx, mapped_results)
 
-    return (0, [])  # No mappings at all, return empty with ref_idx 0
+    return (-1, [])  # No mappings at all, return -1 to indicate unmapped
 
 
 ## (removed) run_mapping: worker dispatches directly to SE/PE
@@ -1132,11 +1148,15 @@ def map_file(
 
                 # Determine which BAM file to write to
                 # If single output, use bam_writers[0]
-                # If multiple outputs, use bam_writers[ref_idx]
+                # If multiple outputs and mapped (ref_idx >= 0), use bam_writers[ref_idx]
+                # If unmapped (ref_idx == -1), use last BAM file
                 if len(bam_writers) == 1:
                     bam_out = bam_writers[0]
-                else:
+                elif ref_idx >= 0:
                     bam_out = bam_writers[ref_idx]
+                else:
+                    # Unmapped read - write to last file
+                    bam_out = bam_writers[-1]
 
                 if mapped:
                     # Write mapped reads
