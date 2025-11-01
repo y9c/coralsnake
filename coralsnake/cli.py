@@ -4,6 +4,7 @@ import rich_click as click
 
 __VERSION__ = importlib.metadata.version("coralsnake")
 
+
 click.rich_click.COMMAND_GROUPS = {
     "coralsnake": [
         {
@@ -17,7 +18,7 @@ click.rich_click.OPTION_GROUPS = {
     "coralsnake map": [
         {
             "name": "Input/Output",
-            "options": ["-r", "-1", "-2", "-o"],
+            "options": ["-1", "-2", "-r", "-o", "-u"],
         },
         {
             "name": "Strand-Specific Mapping",
@@ -201,17 +202,31 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
+@click.option("-1", "--r1-file", help="r1 file", required=False)
+@click.option("-2", "--r2-file", help="r2 file", required=False)
 @click.option(
     "-r",
     "--ref-file",
     "ref_files",
     multiple=True,
-    help="Reference file(s). Can be specified multiple times for priority-based mapping (e.g., -r rRNA.fa -r tRNA.fa -r mRNA.fa). Higher priority references are checked first.",
+    help="Reference file(s). Can be specified multiple times: -r ref1.fa -r ref2.fa. For multiple refs with single output, all mappings go to one BAM. For multiple refs with multiple outputs, maps ref1→out1, ref2→out2, etc.",
     required=False,
 )
-@click.option("-1", "--r1-file", help="r1 file", required=False)
-@click.option("-2", "--r2-file", help="r2 file", required=False)
-@click.option("-o", "--output-file", help="output bam file", required=False)
+@click.option(
+    "-o",
+    "--output-file",
+    "output_files",
+    multiple=True,
+    help="Output BAM file(s). Can be specified multiple times: -o out1.bam -o out2.bam. Must match the number of reference files unless multiple refs map to a single output.",
+    required=False,
+)
+@click.option(
+    "-u",
+    "--unmap-file",
+    "unmap_file",
+    help="Output BAM file for unmapped reads. If specified, all unmapped reads will be written to this file instead of the regular output file(s).",
+    required=False,
+)
 @click.option(
     "--max-mismatches",
     "-m",
@@ -295,10 +310,11 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     help="[Reference] Map to both reference strands (default)",
 )
 def map(
-    ref_files,
     r1_file,
     r2_file,
-    output_file,
+    ref_files,
+    output_files,
+    unmap_file,
     max_mismatches,
     threads,
     min_alignment_length,
@@ -309,11 +325,14 @@ def map(
     library_type,
     reference_strand,
 ):
-    from .mapping import map_file
     import os
 
-    # Convert tuple to list for easier handling
-    ref_files = list(ref_files) if ref_files else []
+    from .mapping import map_file
+
+    if ref_files is None:
+        ref_files = []
+    if output_files is None:
+        output_files = []
 
     # Validate arguments
     if index_only:
@@ -322,16 +341,29 @@ def map(
                 "❌ Error: --index-only requires --index-dir to be specified", err=True
             )
             raise click.Abort()
-        if not r1_file and not r2_file and not output_file:
+        if not r1_file and not r2_file and not output_files:
             # Index-only mode, these are not needed
             pass
     else:
         if not r1_file:
             click.echo("❌ Error: -1/--r1-file is required for mapping", err=True)
             raise click.Abort()
-        if not output_file:
+        if not output_files:
             click.echo("❌ Error: -o/--output-file is required for mapping", err=True)
             raise click.Abort()
+
+        # Validate ref/output count matching
+        # If multiple output files are specified, they must match the number of ref files
+        # Single output file with multiple refs is allowed (priority-based mapping to one BAM)
+        if len(output_files) > 1:
+            if len(ref_files) != len(output_files):
+                click.echo(
+                    f"❌ Error: Number of reference files ({len(ref_files)}) must match "
+                    f"number of output files ({len(output_files)}). Alternatively, use a "
+                    f"single output file for priority-based mapping.",
+                    err=True,
+                )
+                raise click.Abort()
         # If index-dir is provided and indices exist, ref-files can be omitted
         if not ref_files:
             if not index_dir:
@@ -344,11 +376,15 @@ def map(
             # Check for BWA indices (.bwt is a good indicator)
             # Look for ref1.orig.bwt, ref1.mk.bwt (or ref.orig.bwt, ref.mk.bwt for backward compatibility)
             idx_files_exist = False
-            if os.path.exists(os.path.join(index_dir, "ref.orig.bwt")) and os.path.exists(os.path.join(index_dir, "ref.mk.bwt")):
+            if os.path.exists(
+                os.path.join(index_dir, "ref.orig.bwt")
+            ) and os.path.exists(os.path.join(index_dir, "ref.mk.bwt")):
                 idx_files_exist = True
-            elif os.path.exists(os.path.join(index_dir, "ref1.orig.bwt")) and os.path.exists(os.path.join(index_dir, "ref1.mk.bwt")):
+            elif os.path.exists(
+                os.path.join(index_dir, "ref1.orig.bwt")
+            ) and os.path.exists(os.path.join(index_dir, "ref1.mk.bwt")):
                 idx_files_exist = True
-            
+
             if not idx_files_exist:
                 click.echo(
                     "❌ Error: --ref-file is required because BWA indices not found in --index-dir",
@@ -368,11 +404,14 @@ def map(
     # else: reference_strand == "double", orientation_filter = None (map both)
 
     try:
+        # Call map_file once with all refs and outputs
+        # It will route reads to the appropriate output file based on which reference they mapped to
         map_file(
-            ref_files,
             r1_file,
             r2_file,
-            output_file,
+            ref_files,
+            output_files,
+            unmap_file,
             forward_library,
             max_mismatches,
             threads,
@@ -390,7 +429,12 @@ def map(
     if index_only:
         print(f"\n✅ Index building completed! Indices saved to: {index_dir}")
     else:
-        print(f"\n✅ Mapping completed! Output saved to: {output_file}")
+        if len(output_files) > 1:
+            print(
+                f"\n✅ Mapping completed! Outputs saved to: {', '.join(output_files)}"
+            )
+        else:
+            print(f"\n✅ Mapping completed! Output saved to: {output_files[0]}")
 
 
 @cli.command(
