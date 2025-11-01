@@ -4,6 +4,52 @@ import rich_click as click
 
 __VERSION__ = importlib.metadata.version("coralsnake")
 
+
+class OptionEatAll(click.Option):
+    """Custom Click option that consumes all arguments until the next flag.
+    
+    Based on: https://stackoverflow.com/questions/47631914/how-to-pass-several-list-of-arguments-to-click-option
+    """
+    def __init__(self, *args, **kwargs):
+        self.save_other_options = kwargs.pop('save_other_options', True)
+        nargs = kwargs.pop('nargs', -1)
+        assert nargs == -1, 'nargs, if set, must be -1 not {}'.format(nargs)
+        super(OptionEatAll, self).__init__(*args, **kwargs)
+        self._previous_parser_process = None
+        self._eat_all_parser = None
+
+    def add_to_parser(self, parser, ctx):
+        def parser_process(value, state):
+            # method to hook to the parser.process
+            done = False
+            value = [value]
+            if self.save_other_options:
+                # grab everything up to the next option
+                while state.rargs and not done:
+                    for prefix in self._eat_all_parser.prefixes:
+                        if state.rargs[0].startswith(prefix):
+                            done = True
+                    if not done:
+                        value.append(state.rargs.pop(0))
+            else:
+                # grab everything remaining
+                value += state.rargs
+                state.rargs[:] = []
+            value = tuple(value)
+
+            # call the actual process
+            self._previous_parser_process(value, state)
+
+        retval = super(OptionEatAll, self).add_to_parser(parser, ctx)
+        for name in self.opts:
+            our_parser = parser._long_opt.get(name) or parser._short_opt.get(name)
+            if our_parser:
+                self._eat_all_parser = our_parser
+                self._previous_parser_process = our_parser.process
+                our_parser.process = parser_process
+                break
+        return retval
+
 click.rich_click.COMMAND_GROUPS = {
     "coralsnake": [
         {
@@ -205,13 +251,20 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     "-r",
     "--ref-file",
     "ref_files",
-    multiple=True,
-    help="Reference file(s). Can be specified multiple times for priority-based mapping (e.g., -r rRNA.fa -r tRNA.fa -r mRNA.fa). Higher priority references are checked first.",
+    cls=OptionEatAll,
+    help="Reference file(s). Provide multiple files after a single -r flag (e.g., -r rRNA.fa tRNA.fa mRNA.fa). Higher priority references are checked first.",
     required=False,
 )
 @click.option("-1", "--r1-file", help="r1 file", required=False)
 @click.option("-2", "--r2-file", help="r2 file", required=False)
-@click.option("-o", "--output-file", help="output bam file", required=False)
+@click.option(
+    "-o",
+    "--output-file",
+    "output_files",
+    cls=OptionEatAll,
+    help="Output BAM file(s). Provide multiple files after a single -o flag (e.g., -o out1.bam out2.bam). Must match the number of reference files, or provide a single output file for all references.",
+    required=False,
+)
 @click.option(
     "--max-mismatches",
     "-m",
@@ -298,7 +351,7 @@ def map(
     ref_files,
     r1_file,
     r2_file,
-    output_file,
+    output_files,
     max_mismatches,
     threads,
     min_alignment_length,
@@ -314,6 +367,7 @@ def map(
 
     # Convert tuple to list for easier handling
     ref_files = list(ref_files) if ref_files else []
+    output_files = list(output_files) if output_files else []
 
     # Validate arguments
     if index_only:
@@ -322,14 +376,14 @@ def map(
                 "❌ Error: --index-only requires --index-dir to be specified", err=True
             )
             raise click.Abort()
-        if not r1_file and not r2_file and not output_file:
+        if not r1_file and not r2_file and not output_files:
             # Index-only mode, these are not needed
             pass
     else:
         if not r1_file:
             click.echo("❌ Error: -1/--r1-file is required for mapping", err=True)
             raise click.Abort()
-        if not output_file:
+        if not output_files:
             click.echo("❌ Error: -o/--output-file is required for mapping", err=True)
             raise click.Abort()
         # If index-dir is provided and indices exist, ref-files can be omitted
@@ -355,6 +409,14 @@ def map(
                     err=True,
                 )
                 raise click.Abort()
+        
+        # Validate number/order of outputs matches refs
+        if len(output_files) != 1 and len(output_files) != len(ref_files):
+            click.echo(
+                f"❌ Error: Number of output files ({len(output_files)}) must match number of reference files ({len(ref_files)}) or be exactly 1 (for single output)",
+                err=True,
+            )
+            raise click.Abort()
 
     # Determine forward library flag
     forward_library = library_type == "forward"
@@ -368,29 +430,52 @@ def map(
     # else: reference_strand == "double", orientation_filter = None (map both)
 
     try:
-        map_file(
-            ref_files,
-            r1_file,
-            r2_file,
-            output_file,
-            forward_library,
-            max_mismatches,
-            threads,
-            min_alignment_length,
-            min_mapping_ratio,
-            index_dir,
-            index_only,
-            batch_size,
-            orientation_filter,
-        )
+        # Case 1: Single output file for all references (or single ref+output)
+        if len(output_files) == 1:
+            map_file(
+                ref_files,
+                r1_file,
+                r2_file,
+                output_files[0],
+                forward_library,
+                max_mismatches,
+                threads,
+                min_alignment_length,
+                min_mapping_ratio,
+                index_dir,
+                index_only,
+                batch_size,
+                orientation_filter,
+            )
+            if not index_only:
+                print(f"\n✅ Mapping completed! Output saved to: {output_files[0]}")
+        # Case 2: Multiple outputs, one per reference
+        else:
+            for i, (ref_file, output_file) in enumerate(zip(ref_files, output_files), 1):
+                click.echo(f"\n🔄 Processing reference {i}/{len(ref_files)}: {ref_file} → {output_file}")
+                map_file(
+                    [ref_file],  # Pass single ref as list
+                    r1_file,
+                    r2_file,
+                    output_file,
+                    forward_library,
+                    max_mismatches,
+                    threads,
+                    min_alignment_length,
+                    min_mapping_ratio,
+                    index_dir,
+                    index_only,
+                    batch_size,
+                    orientation_filter,
+                )
+            if not index_only:
+                print(f"\n✅ All mappings completed! {len(output_files)} output files created.")
     except FileNotFoundError as e:
         click.echo(f"❌ {e}", err=True)
         raise click.Abort()
 
     if index_only:
         print(f"\n✅ Index building completed! Indices saved to: {index_dir}")
-    else:
-        print(f"\n✅ Mapping completed! Output saved to: {output_file}")
 
 
 @cli.command(
