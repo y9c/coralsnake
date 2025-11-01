@@ -7,13 +7,14 @@ __VERSION__ = importlib.metadata.version("coralsnake")
 
 class OptionEatAll(click.Option):
     """Custom Click option that consumes all arguments until the next flag.
-    
+
     Based on: https://stackoverflow.com/questions/47631914/how-to-pass-several-list-of-arguments-to-click-option
     """
+
     def __init__(self, *args, **kwargs):
-        self.save_other_options = kwargs.pop('save_other_options', True)
-        nargs = kwargs.pop('nargs', -1)
-        assert nargs == -1, 'nargs, if set, must be -1 not {}'.format(nargs)
+        self.save_other_options = kwargs.pop("save_other_options", True)
+        nargs = kwargs.pop("nargs", -1)
+        assert nargs == -1, "nargs, if set, must be -1 not {}".format(nargs)
         super(OptionEatAll, self).__init__(*args, **kwargs)
         self._previous_parser_process = None
         self._eat_all_parser = None
@@ -49,6 +50,7 @@ class OptionEatAll(click.Option):
                 our_parser.process = parser_process
                 break
         return retval
+
 
 click.rich_click.COMMAND_GROUPS = {
     "coralsnake": [
@@ -398,18 +400,22 @@ def map(
             # Check for BWA indices (.bwt is a good indicator)
             # Look for ref1.orig.bwt, ref1.mk.bwt (or ref.orig.bwt, ref.mk.bwt for backward compatibility)
             idx_files_exist = False
-            if os.path.exists(os.path.join(index_dir, "ref.orig.bwt")) and os.path.exists(os.path.join(index_dir, "ref.mk.bwt")):
+            if os.path.exists(
+                os.path.join(index_dir, "ref.orig.bwt")
+            ) and os.path.exists(os.path.join(index_dir, "ref.mk.bwt")):
                 idx_files_exist = True
-            elif os.path.exists(os.path.join(index_dir, "ref1.orig.bwt")) and os.path.exists(os.path.join(index_dir, "ref1.mk.bwt")):
+            elif os.path.exists(
+                os.path.join(index_dir, "ref1.orig.bwt")
+            ) and os.path.exists(os.path.join(index_dir, "ref1.mk.bwt")):
                 idx_files_exist = True
-            
+
             if not idx_files_exist:
                 click.echo(
                     "❌ Error: --ref-file is required because BWA indices not found in --index-dir",
                     err=True,
                 )
                 raise click.Abort()
-        
+
         # Validate number/order of outputs matches refs
         if len(output_files) != 1 and len(output_files) != len(ref_files):
             click.echo(
@@ -430,52 +436,33 @@ def map(
     # else: reference_strand == "double", orientation_filter = None (map both)
 
     try:
-        # Case 1: Single output file for all references (or single ref+output)
-        if len(output_files) == 1:
-            map_file(
-                ref_files,
-                r1_file,
-                r2_file,
-                output_files[0],
-                forward_library,
-                max_mismatches,
-                threads,
-                min_alignment_length,
-                min_mapping_ratio,
-                index_dir,
-                index_only,
-                batch_size,
-                orientation_filter,
-            )
-            if not index_only:
-                print(f"\n✅ Mapping completed! Output saved to: {output_files[0]}")
-        # Case 2: Multiple outputs, one per reference
-        else:
-            for i, (ref_file, output_file) in enumerate(zip(ref_files, output_files), 1):
-                click.echo(f"\n🔄 Processing reference {i}/{len(ref_files)}: {ref_file} → {output_file}")
-                map_file(
-                    [ref_file],  # Pass single ref as list
-                    r1_file,
-                    r2_file,
-                    output_file,
-                    forward_library,
-                    max_mismatches,
-                    threads,
-                    min_alignment_length,
-                    min_mapping_ratio,
-                    index_dir,
-                    index_only,
-                    batch_size,
-                    orientation_filter,
-                )
-            if not index_only:
-                print(f"\n✅ All mappings completed! {len(output_files)} output files created.")
+        # Call map_file with reordered parameters
+        map_file(
+            r1_file,
+            r2_file,
+            ref_files,
+            output_files,
+            forward_library,
+            max_mismatches,
+            threads,
+            min_alignment_length,
+            min_mapping_ratio,
+            index_dir,
+            index_only,
+            batch_size,
+            orientation_filter,
+        )
     except FileNotFoundError as e:
         click.echo(f"❌ {e}", err=True)
         raise click.Abort()
 
     if index_only:
         print(f"\n✅ Index building completed! Indices saved to: {index_dir}")
+    else:
+        if len(output_files) == 1:
+            print(f"\n✅ Mapping completed! Output saved to: {output_files[0]}")
+        else:
+            print(f"\n✅ Mapping completed! {len(output_files)} output files created.")
 
 
 @cli.command(
