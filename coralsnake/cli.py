@@ -5,6 +5,56 @@ import rich_click as click
 __VERSION__ = importlib.metadata.version("coralsnake")
 
 
+class OptionEatAll(click.Option):
+    """Custom Click option that consumes all arguments until the next flag.
+
+    Based on: https://stackoverflow.com/questions/47631914/how-to-pass-several-list-of-arguments-to-click-option
+    """
+
+    def __init__(self, *args, **kwargs):
+        self.save_other_options = kwargs.pop("save_other_options", True)
+        nargs = kwargs.pop("nargs", -1)
+        assert nargs == -1, f"nargs, if set, must be -1 not {nargs}"
+        super(OptionEatAll, self).__init__(*args, **kwargs)
+        self._previous_parser_process = None
+        self._eat_all_parser = None
+        # Ensure multiple is set to handle multiple values properly
+        self.multiple = True
+
+    def add_to_parser(self, parser, ctx):
+        def parser_process(value, state):
+            # method to hook to the parser.process
+            done = False
+            values = [value]
+            if self.save_other_options:
+                # grab everything up to the next option
+                while state.rargs and not done:
+                    for prefix in self._eat_all_parser.prefixes:
+                        if state.rargs[0].startswith(prefix):
+                            done = True
+                            break
+                    if not done:
+                        values.append(state.rargs.pop(0))
+            else:
+                # grab everything remaining
+                values += state.rargs
+                state.rargs[:] = []
+
+            # Process each value individually through Click's mechanism
+            for v in values:
+                self._previous_parser_process(v, state)
+
+        retval = super(OptionEatAll, self).add_to_parser(parser, ctx)
+        for name in self.opts:
+            our_parser = parser._long_opt.get(name) or parser._short_opt.get(name)
+            if our_parser:
+                self._eat_all_parser = our_parser
+                self._previous_parser_process = our_parser.process
+                our_parser.process = parser_process
+                break
+        return retval
+
+
 click.rich_click.COMMAND_GROUPS = {
     "coralsnake": [
         {
@@ -208,7 +258,8 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     "-r",
     "--ref-file",
     "ref_files",
-    multiple=True,
+    # multiple=True,
+    cls=OptionEatAll,
     help="Reference file(s). Can be specified multiple times: -r ref1.fa -r ref2.fa. For multiple refs with single output, all mappings go to one BAM. For multiple refs with multiple outputs, maps ref1→out1, ref2→out2, etc.",
     required=False,
 )
@@ -216,7 +267,8 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     "-o",
     "--output-file",
     "output_files",
-    multiple=True,
+    # multiple=True,
+    cls=OptionEatAll,
     help="Output BAM file(s). Can be specified multiple times: -o out1.bam -o out2.bam. Must match the number of reference files unless multiple refs map to a single output.",
     required=False,
 )
