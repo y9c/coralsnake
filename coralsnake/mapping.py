@@ -213,7 +213,7 @@ def _build_and_check_indices(
     index_only,
 ):
     """Build and check indices for all references with unified progress.
-    
+
     Handles both index-only mode and regular mode (checking existing indices).
     Returns updated ref_indices with actual file paths.
     """
@@ -374,11 +374,11 @@ def _process_and_map_reads(
     forward_library,
 ):
     """Unified function for processing single-end or paired-end reads.
-    
+
     Eliminates duplication between SE and PE processing loops.
     """
     paired = r2_file is not None
-    
+
     if paired:
         # Paired-end: read pairs from both files
         it_reads = (
@@ -387,8 +387,10 @@ def _process_and_map_reads(
         )
     else:
         # Single-end: read from R1 file only
-        it_reads = ((rec.name, rec.sequence, rec.quality) for rec in fastx_read(r1_file))
-    
+        it_reads = (
+            (rec.name, rec.sequence, rec.quality) for rec in fastx_read(r1_file)
+        )
+
     batch = []
     with ProcessPoolExecutor(
         max_workers=max(1, threads),
@@ -407,7 +409,7 @@ def _process_and_map_reads(
                     raise ValueError(
                         f"r1 and r2 not in the same order: {rec1[0]} vs {rec2[0]}"
                     )
-            
+
             batch.append(reads)
             if len(batch) >= batch_size:
                 futures.append(
@@ -421,13 +423,13 @@ def _process_and_map_reads(
                     )
                 )
                 batch.clear()
-            
+
             # Drain completed futures to avoid initial stall
             for fut in futures[:]:
                 if fut.done():
                     write_func(fut.result())
                     futures.remove(fut)
-        
+
         # Process final batch
         if batch:
             futures.append(
@@ -440,7 +442,7 @@ def _process_and_map_reads(
                     min_mapping_ratio,
                 )
             )
-        
+
         # Wait for remaining futures
         for fut in as_completed(futures):
             write_func(fut.result())
@@ -451,20 +453,14 @@ def _write_mapped_record(paired, item, read_info, target_bam, i):
     if paired and len(item) == 3:
         # Properly paired reads
         map1, map2 = item[1], item[2]
-        a1 = create_bam_record(
-            target_bam.header, map1, is_secondary=(i > 0)
-        )
-        a2 = create_bam_record(
-            target_bam.header, map2, is_secondary=(i > 0)
-        )
+        a1 = create_bam_record(target_bam.header, map1, is_secondary=(i > 0))
+        a2 = create_bam_record(target_bam.header, map2, is_secondary=(i > 0))
         target_bam.write(a1)
         target_bam.write(a2)
     elif paired and len(item) == 2:
         # Single-read mapping from PE mode (mate unmapped)
         map1 = item[1]
-        a1 = create_bam_record(
-            target_bam.header, map1, is_secondary=(i > 0)
-        )
+        a1 = create_bam_record(target_bam.header, map1, is_secondary=(i > 0))
         target_bam.write(a1)
         # Also write the unmapped mate
         name1, seq1, qua1, name2, seq2, qua2 = read_info
@@ -476,9 +472,7 @@ def _write_mapped_record(paired, item, read_info, target_bam, i):
             flag2 = 133
             if map1[1] & 0x10:  # Mapped mate is reverse
                 flag2 |= 0x20  # Set mate reverse bit
-            a2 = create_unmapped_record(
-                target_bam.header, name2, seq2, qua2, flag2
-            )
+            a2 = create_unmapped_record(target_bam.header, name2, seq2, qua2, flag2)
             a2.next_reference_name = map1[2]  # Mate's contig
             a2.next_reference_start = map1[3] - 1  # Mate's position
             target_bam.write(a2)
@@ -498,9 +492,7 @@ def _write_mapped_record(paired, item, read_info, target_bam, i):
     else:
         # Single-end mapping
         map1 = item[1]
-        a1 = create_bam_record(
-            target_bam.header, map1, is_secondary=(i > 0)
-        )
+        a1 = create_bam_record(target_bam.header, map1, is_secondary=(i > 0))
         target_bam.write(a1)
 
 
@@ -509,35 +501,29 @@ def _write_unmapped_record(paired, read_info, bam_unmap):
     if paired:
         name1, seq1, qua1, name2, seq2, qua2 = read_info
         # Flag 77 = paired, unmapped, mate unmapped, first in pair
-        a1 = create_unmapped_record(
-            bam_unmap.header, name1, seq1, qua1, 77
-        )
+        a1 = create_unmapped_record(bam_unmap.header, name1, seq1, qua1, 77)
         # Flag 141 = paired, unmapped, mate unmapped, second in pair
-        a2 = create_unmapped_record(
-            bam_unmap.header, name2, seq2, qua2, 141
-        )
+        a2 = create_unmapped_record(bam_unmap.header, name2, seq2, qua2, 141)
         bam_unmap.write(a1)
         bam_unmap.write(a2)
     else:
         name1, seq1, qua1 = read_info
         # Flag 4 = unmapped
-        a1 = create_unmapped_record(
-            bam_unmap.header, name1, seq1, qua1, 4
-        )
+        a1 = create_unmapped_record(bam_unmap.header, name1, seq1, qua1, 4)
         bam_unmap.write(a1)
 
 
 def _setup_output_bams(output_files, unmap_file, header, stack):
     """Setup BAM output files for single/multiple outputs and unmapped reads.
-    
+
     Args:
         output_files: List of output file paths
         unmap_file: Optional unmapped reads file path
         header: BAM header dict
         stack: ExitStack context manager for managing file handles
-    
+
     Returns:
-        Tuple of (bam_outs dict if multiple outputs else None, 
+        Tuple of (bam_outs dict if multiple outputs else None,
                  bam_unmap file,
                  default_bam file for single output case)
     """
@@ -560,7 +546,7 @@ def _setup_output_bams(output_files, unmap_file, header, stack):
             pysam.AlignmentFile(output_files[0], mode, header=header)
         )
         bam_outs = None
-    
+
     # Create unmapped reads BAM file if specified
     if unmap_file:
         mode = "w" if unmap_file.endswith(".sam") else "wb"
@@ -570,7 +556,7 @@ def _setup_output_bams(output_files, unmap_file, header, stack):
     else:
         # Use default (last output file or single output file)
         bam_unmap = default_bam
-    
+
     return bam_outs, bam_unmap, default_bam
 
 
@@ -610,7 +596,7 @@ def cal_md_and_tag(cigar, seq, ref, fwd):
 
 def score_to_mapq(score):
     """Convert alignment score to MAPQ.
-    
+
     MAPQ capped at 60: follows BWA-MEM convention where MAPQ 60 represents
     ~1 in 1,000,000 error probability (Phred 60). SAM format reserves 255 for "unknown".
     """
@@ -956,38 +942,21 @@ def run_mapping_pe(
                 else:
                     flag1, flag2 = 67, 131
 
-                cigar_str1 = hit1.cigar_str
-                cigar1 = hit1.cigar
-                if hit1.q_st > 0:
-                    cigar_str1 = f"{hit1.q_st}S" + cigar_str1
-                    cigar1 = [[hit1.q_st, 4]] + cigar1
-                if hit1.q_en < len(s1):
-                    cigar_str1 = cigar_str1 + f"{len(s1) - hit1.q_en}S"
-                    cigar1 = cigar1 + [[len(s1) - hit1.q_en, 4]]
-                cigar_str2 = hit2.cigar_str
-                cigar2 = hit2.cigar
-                if hit2.q_st > 0:
-                    cigar_str2 = f"{hit2.q_st}S" + cigar_str2
-                    cigar2 = [[hit2.q_st, 4]] + cigar2
-                if hit2.q_en < len(s2):
-                    cigar_str2 = cigar_str2 + f"{len(s2) - hit2.q_en}S"
-                    cigar2 = cigar2 + [[len(s2) - hit2.q_en, 4]]
-
                 is_orientation1 = orientation == 1
                 score1, _w1, bad_mm1 = calculate_directional_score(
-                    cigar1, s1, ref1, is_orientation1
+                    hit1.cigar, s1, ref1, is_orientation1
                 )
                 score2, _w2, bad_mm2 = calculate_directional_score(
-                    cigar2, s2, ref2, is_orientation1
+                    hit2.cigar, s2, ref2, is_orientation1
                 )
                 if (bad_mm1 + bad_mm2) > max_mismatches:
                     continue
 
                 md1, yf1, zf1, yc1, zc1, ns1, nc1 = cal_md_and_tag(
-                    cigar1, s1, ref1, is_orientation1
+                    hit1.cigar, s1, ref1, is_orientation1
                 )
                 md2, yf2, zf2, yc2, zc2, ns2, nc2 = cal_md_and_tag(
-                    cigar2, s2, ref2, is_orientation1
+                    hit2.cigar, s2, ref2, is_orientation1
                 )
                 combined_score = score1 + score2
                 # For paired reads, use minimum of the two scores for MAPQ
@@ -1009,7 +978,7 @@ def run_mapping_pe(
                     hit1.ctg,
                     hit1.r_st + 1,
                     mapq,
-                    cigar_str1,
+                    hit1.cigar_str,
                     hit2.ctg,
                     hit2.r_st + 1,
                     tlen,
@@ -1032,7 +1001,7 @@ def run_mapping_pe(
                     hit2.ctg,
                     hit2.r_st + 1,
                     mapq,
-                    cigar_str2,
+                    hit2.cigar_str,
                     hit1.ctg,
                     hit1.r_st + 1,
                     -tlen,
@@ -1070,24 +1039,15 @@ def run_mapping_pe(
                         s = seq1
                         q = qua1
 
-                    cigar_str = hit.cigar_str
-                    cigar = hit.cigar
-                    if hit.q_st > 0:
-                        cigar_str = f"{hit.q_st}S" + cigar_str
-                        cigar = [[hit.q_st, 4]] + cigar
-                    if hit.q_en < len(s):
-                        cigar_str = cigar_str + f"{len(s) - hit.q_en}S"
-                        cigar = cigar + [[len(s) - hit.q_en, 4]]
-
                     is_orientation1 = orientation == 1
                     score, _wrong_conv, bad_mm = calculate_directional_score(
-                        cigar, s, ref, is_orientation1
+                        hit.cigar, s, ref, is_orientation1
                     )
                     if bad_mm > max_mismatches // 2:
                         continue
 
                     md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
-                        cigar, s, ref, is_orientation1
+                        hit.cigar, s, ref, is_orientation1
                     )
                     mapq = score_to_mapq(score)
                     tags = [
@@ -1107,7 +1067,7 @@ def run_mapping_pe(
                         hit.ctg,
                         hit.r_st + 1,
                         mapq,
-                        cigar_str,
+                        hit.cigar_str,
                         "*",  # Mate unmapped
                         0,
                         0,
@@ -1131,24 +1091,15 @@ def run_mapping_pe(
                         s = seq2
                         q = qua2
 
-                    cigar_str = hit.cigar_str
-                    cigar = hit.cigar
-                    if hit.q_st > 0:
-                        cigar_str = f"{hit.q_st}S" + cigar_str
-                        cigar = [[hit.q_st, 4]] + cigar
-                    if hit.q_en < len(s):
-                        cigar_str = cigar_str + f"{len(s) - hit.q_en}S"
-                        cigar = cigar + [[len(s) - hit.q_en, 4]]
-
                     is_orientation1 = orientation == 1
                     score, _wrong_conv, bad_mm = calculate_directional_score(
-                        cigar, s, ref, is_orientation1
+                        hit.cigar, s, ref, is_orientation1
                     )
                     if bad_mm > max_mismatches // 2:
                         continue
 
                     md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
-                        cigar, s, ref, is_orientation1
+                        hit.cigar, s, ref, is_orientation1
                     )
                     mapq = score_to_mapq(score)
                     tags = [
@@ -1168,7 +1119,7 @@ def run_mapping_pe(
                         hit.ctg,
                         hit.r_st + 1,
                         mapq,
-                        cigar_str,
+                        hit.cigar_str,
                         "*",  # Mate unmapped
                         0,
                         0,
@@ -1282,18 +1233,20 @@ def map_file(
         ref_files = []
     elif isinstance(ref_files, tuple):
         ref_files = list(ref_files)
-    
+
     # Preflight: validate input files early to avoid spawning workers on bad paths
     if not index_only:
         if not r1_file or not os.path.exists(r1_file):
             raise FileNotFoundError(f"Input R1 file not found: {r1_file}")
         if r2_file is not None and not os.path.exists(r2_file):
             raise FileNotFoundError(f"Input R2 file not found: {r2_file}")
-        
+
         # Validate reference files exist
         for i, ref_file in enumerate(ref_files, 1):
             if not isinstance(ref_file, str):
-                raise ValueError(f"Reference file {i} is not a valid path string: {ref_file}")
+                raise ValueError(
+                    f"Reference file {i} is not a valid path string: {ref_file}"
+                )
             if not os.path.exists(ref_file):
                 raise FileNotFoundError(f"Reference file {i} not found: {ref_file}")
 
@@ -1381,7 +1334,9 @@ def map_file(
 
     with ExitStack() as stack:
         # Setup BAM output files
-        bam_outs, bam_unmap, default_bam = _setup_output_bams(output_files, unmap_file, header, stack)
+        bam_outs, bam_unmap, default_bam = _setup_output_bams(
+            output_files, unmap_file, header, stack
+        )
 
         progress = stack.enter_context(
             Progress(
@@ -1415,9 +1370,9 @@ def map_file(
                 else:
                     # Write unmapped reads
                     _write_unmapped_record(paired, read_info, bam_unmap)
-                
+
                 processed_reads += 1
-            
+
             elapsed = format_duration(progress.tasks[task].elapsed)
             progress.update(
                 task,
