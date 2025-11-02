@@ -705,7 +705,9 @@ def run_mapping_se(
                 md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
                     cigar, s, ref, is_orientation1
                 )
-                mapq = min(60, score)
+                # MAPQ capped at 60: follows BWA-MEM convention where MAPQ 60 represents
+                # ~1 in 1,000,000 error probability (Phred 60). SAM format reserves 255 for "unknown".
+                mapq = max(0, min(60, score))
                 tags = [
                     ("MD", md),
                     ("ST", orientation),
@@ -983,7 +985,9 @@ def run_mapping_pe(
                     cigar2, s2, ref2, is_orientation1
                 )
                 combined_score = score1 + score2
-                mapq = min(60, min(score1, score2))
+                # MAPQ capped at 60: follows BWA-MEM convention where MAPQ 60 represents
+                # ~1 in 1,000,000 error probability (Phred 60). SAM format reserves 255 for "unknown".
+                mapq = max(0, min(60, min(score1, score2)))
                 common_tags = [("ST", orientation)]
                 tags1 = common_tags + [
                     ("MD", md1),
@@ -1081,7 +1085,9 @@ def run_mapping_pe(
                     md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
                         cigar, s, ref, is_orientation1
                     )
-                    mapq = min(60, score)
+                    # MAPQ capped at 60: follows BWA-MEM convention where MAPQ 60 represents
+                    # ~1 in 1,000,000 error probability (Phred 60). SAM format reserves 255 for "unknown".
+                    mapq = max(0, min(60, score))
                     tags = [
                         ("MD", md),
                         ("ST", orientation),
@@ -1142,7 +1148,9 @@ def run_mapping_pe(
                     md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
                         cigar, s, ref, is_orientation1
                     )
-                    mapq = min(60, score)
+                    # MAPQ capped at 60: follows BWA-MEM convention where MAPQ 60 represents
+                    # ~1 in 1,000,000 error probability (Phred 60). SAM format reserves 255 for "unknown".
+                    mapq = max(0, min(60, score))
                     tags = [
                         ("MD", md),
                         ("ST", orientation),
