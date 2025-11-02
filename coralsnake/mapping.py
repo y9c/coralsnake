@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 #
 # Copyright © 2024 Ye Chang yech1990@gmail.com
 # Distributed under terms of the GNU license.
@@ -610,6 +608,15 @@ def cal_md_and_tag(cigar, seq, ref, fwd):
     return seqops.cal_md_and_tag(cigar, seq, ref, fwd)
 
 
+def score_to_mapq(score):
+    """Convert alignment score to MAPQ.
+    
+    MAPQ capped at 60: follows BWA-MEM convention where MAPQ 60 represents
+    ~1 in 1,000,000 error probability (Phred 60). SAM format reserves 255 for "unknown".
+    """
+    return max(0, min(60, score))
+
+
 def calculate_directional_score(cigar, seq, ref, is_orientation1):
     """Score alignment with conversion awareness: return (score, wrong_conversions, bad_mismatches)."""
     # Use optimized C implementation
@@ -705,9 +712,7 @@ def run_mapping_se(
                 md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
                     cigar, s, ref, is_orientation1
                 )
-                # MAPQ capped at 60: follows BWA-MEM convention where MAPQ 60 represents
-                # ~1 in 1,000,000 error probability (Phred 60). SAM format reserves 255 for "unknown".
-                mapq = max(0, min(60, score))
+                mapq = score_to_mapq(score)
                 tags = [
                     ("MD", md),
                     ("ST", orientation),
@@ -985,9 +990,8 @@ def run_mapping_pe(
                     cigar2, s2, ref2, is_orientation1
                 )
                 combined_score = score1 + score2
-                # MAPQ capped at 60: follows BWA-MEM convention where MAPQ 60 represents
-                # ~1 in 1,000,000 error probability (Phred 60). SAM format reserves 255 for "unknown".
-                mapq = max(0, min(60, min(score1, score2)))
+                # For paired reads, use minimum of the two scores for MAPQ
+                mapq = score_to_mapq(min(score1, score2))
                 common_tags = [("ST", orientation)]
                 tags1 = common_tags + [
                     ("MD", md1),
@@ -1085,9 +1089,7 @@ def run_mapping_pe(
                     md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
                         cigar, s, ref, is_orientation1
                     )
-                    # MAPQ capped at 60: follows BWA-MEM convention where MAPQ 60 represents
-                    # ~1 in 1,000,000 error probability (Phred 60). SAM format reserves 255 for "unknown".
-                    mapq = max(0, min(60, score))
+                    mapq = score_to_mapq(score)
                     tags = [
                         ("MD", md),
                         ("ST", orientation),
@@ -1148,9 +1150,7 @@ def run_mapping_pe(
                     md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
                         cigar, s, ref, is_orientation1
                     )
-                    # MAPQ capped at 60: follows BWA-MEM convention where MAPQ 60 represents
-                    # ~1 in 1,000,000 error probability (Phred 60). SAM format reserves 255 for "unknown".
-                    mapq = max(0, min(60, score))
+                    mapq = score_to_mapq(score)
                     tags = [
                         ("MD", md),
                         ("ST", orientation),
