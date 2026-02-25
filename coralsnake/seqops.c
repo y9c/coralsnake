@@ -19,7 +19,7 @@ static PyObject* base_conversion(PyObject* self, PyObject* args) {
         return NULL;
     }
     
-    char* result_str = PyUnicode_AsUTF8(result);
+    const char* result_str = PyUnicode_AsUTF8(result);
     if (!result_str) {
         Py_DECREF(result);
         return NULL;
@@ -41,9 +41,11 @@ static PyObject* base_conversion(PyObject* self, PyObject* args) {
     }
     
     // Convert sequence
+    // Note: cast to (char*) is safe here because we know result is a new unique string
+    char* target = (char*)result_str;
     for (Py_ssize_t i = 0; i < seq_len; i++) {
         unsigned char c = (unsigned char)seq[i];
-        result_str[i] = lookup[c] ? lookup[c] : c;
+        target[i] = lookup[c] ? lookup[c] : c;
     }
     
     return result;
@@ -64,7 +66,7 @@ static PyObject* reverse_complement(PyObject* self, PyObject* args) {
         return NULL;
     }
     
-    char* result_str = PyUnicode_AsUTF8(result);
+    const char* result_str = PyUnicode_AsUTF8(result);
     if (!result_str) {
         Py_DECREF(result);
         return NULL;
@@ -85,9 +87,11 @@ static PyObject* reverse_complement(PyObject* self, PyObject* args) {
     complement['n'] = 'n';
     
     // Reverse and complement
+    // Note: cast to (char*) is safe here because we know result is a new unique string
+    char* target = (char*)result_str;
     for (Py_ssize_t i = 0; i < seq_len; i++) {
         unsigned char c = (unsigned char)seq[seq_len - 1 - i];
-        result_str[i] = complement[c] ? complement[c] : c;
+        target[i] = complement[c] ? complement[c] : c;
     }
     
     return result;
