@@ -681,12 +681,13 @@ def run_mapping_se(
 
                 cigar_str = hit.cigar_str
                 cigar = hit.cigar
-                if hit.q_st > 0:
+                # Add manual soft-clipping only if not already present
+                if hit.q_st > 0 and not (cigar and cigar[0][1] == 4):
                     cigar_str = f"{hit.q_st}S" + cigar_str
-                    cigar = [[hit.q_st, 4]] + cigar
-                if hit.q_en < len(s):
+                    cigar = [[hit.q_st, 4]] + list(cigar)
+                if hit.q_en < len(s) and not (cigar and cigar[-1][1] == 4):
                     cigar_str = cigar_str + f"{len(s) - hit.q_en}S"
-                    cigar = cigar + [[len(s) - hit.q_en, 4]]
+                    cigar = list(cigar) + [[len(s) - hit.q_en, 4]]
 
                 is_orientation1 = orientation == 1
                 score, _wrong_conv, bad_mm = calculate_directional_score(
@@ -943,20 +944,41 @@ def run_mapping_pe(
                     flag1, flag2 = 67, 131
 
                 is_orientation1 = orientation == 1
+                
+                # Update CIGAR for hit1
+                c1_str = hit1.cigar_str
+                c1 = hit1.cigar
+                if hit1.q_st > 0 and not (c1 and c1[0][1] == 4):
+                    c1_str = f"{hit1.q_st}S" + c1_str
+                    c1 = [[hit1.q_st, 4]] + list(c1)
+                if hit1.q_en < len(s1) and not (c1 and c1[-1][1] == 4):
+                    c1_str = c1_str + f"{len(s1) - hit1.q_en}S"
+                    c1 = list(c1) + [[len(s1) - hit1.q_en, 4]]
+
+                # Update CIGAR for hit2
+                c2_str = hit2.cigar_str
+                c2 = hit2.cigar
+                if hit2.q_st > 0 and not (c2 and c2[0][1] == 4):
+                    c2_str = f"{hit2.q_st}S" + c2_str
+                    c2 = [[hit2.q_st, 4]] + list(c2)
+                if hit2.q_en < len(s2) and not (c2 and c2[-1][1] == 4):
+                    c2_str = c2_str + f"{len(s2) - hit2.q_en}S"
+                    c2 = list(c2) + [[len(s2) - hit2.q_en, 4]]
+
                 score1, _w1, bad_mm1 = calculate_directional_score(
-                    hit1.cigar, s1, ref1, is_orientation1
+                    c1, s1, ref1, is_orientation1
                 )
                 score2, _w2, bad_mm2 = calculate_directional_score(
-                    hit2.cigar, s2, ref2, is_orientation1
+                    c2, s2, ref2, is_orientation1
                 )
                 if (bad_mm1 + bad_mm2) > max_mismatches:
                     continue
 
                 md1, yf1, zf1, yc1, zc1, ns1, nc1 = cal_md_and_tag(
-                    hit1.cigar, s1, ref1, is_orientation1
+                    c1, s1, ref1, is_orientation1
                 )
                 md2, yf2, zf2, yc2, zc2, ns2, nc2 = cal_md_and_tag(
-                    hit2.cigar, s2, ref2, is_orientation1
+                    c2, s2, ref2, is_orientation1
                 )
                 combined_score = score1 + score2
                 # For paired reads, use minimum of the two scores for MAPQ
@@ -978,7 +1000,7 @@ def run_mapping_pe(
                     hit1.ctg,
                     hit1.r_st + 1,
                     mapq,
-                    hit1.cigar_str,
+                    c1_str,
                     hit2.ctg,
                     hit2.r_st + 1,
                     tlen,
@@ -1001,7 +1023,7 @@ def run_mapping_pe(
                     hit2.ctg,
                     hit2.r_st + 1,
                     mapq,
-                    hit2.cigar_str,
+                    c2_str,
                     hit1.ctg,
                     hit1.r_st + 1,
                     -tlen,
@@ -1040,14 +1062,25 @@ def run_mapping_pe(
                         q = qua1
 
                     is_orientation1 = orientation == 1
+
+                    # Update CIGAR for single-read mapping
+                    c_str = hit.cigar_str
+                    c = hit.cigar
+                    if hit.q_st > 0 and not (c and c[0][1] == 4):
+                        c_str = f"{hit.q_st}S" + c_str
+                        c = [[hit.q_st, 4]] + list(c)
+                    if hit.q_en < len(s) and not (c and c[-1][1] == 4):
+                        c_str = c_str + f"{len(s) - hit.q_en}S"
+                        c = list(c) + [[len(s) - hit.q_en, 4]]
+
                     score, _wrong_conv, bad_mm = calculate_directional_score(
-                        hit.cigar, s, ref, is_orientation1
+                        c, s, ref, is_orientation1
                     )
                     if bad_mm > max_mismatches // 2:
                         continue
 
                     md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
-                        hit.cigar, s, ref, is_orientation1
+                        c, s, ref, is_orientation1
                     )
                     mapq = score_to_mapq(score)
                     tags = [
@@ -1067,7 +1100,7 @@ def run_mapping_pe(
                         hit.ctg,
                         hit.r_st + 1,
                         mapq,
-                        hit.cigar_str,
+                        c_str,
                         "*",  # Mate unmapped
                         0,
                         0,
@@ -1092,14 +1125,25 @@ def run_mapping_pe(
                         q = qua2
 
                     is_orientation1 = orientation == 1
+
+                    # Update CIGAR for single-read mapping
+                    c_str = hit.cigar_str
+                    c = hit.cigar
+                    if hit.q_st > 0 and not (c and c[0][1] == 4):
+                        c_str = f"{hit.q_st}S" + c_str
+                        c = [[hit.q_st, 4]] + list(c)
+                    if hit.q_en < len(s) and not (c and c[-1][1] == 4):
+                        c_str = c_str + f"{len(s) - hit.q_en}S"
+                        c = list(c) + [[len(s) - hit.q_en, 4]]
+
                     score, _wrong_conv, bad_mm = calculate_directional_score(
-                        hit.cigar, s, ref, is_orientation1
+                        c, s, ref, is_orientation1
                     )
                     if bad_mm > max_mismatches // 2:
                         continue
 
                     md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
-                        hit.cigar, s, ref, is_orientation1
+                        c, s, ref, is_orientation1
                     )
                     mapq = score_to_mapq(score)
                     tags = [
@@ -1119,7 +1163,7 @@ def run_mapping_pe(
                         hit.ctg,
                         hit.r_st + 1,
                         mapq,
-                        hit.cigar_str,
+                        c_str,
                         "*",  # Mate unmapped
                         0,
                         0,
