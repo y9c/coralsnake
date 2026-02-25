@@ -95,16 +95,16 @@ static PyObject* reverse_complement(PyObject* self, PyObject* args) {
 
 // MD tag and conversion statistics calculation
 static PyObject* cal_md_and_tag(PyObject* self, PyObject* args) {
-    PyObject* cigar_list;
+    const char* cigar_str;
     const char* seq;
     const char* ref;
     int fwd;
     
-    if (!PyArg_ParseTuple(args, "Ossp", &cigar_list, &seq, &ref, &fwd)) {
+    // Accept string "sssp" instead of object "Ossp"
+    if (!PyArg_ParseTuple(args, "sssp", &cigar_str, &seq, &ref, &fwd)) {
         return NULL;
     }
     
-    Py_ssize_t cigar_len = PyList_Size(cigar_list);
     Py_ssize_t seq_len = strlen(seq);
     Py_ssize_t ref_len = strlen(ref);
     
@@ -126,64 +126,68 @@ static PyObject* cal_md_and_tag(PyObject* self, PyObject* args) {
         b1 = 'T'; b2 = 'C'; b3 = 'G'; b4 = 'A';
     }
     
-    // Process CIGAR operations
-    for (Py_ssize_t i = 0; i < cigar_len; i++) {
-        PyObject* cigar_op = PyList_GetItem(cigar_list, i);
-        long length, operation;
-        
-        // Handle both list and tuple formats
-        if (PyList_Check(cigar_op) && PyList_Size(cigar_op) == 2) {
-            length = PyLong_AsLong(PyList_GetItem(cigar_op, 0));
-            operation = PyLong_AsLong(PyList_GetItem(cigar_op, 1));
-        } else if (PyTuple_Check(cigar_op) && PyTuple_Size(cigar_op) == 2) {
-            length = PyLong_AsLong(PyTuple_GetItem(cigar_op, 0));
-            operation = PyLong_AsLong(PyTuple_GetItem(cigar_op, 1));
+    long length = 0;
+    for (int i = 0; cigar_str[i]; i++) {
+        if (cigar_str[i] >= '0' && cigar_str[i] <= '9') {
+            length = length * 10 + (cigar_str[i] - '0');
         } else {
-            free(md_buffer);
-            PyErr_SetString(PyExc_ValueError, "CIGAR must be list of [length, operation] or (length, operation)");
-            return NULL;
-        }
-        
-        if (operation == 0) {  // Match or Mismatch
-            for (long j = 0; j < length; j++) {
-                if (ref_index >= ref_len || query_index >= seq_len) break;
-                
-                if (ref[ref_index] == seq[query_index]) {
-                    match_count++;
-                    if (seq[query_index] == b1) {
-                        zf++;
-                    } else if (seq[query_index] == b3) {
-                        zc++;
-                    }
-                } else {
-                    // Mismatch: add match_count and mismatch base
-                    md_pos += sprintf(md_buffer + md_pos, "%d%c", match_count, ref[ref_index]);
-                    match_count = 0;
+            int operation = -1;
+            switch(cigar_str[i]) {
+                case 'M': operation = 0; break;
+                case 'I': operation = 1; break;
+                case 'D': operation = 2; break;
+                case 'N': operation = 3; break;
+                case 'S': operation = 4; break;
+                case 'H': operation = 5; break;
+                case 'P': operation = 6; break;
+                case '=': operation = 7; break;
+                case 'X': operation = 8; break;
+            }
+            
+            if (operation == 0) {  // Match or Mismatch
+                for (long j = 0; j < length; j++) {
+                    if (ref_index >= ref_len || query_index >= seq_len) break;
                     
-                    if (seq[query_index] == b2) {
-                        yf++;
-                    } else if (seq[query_index] == b4) {
-                        yc++;
+                    if (ref[ref_index] == seq[query_index]) {
+                        match_count++;
+                        if (seq[query_index] == b1) {
+                            zf++;
+                        } else if (seq[query_index] == b3) {
+                            zc++;
+                        }
                     } else {
-                        ns++;
+                        // Mismatch: add match_count and mismatch base
+                        md_pos += sprintf(md_buffer + md_pos, "%d%c", match_count, ref[ref_index]);
+                        match_count = 0;
+                        
+                        if (seq[query_index] == b2) {
+                            yf++;
+                        } else if (seq[query_index] == b4) {
+                            yc++;
+                        } else {
+                            ns++;
+                        }
                     }
+                    ref_index++;
+                    query_index++;
                 }
-                ref_index++;
-                query_index++;
+            } else if (operation == 1) {  // Insertion
+                query_index += length;
+                nc += length;
+            } else if (operation == 4) {  // Soft clipping
+                query_index += length;
+                nc += length;
+            } else if (operation == 2) {  // Deletion
+                md_pos += sprintf(md_buffer + md_pos, "%d^", match_count);
+                for (long j = 0; j < length && ref_index < ref_len; j++) {
+                    md_buffer[md_pos++] = ref[ref_index++];
+                }
+                match_count = 0;
+                nc += length;
             }
-        } else if (operation == 1) {  // Insertion
-            query_index += length;
-            nc += length;
-        } else if (operation == 4) {  // Soft clipping
-            query_index += length;
-            nc += length;
-        } else if (operation == 2) {  // Deletion
-            md_pos += sprintf(md_buffer + md_pos, "%d^", match_count);
-            for (long j = 0; j < length && ref_index < ref_len; j++) {
-                md_buffer[md_pos++] = ref[ref_index++];
-            }
-            match_count = 0;
-            nc += length;
+            
+            // Reset length for next operation
+            length = 0;
         }
     }
     
@@ -280,16 +284,16 @@ static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
 
 // Directional score calculation
 static PyObject* calculate_directional_score(PyObject* self, PyObject* args) {
-    PyObject* cigar_list;
+    const char* cigar_str;
     const char* seq;
     const char* ref;
     int is_orientation1;
     
-    if (!PyArg_ParseTuple(args, "Ossp", &cigar_list, &seq, &ref, &is_orientation1)) {
+    // Accept string "sssp" instead of object "Ossp"
+    if (!PyArg_ParseTuple(args, "sssp", &cigar_str, &seq, &ref, &is_orientation1)) {
         return NULL;
     }
     
-    Py_ssize_t cigar_len = PyList_Size(cigar_list);
     Py_ssize_t seq_len = strlen(seq);
     Py_ssize_t ref_len = strlen(ref);
     
@@ -297,70 +301,75 @@ static PyObject* calculate_directional_score(PyObject* self, PyObject* args) {
     int matches = 0, expected_conversions = 0, wrong_conversions = 0;
     int other_mismatches = 0, indels = 0;
     
-    // Process CIGAR operations
-    for (Py_ssize_t i = 0; i < cigar_len; i++) {
-        PyObject* cigar_op = PyList_GetItem(cigar_list, i);
-        long length, operation;
-        
-        // Handle both list and tuple formats
-        if (PyList_Check(cigar_op) && PyList_Size(cigar_op) == 2) {
-            length = PyLong_AsLong(PyList_GetItem(cigar_op, 0));
-            operation = PyLong_AsLong(PyList_GetItem(cigar_op, 1));
-        } else if (PyTuple_Check(cigar_op) && PyTuple_Size(cigar_op) == 2) {
-            length = PyLong_AsLong(PyTuple_GetItem(cigar_op, 0));
-            operation = PyLong_AsLong(PyTuple_GetItem(cigar_op, 1));
+    long length = 0;
+    for (int i = 0; cigar_str[i]; i++) {
+        if (cigar_str[i] >= '0' && cigar_str[i] <= '9') {
+            length = length * 10 + (cigar_str[i] - '0');
         } else {
-            PyErr_SetString(PyExc_ValueError, "CIGAR must be list of [length, operation] or (length, operation)");
-            return NULL;
-        }
-        
-        if (operation == 0) {  // Match or Mismatch
-            for (long j = 0; j < length; j++) {
-                if (ref_index >= ref_len || query_index >= seq_len) break;
-                
-                char ref_base = ref[ref_index];
-                char read_base = seq[query_index];
-                
-                if (ref_base == read_base) {
-                    matches++;
-                } else {
-                    // Classify mismatch
-                    if (is_orientation1) {
-                        // Orientation 1: MK conversion (C->T, A->G expected)
-                        if ((ref_base == 'C' && read_base == 'T') || 
-                            (ref_base == 'A' && read_base == 'G')) {
-                            expected_conversions++;
-                        } else if ((ref_base == 'T' && read_base == 'C') || 
-                                   (ref_base == 'G' && read_base == 'A')) {
-                            wrong_conversions++;
-                        } else {
-                            other_mismatches++;
-                        }
+            int operation = -1;
+            switch(cigar_str[i]) {
+                case 'M': operation = 0; break;
+                case 'I': operation = 1; break;
+                case 'D': operation = 2; break;
+                case 'N': operation = 3; break;
+                case 'S': operation = 4; break;
+                case 'H': operation = 5; break;
+                case 'P': operation = 6; break;
+                case '=': operation = 7; break;
+                case 'X': operation = 8; break;
+            }
+            
+            if (operation == 0) {  // Match or Mismatch
+                for (long j = 0; j < length; j++) {
+                    if (ref_index >= ref_len || query_index >= seq_len) break;
+                    
+                    char ref_base = ref[ref_index];
+                    char read_base = seq[query_index];
+                    
+                    if (ref_base == read_base) {
+                        matches++;
                     } else {
-                        // Orientation 2: KM conversion (G->A, T->C expected)
-                        if ((ref_base == 'G' && read_base == 'A') || 
-                            (ref_base == 'T' && read_base == 'C')) {
-                            expected_conversions++;
-                        } else if ((ref_base == 'A' && read_base == 'G') || 
-                                   (ref_base == 'C' && read_base == 'T')) {
-                            wrong_conversions++;
+                        // Classify mismatch
+                        if (is_orientation1) {
+                            // Orientation 1: MK conversion (C->T, A->G expected)
+                            if ((ref_base == 'C' && read_base == 'T') || 
+                                (ref_base == 'A' && read_base == 'G')) {
+                                expected_conversions++;
+                            } else if ((ref_base == 'T' && read_base == 'C') || 
+                                       (ref_base == 'G' && read_base == 'A')) {
+                                wrong_conversions++;
+                            } else {
+                                other_mismatches++;
+                            }
                         } else {
-                            other_mismatches++;
+                            // Orientation 2: KM conversion (G->A, T->C expected)
+                            if ((ref_base == 'G' && read_base == 'A') || 
+                                (ref_base == 'T' && read_base == 'C')) {
+                                expected_conversions++;
+                            } else if ((ref_base == 'A' && read_base == 'G') || 
+                                       (ref_base == 'C' && read_base == 'T')) {
+                                wrong_conversions++;
+                            } else {
+                                other_mismatches++;
+                            }
                         }
                     }
+                    ref_index++;
+                    query_index++;
                 }
-                ref_index++;
-                query_index++;
-            }
-        } else if (operation == 1 || operation == 2) {  // Insertion or Deletion
-            if (operation == 1) {
+            } else if (operation == 1 || operation == 2) {  // Insertion or Deletion
+                if (operation == 1) {
+                    query_index += length;
+                } else {
+                    ref_index += length;
+                }
+                indels += length;
+            } else if (operation == 4) {  // Soft clipping
                 query_index += length;
-            } else {
-                ref_index += length;
             }
-            indels += length;
-        } else if (operation == 4) {  // Soft clipping
-            query_index += length;
+            
+            // Reset length for next operation
+            length = 0;
         }
     }
     

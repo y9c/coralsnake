@@ -588,10 +588,10 @@ def find_properly_paired_hits(hits, fwd=True):
     return parsed_hits
 
 
-def cal_md_and_tag(cigar, seq, ref, fwd):
+def cal_md_and_tag(cigar_str, seq, ref, fwd):
     """Compute MD tag and conversion stats: return (md, yf, zf, yc, zc, ns, nc)."""
     # Use optimized C implementation
-    return seqops.cal_md_and_tag(cigar, seq, ref, fwd)
+    return seqops.cal_md_and_tag(cigar_str, seq, ref, fwd)
 
 
 def score_to_mapq(score):
@@ -603,10 +603,10 @@ def score_to_mapq(score):
     return max(0, min(60, score))
 
 
-def calculate_directional_score(cigar, seq, ref, is_orientation1):
+def calculate_directional_score(cigar_str, seq, ref, is_orientation1):
     """Score alignment with conversion awareness: return (score, wrong_conversions, bad_mismatches)."""
     # Use optimized C implementation
-    return seqops.calculate_directional_score(cigar, seq, ref, is_orientation1)
+    return seqops.calculate_directional_score(cigar_str, seq, ref, is_orientation1)
 
 
 def filter_hits(hits, seq1, seq2, min_alignment_length=20, min_mapping_ratio=0.5):
@@ -691,13 +691,13 @@ def run_mapping_se(
 
                 is_orientation1 = orientation == 1
                 score, _wrong_conv, bad_mm = calculate_directional_score(
-                    cigar, s, ref, is_orientation1
+                    cigar_str, s, ref, is_orientation1
                 )
                 if bad_mm > max_mismatches // 2:
                     continue
 
                 md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
-                    cigar, s, ref, is_orientation1
+                    cigar_str, s, ref, is_orientation1
                 )
                 mapq = score_to_mapq(score)
                 tags = [
@@ -966,19 +966,19 @@ def run_mapping_pe(
                     c2 = list(c2) + [[len(s2) - hit2.q_en, 4]]
 
                 score1, _w1, bad_mm1 = calculate_directional_score(
-                    c1, s1, ref1, is_orientation1
+                    c1_str, s1, ref1, is_orientation1
                 )
                 score2, _w2, bad_mm2 = calculate_directional_score(
-                    c2, s2, ref2, is_orientation1
+                    c2_str, s2, ref2, is_orientation1
                 )
                 if (bad_mm1 + bad_mm2) > max_mismatches:
                     continue
 
                 md1, yf1, zf1, yc1, zc1, ns1, nc1 = cal_md_and_tag(
-                    c1, s1, ref1, is_orientation1
+                    c1_str, s1, ref1, is_orientation1
                 )
                 md2, yf2, zf2, yc2, zc2, ns2, nc2 = cal_md_and_tag(
-                    c2, s2, ref2, is_orientation1
+                    c2_str, s2, ref2, is_orientation1
                 )
                 combined_score = score1 + score2
                 # For paired reads, use minimum of the two scores for MAPQ
@@ -1074,13 +1074,13 @@ def run_mapping_pe(
                         c = list(c) + [[len(s) - hit.q_en, 4]]
 
                     score, _wrong_conv, bad_mm = calculate_directional_score(
-                        c, s, ref, is_orientation1
+                        c_str, s, ref, is_orientation1
                     )
                     if bad_mm > max_mismatches // 2:
                         continue
 
                     md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
-                        c, s, ref, is_orientation1
+                        c_str, s, ref, is_orientation1
                     )
                     mapq = score_to_mapq(score)
                     tags = [
@@ -1137,13 +1137,13 @@ def run_mapping_pe(
                         c = list(c) + [[len(s) - hit.q_en, 4]]
 
                     score, _wrong_conv, bad_mm = calculate_directional_score(
-                        c, s, ref, is_orientation1
+                        c_str, s, ref, is_orientation1
                     )
                     if bad_mm > max_mismatches // 2:
                         continue
 
                     md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
-                        c, s, ref, is_orientation1
+                        c_str, s, ref, is_orientation1
                     )
                     mapq = score_to_mapq(score)
                     tags = [
