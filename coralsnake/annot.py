@@ -124,7 +124,7 @@ def run_annot(
                         if strand == "+":
                             transcript_pos = position - exon_start + exon_shift
                         else:
-                            transcript_pos = exon_end - position + exon_shift
+                            transcript_pos = exon_end - 1 - position + exon_shift
                         annot_list.append((gene_id, transcript_id, transcript_pos))
 
             if len(annot_list) > 0:

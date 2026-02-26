@@ -564,7 +564,7 @@ def _setup_output_bams(output_files, unmap_file, header, stack):
     return bam_outs, bam_unmap, default_bam
 
 
-def find_properly_paired_hits(hits, fwd=True):
+def find_properly_paired_hits(hits):
     """Find read1/read2 hit pairs on the same contig, within 1 kb.
 
     Note: Since we pre-convert Read2 with RC before alignment, both reads may map
@@ -841,7 +841,7 @@ def run_mapping_pe(
             )
 
             # Try to find properly paired hits (same contig)
-            paired_hits = list(find_properly_paired_hits(filtered_hits, fwd=True))
+            paired_hits = list(find_properly_paired_hits(filtered_hits))
 
             # If no same-contig pairs found, try cross-contig rescue
             if not paired_hits:
@@ -870,7 +870,10 @@ def run_mapping_pe(
                                 paired_hits.append((h1, h2))
 
             for hit1, hit2 in paired_hits:
-                tlen = max(hit1.r_en, hit2.r_en) - min(hit1.r_st, hit2.r_st)
+                if hit1.ctg == hit2.ctg:
+                    tlen = max(hit1.r_en, hit2.r_en) - min(hit1.r_st, hit2.r_st)
+                else:
+                    tlen = 0
                 # Fetch original reference for scoring
                 ref1 = _ALIGNERS_ORIG[ref_idx].seq(hit1.ctg, hit1.r_st, hit1.r_en)
                 ref2 = _ALIGNERS_ORIG[ref_idx].seq(hit2.ctg, hit2.r_st, hit2.r_en)
@@ -880,32 +883,31 @@ def run_mapping_pe(
                 # accounting for pre-conversion reverse complement
 
                 # Read1 biological orientation
+                # Read1 is pre-RC'd when is_orientation1 != forward_library
                 if orientation == 1:
-                    # Orientation 1: Read1 was not RC'd before MK conversion
-                    read1_reverse = hit1.strand == -1
+                    if forward_library:
+                        read1_reverse = hit1.strand == -1
+                    else:
+                        read1_reverse = hit1.strand == 1
                 else:
-                    # Orientation 2: Read1 was RC'd before MK conversion
-                    # So if it maps forward to MK ref, it's actually reverse biologically
-                    read1_reverse = hit1.strand == 1
+                    if forward_library:
+                        read1_reverse = hit1.strand == 1
+                    else:
+                        read1_reverse = hit1.strand == -1
 
                 # Read2 biological orientation
+                # Read2 is pre-RC'd when is_orientation1 == forward_library
                 if orientation == 1:
                     if forward_library:
-                        # Read2 was RC'd before MK conversion
-                        # So if it maps forward to MK ref, it's actually reverse biologically
                         read2_reverse = hit2.strand == 1
                     else:
-                        # Read2 was not RC'd
                         read2_reverse = hit2.strand == -1
                 else:
                     if forward_library:
-                        # Read2 was not RC'd
                         read2_reverse = hit2.strand == -1
                     else:
-                        # Read2 was RC'd
                         read2_reverse = hit2.strand == 1
 
-                # For scoring, use the sequences as they were presented to BWA
                 if read1_reverse:
                     s1 = seqops.reverse_complement(seq1)
                     q1 = qua1[::-1]
@@ -913,22 +915,12 @@ def run_mapping_pe(
                     s1 = seq1
                     q1 = qua1
 
-                # For Read2, use the pre-RC'd version if it was RC'd before alignment
-                if orientation == 1:
-                    if forward_library:
-                        # seq2 was RC'd before conversion, so use RC for scoring
-                        s2 = seqops.reverse_complement(seq2)
-                        q2 = qua2[::-1]
-                    else:
-                        s2 = seq2
-                        q2 = qua2
-                else:  # orientation == 2
-                    if forward_library:
-                        s2 = seq2
-                        q2 = qua2
-                    else:
-                        s2 = seqops.reverse_complement(seq2)
-                        q2 = qua2[::-1]
+                if read2_reverse:
+                    s2 = seqops.reverse_complement(seq2)
+                    q2 = qua2[::-1]
+                else:
+                    s2 = seq2
+                    q2 = qua2
 
                 # Set SAM flags based on biological strand orientation
                 if read1_reverse and not read2_reverse:
@@ -1040,24 +1032,22 @@ def run_mapping_pe(
                 # Process read1 single mappings
                 for hit in read1_hits:
                     ref = _ALIGNERS_ORIG[ref_idx].seq(hit.ctg, hit.r_st, hit.r_en)
-                    read_reverse = hit.strand == -1
+
+                    is_orientation1 = orientation == 1
+                    # Read1 is pre-RC'd when is_orientation1 != forward_library
+                    read1_was_rcd = is_orientation1 != forward_library
+                    read_reverse = (hit.strand == -1) ^ read1_was_rcd
                     if read_reverse:
-                        # Flag 89 = paired, mapped, mate unmapped, read reverse, first in pair
                         flag = 89
                         s = seqops.reverse_complement(seq1)
                         q = qua1[::-1]
                     else:
-                        # Flag 73 = paired, mapped, mate unmapped, first in pair
                         flag = 73
                         s = seq1
                         q = qua1
 
-                    is_orientation1 = orientation == 1
-
-                    # Use CIGAR from BWA-MEM directly
                     c_str = hit.cigar_str
 
-                    # Biological orientation for Read 1
                     native1 = is_orientation1 if forward_library else (not is_orientation1)
                     score_fwd = native1 ^ read_reverse
 
@@ -1100,24 +1090,22 @@ def run_mapping_pe(
                 # Process read2 single mappings
                 for hit in read2_hits:
                     ref = _ALIGNERS_ORIG[ref_idx].seq(hit.ctg, hit.r_st, hit.r_en)
-                    read_reverse = hit.strand == -1
+
+                    is_orientation1 = orientation == 1
+                    # Read2 is pre-RC'd when is_orientation1 == forward_library
+                    read2_was_rcd = is_orientation1 == forward_library
+                    read_reverse = (hit.strand == -1) ^ read2_was_rcd
                     if read_reverse:
-                        # Flag 153 = paired, mapped, mate unmapped, read reverse, second in pair
                         flag = 153
                         s = seqops.reverse_complement(seq2)
                         q = qua2[::-1]
                     else:
-                        # Flag 137 = paired, mapped, mate unmapped, second in pair
                         flag = 137
                         s = seq2
                         q = qua2
 
-                    is_orientation1 = orientation == 1
-
-                    # Use CIGAR from BWA-MEM directly
                     c_str = hit.cigar_str
 
-                    # Biological orientation for Read 2 (opposite of Read 1 native)
                     native1 = is_orientation1 if forward_library else (not is_orientation1)
                     score_fwd = (not native1) ^ read_reverse
 

@@ -30,11 +30,9 @@ COMP = str.maketrans("ACGTNacgtn", "TGCANtgcan")
 
 @lru_cache(maxsize=10000)
 def flip_flag(flag):
-    if flag & 16:
-        return (flag & ~16) | 32
-    elif flag & 32:
-        return (flag & ~32) | 16
-    else:
+    if flag & 1:  # paired: toggle both read-reverse (16) and mate-reverse (32)
+        return flag ^ 0x30
+    else:  # unpaired: toggle only read-reverse (16)
         return flag ^ 16
 
 
@@ -45,32 +43,29 @@ def reverse_md(md: str) -> str:
     import re
     # Match numbers, mismatches (single base), or deletions (^ followed by bases)
     for m in re.finditer(r"([0-9]+)|([A-Z])|(\^[A-Z]+)", md):
-        if m.group(1): # Number
+        if m.group(1) is not None: # Number
             parts.append(int(m.group(1)))
         elif m.group(2): # Mismatch base
             parts.append(m.group(2).translate(COMP))
         elif m.group(3): # Deletion
             # Complement the deletion bases and reverse them
-            # Group 3 includes the '^'
             del_bases = m.group(3)[1:]
             parts.append("^" + del_bases.translate(COMP)[::-1])
     
     # Reverse the parts list
     parts.reverse()
     
-    # Merge adjacent numbers
+    # Merge adjacent numbers, ensuring 0s are kept between non-numbers
     merged_parts = []
     current_num = 0
     for p in parts:
         if isinstance(p, int):
             current_num += p
         else:
-            if current_num > 0 or not merged_parts:
-                merged_parts.append(str(current_num))
+            merged_parts.append(str(current_num))
             current_num = 0
             merged_parts.append(p)
     merged_parts.append(str(current_num))
-    
     return "".join(merged_parts)
 
 

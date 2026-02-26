@@ -200,7 +200,8 @@ static PyObject* cal_md_and_tag(PyObject* self, PyObject* args) {
     }
     
     // Return tuple (md_tag, yf, zf, yc, zc, ns, nc)
-    return Py_BuildValue("(Oiiiiii)", md_tag, yf, zf, yc, zc, ns, nc);
+    // Use "N" to steal the reference from md_tag (avoids leak)
+    return Py_BuildValue("(Niiiiii)", md_tag, yf, zf, yc, zc, ns, nc);
 }
 
 // FASTA file conversion (line-by-line, memory efficient)

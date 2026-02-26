@@ -1,53 +1,99 @@
+"""Tests for coralsnake.annot – site annotation with transcript positions."""
+
 from pathlib import Path
 
-from coralsnake.annot import run_annot
+import pytest
+
+run_annot = pytest.importorskip("coralsnake.annot", reason="annot deps not available", exc_type=ImportError).run_annot
 
 
-def write_file(p: Path, content: str) -> str:
+def _write(p: Path, content: str) -> str:
     p.write_text(content)
     return str(p)
 
 
-def test_run_annot_basic(tmp_path: Path):
-    # Build a tiny annotation: two exons on chr1 + strand: 10-20 and 30-40 (1-based in file)
-    annot_path = write_file(
-        tmp_path / "annot.tsv",
-        "\t".join(["chrom", "strand", "spans", "gene_id", "transcript_id"])
-        + "\n"
-        + "\t".join(["chr1", "+", "10-20,30-40", "GENE1", "TX1"])
-        + "\n",
-    )
-
-    # Input sites: columns chrom pos strand (pos 1-based)
-    # Expect: chr1 10 + => transcript_pos 0 (first base of first exon)
-    #         chr1 35 + => transcript_pos 16 (within second exon; first exon length 11)
-    #         chr1 5  + => NA
-    input_path = write_file(
-        tmp_path / "sites.tsv",
-        "\n".join(
-            [
-                "chr1\t10\t+",
-                "chr1\t35\t+",
-                "chr1\t5\t+",
-            ]
+# ---------------------------------------------------------------------------
+# run_annot basics
+# ---------------------------------------------------------------------------
+class TestRunAnnot:
+    def _annot(self, tmp_path):
+        return _write(
+            tmp_path / "annot.tsv",
+            "chrom\tstrand\tspans\tgene_id\ttranscript_id\n"
+            "chr1\t+\t10-20,30-40\tGENE1\tTX1\n"
+            "chr1\t-\t50-60\tGENE2\tTX2\n",
         )
-        + "\n",
-    )
 
-    out_path = str(tmp_path / "out.tsv")
+    def test_plus_strand_first_base(self, tmp_path):
+        annot = self._annot(tmp_path)
+        inp = _write(tmp_path / "sites.tsv", "chr1\t10\t+\n")
+        out = str(tmp_path / "out.tsv")
+        run_annot(inp, out, annot, keep_na=True)
+        line = Path(out).read_text().strip().split("\n")[0]
+        assert line == "chr1\t10\t+\tGENE1\tTX1\t0"
 
-    run_annot(
-        input_file=input_path,
-        output_file=out_path,
-        annot_file=annot_path,
-        cols=None,
-        keep_na=True,
-        collapse_annot=False,
-        add_count=False,
-        skip_header=False,
-    )
+    def test_plus_strand_second_exon(self, tmp_path):
+        annot = self._annot(tmp_path)
+        inp = _write(tmp_path / "sites.tsv", "chr1\t35\t+\n")
+        out = str(tmp_path / "out.tsv")
+        run_annot(inp, out, annot, keep_na=True)
+        line = Path(out).read_text().strip().split("\n")[0]
+        assert line == "chr1\t35\t+\tGENE1\tTX1\t16"
 
-    lines = Path(out_path).read_text().rstrip().splitlines()
-    assert lines[0] == "chr1\t10\t+\tGENE1\tTX1\t0"
-    assert lines[1] == "chr1\t35\t+\tGENE1\tTX1\t16"
-    assert lines[2] == "chr1\t5\t+\t.\t.\t."
+    def test_no_hit_gives_na(self, tmp_path):
+        annot = self._annot(tmp_path)
+        inp = _write(tmp_path / "sites.tsv", "chr1\t5\t+\n")
+        out = str(tmp_path / "out.tsv")
+        run_annot(inp, out, annot, keep_na=True)
+        line = Path(out).read_text().strip().split("\n")[0]
+        assert line == "chr1\t5\t+\t.\t.\t."
+
+    def test_keep_na_false(self, tmp_path):
+        annot = self._annot(tmp_path)
+        inp = _write(tmp_path / "sites.tsv", "chr1\t5\t+\n")
+        out = str(tmp_path / "out.tsv")
+        run_annot(inp, out, annot, keep_na=False)
+        assert Path(out).read_text().strip() == ""
+
+    def test_minus_strand_position(self, tmp_path):
+        """Verify the off-by-one fix: exon_end - 1 - position + exon_shift."""
+        annot = self._annot(tmp_path)
+        inp = _write(tmp_path / "sites.tsv", "chr1\t60\t-\n")
+        out = str(tmp_path / "out.tsv")
+        run_annot(inp, out, annot, keep_na=True)
+        line = Path(out).read_text().strip().split("\n")[0]
+        assert line == "chr1\t60\t-\tGENE2\tTX2\t0"
+
+    def test_minus_strand_last_base(self, tmp_path):
+        annot = self._annot(tmp_path)
+        inp = _write(tmp_path / "sites.tsv", "chr1\t51\t-\n")
+        out = str(tmp_path / "out.tsv")
+        run_annot(inp, out, annot, keep_na=True)
+        line = Path(out).read_text().strip().split("\n")[0]
+        assert line == "chr1\t51\t-\tGENE2\tTX2\t9"
+
+    def test_collapse_annot(self, tmp_path):
+        annot_path = _write(
+            tmp_path / "annot.tsv",
+            "chrom\tstrand\tspans\tgene_id\ttranscript_id\n"
+            "chr1\t+\t10-20\tG1\tT1\n"
+            "chr1\t+\t10-20\tG2\tT2\n",
+        )
+        inp = _write(tmp_path / "sites.tsv", "chr1\t15\t+\n")
+        out = str(tmp_path / "out.tsv")
+        run_annot(inp, out, annot_path, keep_na=True, collapse_annot=True)
+        line = Path(out).read_text().strip().split("\n")[0]
+        assert "G1,G2" in line or "G2,G1" in line
+
+    def test_add_count(self, tmp_path):
+        annot_path = _write(
+            tmp_path / "annot.tsv",
+            "chrom\tstrand\tspans\tgene_id\ttranscript_id\n"
+            "chr1\t+\t10-20\tG1\tT1\n"
+            "chr1\t+\t10-20\tG2\tT2\n",
+        )
+        inp = _write(tmp_path / "sites.tsv", "chr1\t15\t+\n")
+        out = str(tmp_path / "out.tsv")
+        run_annot(inp, out, annot_path, keep_na=True, add_count=True)
+        lines = Path(out).read_text().strip().split("\n")
+        assert all(line.endswith("\t2") for line in lines)

@@ -203,9 +203,7 @@ class Transcript:
     @property
     def exons_forwards(self) -> list[Span]:
         if self._exons_forwards is None:
-            self._exons_forwards = list(self.exons.values())
-            if self.strand == "-":
-                self._exons_forwards = self._exons_forwards[::-1]
+            self._exons_forwards = sorted(self.exons.values(), key=lambda e: e.start)
         return self._exons_forwards
 
     @property
@@ -217,7 +215,7 @@ class Transcript:
             for length in lengths:
                 total += length
                 cum_lengths.append(total)
-            return cum_lengths
+            self._cum_exon_lens = cum_lengths
         return self._cum_exon_lens
 
     @property

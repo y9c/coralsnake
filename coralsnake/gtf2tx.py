@@ -276,44 +276,45 @@ def parse_file(
     gene_dict = read_gtf(
         gtf_file, is_gff=gtf_file.endswith("gff") or gtf_file.endswith("gff3")
     )
-    if seq_file is not None:
-        fasta = pysam.FastaFile(fasta_file)
-        seq_writer = open(seq_file, "w")
-    tsv_writer = open(output_file, "w")
-    header_name = ["gene_id", "transcript_id", "chrom", "strand", "spans"]
-    if with_codon:
-        header_name += ["start_codon", "stop_codon"]
-    if with_genename:
-        header_name.append("gene_name")
-    if with_biotype:
-        header_name.append("transcript_biotype")
-    if with_txpos:
-        header_name += ["transcript_start", "transcript_end"]
-    header = "\t".join(header_name)
-    tsv_writer.write(header + "\n")
-    for tx in rich.progress.track(
-        top_transcript(gene_dict), total=len(gene_dict), description="Writing..."
-    ):
-        if filter_biotype and tx.transcript_biotype != filter_biotype:
-            continue
-        if sanitize:
-            tx.gene_id = sanitize_sequence_name(tx.gene_id)
+    from contextlib import ExitStack
+
+    with ExitStack() as stack:
+        tsv_writer = stack.enter_context(open(output_file, "w"))
         if seq_file is not None:
-            seq_writer.write(
-                f">{tx.gene_id}\n{tx.get_seq(fasta, upper=seq_upper, wrap=line_length)}\n"
+            fasta = stack.enter_context(pysam.FastaFile(fasta_file))
+            seq_writer = stack.enter_context(open(seq_file, "w"))
+
+        header_name = ["gene_id", "transcript_id", "chrom", "strand", "spans"]
+        if with_codon:
+            header_name += ["start_codon", "stop_codon"]
+        if with_genename:
+            header_name.append("gene_name")
+        if with_biotype:
+            header_name.append("transcript_biotype")
+        if with_txpos:
+            header_name += ["transcript_start", "transcript_end"]
+        header = "\t".join(header_name)
+        tsv_writer.write(header + "\n")
+        for tx in rich.progress.track(
+            top_transcript(gene_dict), total=len(gene_dict), description="Writing..."
+        ):
+            if filter_biotype and tx.transcript_biotype != filter_biotype:
+                continue
+            if sanitize:
+                tx.gene_id = sanitize_sequence_name(tx.gene_id)
+            if seq_file is not None:
+                seq_writer.write(
+                    f">{tx.gene_id}\n{tx.get_seq(fasta, upper=seq_upper, wrap=line_length)}\n"
+                )
+            tsv_writer.write(
+                tx.to_tsv(
+                    with_codon=with_codon,
+                    with_genename=with_genename,
+                    with_biotype=with_biotype,
+                    with_txpos=with_txpos,
+                )
             )
-        tsv_writer.write(
-            tx.to_tsv(
-                with_codon=with_codon,
-                with_genename=with_genename,
-                with_biotype=with_biotype,
-                with_txpos=with_txpos,
-            )
-        )
-        tsv_writer.write("\n")
-    if seq_file is not None:
-        seq_writer.close()
-    tsv_writer.close()
+            tsv_writer.write("\n")
 
 
 if __name__ == "__main__":

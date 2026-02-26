@@ -437,7 +437,9 @@ def group_genes(
                 tx._seq = tx.get_seq(chrom_to_fa[tx.chrom])
         # 2. for each biotype, loop tx in gene_name in ["SNORx", "MIRx", "Ux", "RNYx"]
         unnamed_gene = tx_to_unname[tx_biotype]
+        reassigned = []
         for tx in tx_dict[unnamed_gene]:
+            matched = False
             for target_gene, tx_list in tx_dict.items():
                 if target_gene == unnamed_gene:
                     continue
@@ -445,12 +447,14 @@ def group_genes(
                     if (tx._seq in tx2._seq and len(tx._seq) > 0.5 * len(tx2._seq)) or (
                         tx2._seq in tx._seq and len(tx2._seq) > 0.9 * len(tx._seq)
                     ):
-                        tx_dict[unnamed_gene].remove(tx)
-                        tx_dict[target_gene].append(tx)
+                        reassigned.append((tx, target_gene))
+                        matched = True
                         break
-                else:
-                    continue
-                break
+                if matched:
+                    break
+        for tx, target_gene in reassigned:
+            tx_dict[unnamed_gene].remove(tx)
+            tx_dict[target_gene].append(tx)
 
     # if out_file is None write to stdout
     if out_file:
