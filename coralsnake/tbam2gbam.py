@@ -8,6 +8,8 @@
 
 
 import bisect
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import lru_cache
 
 import pysam
@@ -172,6 +174,33 @@ def parse_alignment(
     return new_align
 
 
+# Worker global state for multiprocessing
+_WORKER_ANNOT = None
+_WORKER_GENOME_HEADER = None
+_WORKER_TRANSCRIPT_HEADER = None
+
+
+def _init_worker(annotation_file, genome_header_dict, transcript_header_dict):
+    """Initialize worker with shared annotation and headers."""
+    global _WORKER_ANNOT, _WORKER_GENOME_HEADER, _WORKER_TRANSCRIPT_HEADER
+    _WORKER_ANNOT = load_annotation(annotation_file)
+    _WORKER_GENOME_HEADER = pysam.AlignmentHeader.from_dict(genome_header_dict)
+    _WORKER_TRANSCRIPT_HEADER = pysam.AlignmentHeader.from_dict(transcript_header_dict)
+
+
+def _process_chunk(align_strings):
+    """Process a chunk of alignments (serialized as strings)."""
+    results = []
+    for s in align_strings:
+        # Deserialize from string using transcript header
+        align = pysam.AlignedSegment.fromstring(s, _WORKER_TRANSCRIPT_HEADER)
+        # Remap to genome
+        new_align = parse_alignment(align, _WORKER_ANNOT, _WORKER_GENOME_HEADER)
+        # Serialize result to string for return
+        results.append(new_align.to_string())
+    return results
+
+
 def convert_bam(
     input_bam: str,
     output_bam: str,
@@ -180,28 +209,76 @@ def convert_bam(
     threads: int = 8,
     sort: bool = False,
 ):
-    LOGGER.info("Loading annotation...")
-    annot = load_annotation(annotation_file)
     LOGGER.info("Loading fasta index...")
     faidx = load_faidx(faidx_file)
 
     with pysam.AlignmentFile(input_bam, "rb") as in_bam:
+        transcript_header_dict = in_bam.header.to_dict()
         new_header = in_bam.header.to_dict()
+        if "HD" not in new_header:
+            new_header["HD"] = {"VN": "1.4"}
         # mark as unsorted
         new_header["HD"]["SO"] = "unsorted"
         new_header["SQ"] = [
             {"SN": chrom, "LN": length} for chrom, length in faidx.items()
         ]
-        genome_header = pysam.AlignmentHeader.from_dict(new_header)
+        genome_header_dict = new_header
+        genome_header = pysam.AlignmentHeader.from_dict(genome_header_dict)
 
         with pysam.AlignmentFile(
             output_bam,
             "wb" if output_bam.endswith(".bam") else "w",
             header=genome_header,
         ) as out_bam:
-            for align in track(in_bam, description="Processing..."):
-                new_align = parse_alignment(align, annot, genome_header)
-                out_bam.write(new_align)
+            if threads <= 1:
+                LOGGER.info("Loading annotation for single-threaded processing...")
+                annot = load_annotation(annotation_file)
+                for align in track(in_bam, description="Processing..."):
+                    new_align = parse_alignment(align, annot, genome_header)
+                    out_bam.write(new_align)
+            else:
+                LOGGER.info(f"Using {threads} workers for parallel processing...")
+                chunk_size = 5000
+                # Keep a limited number of futures in flight to save memory
+                max_queue = threads * 2
+                futures = []
+                chunk = []
+
+                with ProcessPoolExecutor(
+                    max_workers=threads,
+                    mp_context=mp.get_context("spawn"),
+                    initializer=_init_worker,
+                    initargs=(
+                        annotation_file,
+                        genome_header_dict,
+                        transcript_header_dict,
+                    ),
+                ) as executor:
+                    for align in track(in_bam, description="Processing..."):
+                        chunk.append(align.to_string())
+                        if len(chunk) >= chunk_size:
+                            futures.append(executor.submit(_process_chunk, list(chunk)))
+                            chunk = []
+
+                            # Drain results if queue is full
+                            if len(futures) >= max_queue:
+                                for res_str in futures.pop(0).result():
+                                    res_align = pysam.AlignedSegment.fromstring(
+                                        res_str, genome_header
+                                    )
+                                    out_bam.write(res_align)
+
+                    # Submit final chunk
+                    if chunk:
+                        futures.append(executor.submit(_process_chunk, chunk))
+
+                    # Drain remaining futures
+                    for fut in as_completed(futures):
+                        for res_str in fut.result():
+                            res_align = pysam.AlignedSegment.fromstring(
+                                res_str, genome_header
+                            )
+                            out_bam.write(res_align)
 
     if sort:
         # skip sorting if output is not BAM file

@@ -684,15 +684,6 @@ def run_mapping_se(
                     q = qua1
 
                 cigar_str = hit.cigar_str
-                cigar = hit.cigar
-                # Add manual soft-clipping only if not already present
-                if hit.q_st > 0 and not (cigar and cigar[0][1] == 4):
-                    cigar_str = f"{hit.q_st}S" + cigar_str
-                    cigar = [[hit.q_st, 4]] + list(cigar)
-                if hit.q_en < len(s) and not (cigar and cigar[-1][1] == 4):
-                    cigar_str = cigar_str + f"{len(s) - hit.q_en}S"
-                    cigar = list(cigar) + [[len(s) - hit.q_en, 4]]
-
                 is_orientation1 = orientation == 1
                 score, _wrong_conv, bad_mm = calculate_directional_score(
                     cigar_str, s, ref, is_orientation1
@@ -949,25 +940,9 @@ def run_mapping_pe(
 
                 is_orientation1 = orientation == 1
                 
-                # Update CIGAR for hit1
+                # Use CIGAR from BWA-MEM directly
                 c1_str = hit1.cigar_str
-                c1 = hit1.cigar
-                if hit1.q_st > 0 and not (c1 and c1[0][1] == 4):
-                    c1_str = f"{hit1.q_st}S" + c1_str
-                    c1 = [[hit1.q_st, 4]] + list(c1)
-                if hit1.q_en < len(s1) and not (c1 and c1[-1][1] == 4):
-                    c1_str = c1_str + f"{len(s1) - hit1.q_en}S"
-                    c1 = list(c1) + [[len(s1) - hit1.q_en, 4]]
-
-                # Update CIGAR for hit2
                 c2_str = hit2.cigar_str
-                c2 = hit2.cigar
-                if hit2.q_st > 0 and not (c2 and c2[0][1] == 4):
-                    c2_str = f"{hit2.q_st}S" + c2_str
-                    c2 = [[hit2.q_st, 4]] + list(c2)
-                if hit2.q_en < len(s2) and not (c2 and c2[-1][1] == 4):
-                    c2_str = c2_str + f"{len(s2) - hit2.q_en}S"
-                    c2 = list(c2) + [[len(s2) - hit2.q_en, 4]]
 
                 score1, _w1, bad_mm1 = calculate_directional_score(
                     c1_str, s1, ref1, is_orientation1
@@ -1067,15 +1042,8 @@ def run_mapping_pe(
 
                     is_orientation1 = orientation == 1
 
-                    # Update CIGAR for single-read mapping
+                    # Use CIGAR from BWA-MEM directly
                     c_str = hit.cigar_str
-                    c = hit.cigar
-                    if hit.q_st > 0 and not (c and c[0][1] == 4):
-                        c_str = f"{hit.q_st}S" + c_str
-                        c = [[hit.q_st, 4]] + list(c)
-                    if hit.q_en < len(s) and not (c and c[-1][1] == 4):
-                        c_str = c_str + f"{len(s) - hit.q_en}S"
-                        c = list(c) + [[len(s) - hit.q_en, 4]]
 
                     score, _wrong_conv, bad_mm = calculate_directional_score(
                         c_str, s, ref, is_orientation1
@@ -1130,15 +1098,8 @@ def run_mapping_pe(
 
                     is_orientation1 = orientation == 1
 
-                    # Update CIGAR for single-read mapping
+                    # Use CIGAR from BWA-MEM directly
                     c_str = hit.cigar_str
-                    c = hit.cigar
-                    if hit.q_st > 0 and not (c and c[0][1] == 4):
-                        c_str = f"{hit.q_st}S" + c_str
-                        c = [[hit.q_st, 4]] + list(c)
-                    if hit.q_en < len(s) and not (c and c[-1][1] == 4):
-                        c_str = c_str + f"{len(s) - hit.q_en}S"
-                        c = list(c) + [[len(s) - hit.q_en, 4]]
 
                     score, _wrong_conv, bad_mm = calculate_directional_score(
                         c_str, s, ref, is_orientation1
