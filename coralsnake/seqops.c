@@ -104,7 +104,6 @@ static PyObject* cal_md_and_tag(PyObject* self, PyObject* args) {
     const char* ref;
     int fwd;
     
-    // Accept string "sssp" instead of object "Ossp"
     if (!PyArg_ParseTuple(args, "sssp", &cigar_str, &seq, &ref, &fwd)) {
         return NULL;
     }
@@ -113,7 +112,9 @@ static PyObject* cal_md_and_tag(PyObject* self, PyObject* args) {
     Py_ssize_t ref_len = strlen(ref);
     
     // Allocate MD tag buffer (worst case: every base is a mismatch)
-    char* md_buffer = (char*)malloc(seq_len * 10);
+    // snprintf needs room for null terminator, and matches can be long
+    size_t buffer_size = seq_len * 10 + 64; 
+    char* md_buffer = (char*)malloc(buffer_size);
     if (!md_buffer) {
         return PyErr_NoMemory();
     }
@@ -135,8 +136,9 @@ static PyObject* cal_md_and_tag(PyObject* self, PyObject* args) {
         if (cigar_str[i] >= '0' && cigar_str[i] <= '9') {
             length = length * 10 + (cigar_str[i] - '0');
         } else {
+            char op_char = cigar_str[i];
             int operation = -1;
-            switch(cigar_str[i]) {
+            switch(op_char) {
                 case 'M': operation = 0; break;
                 case 'I': operation = 1; break;
                 case 'D': operation = 2; break;
@@ -148,7 +150,7 @@ static PyObject* cal_md_and_tag(PyObject* self, PyObject* args) {
                 case 'X': operation = 8; break;
             }
             
-            if (operation == 0) {  // Match or Mismatch
+            if (operation == 0 || operation == 7 || operation == 8) {  // M, =, X
                 for (long j = 0; j < length; j++) {
                     if (ref_index >= ref_len || query_index >= seq_len) break;
                     
@@ -161,7 +163,7 @@ static PyObject* cal_md_and_tag(PyObject* self, PyObject* args) {
                         }
                     } else {
                         // Mismatch: add match_count and mismatch base
-                        md_pos += sprintf(md_buffer + md_pos, "%d%c", match_count, ref[ref_index]);
+                        md_pos += snprintf(md_buffer + md_pos, buffer_size - md_pos, "%d%c", match_count, ref[ref_index]);
                         match_count = 0;
                         
                         if (seq[query_index] == b2) {
@@ -182,21 +184,26 @@ static PyObject* cal_md_and_tag(PyObject* self, PyObject* args) {
                 query_index += length;
                 nc += length;
             } else if (operation == 2) {  // Deletion
-                md_pos += sprintf(md_buffer + md_pos, "%d^", match_count);
+                md_pos += snprintf(md_buffer + md_pos, buffer_size - md_pos, "%d^", match_count);
                 for (long j = 0; j < length && ref_index < ref_len; j++) {
-                    md_buffer[md_pos++] = ref[ref_index++];
+                    if (md_pos < buffer_size - 1) {
+                        md_buffer[md_pos++] = ref[ref_index++];
+                    } else {
+                        ref_index++; // Drop if buffer full (shouldn't happen with our size)
+                    }
                 }
                 match_count = 0;
                 nc += length;
+            } else if (operation == 3) { // N (skip) - treated like deletion for reference pos
+                ref_index += length;
             }
             
-            // Reset length for next operation
             length = 0;
         }
     }
     
     // Append final match count
-    md_pos += sprintf(md_buffer + md_pos, "%d", match_count);
+    md_pos += snprintf(md_buffer + md_pos, buffer_size - md_pos, "%d", match_count);
     
     // Create Python string from buffer
     PyObject* md_tag = PyUnicode_FromStringAndSize(md_buffer, md_pos);
@@ -310,8 +317,9 @@ static PyObject* calculate_directional_score(PyObject* self, PyObject* args) {
         if (cigar_str[i] >= '0' && cigar_str[i] <= '9') {
             length = length * 10 + (cigar_str[i] - '0');
         } else {
+            char op_char = cigar_str[i];
             int operation = -1;
-            switch(cigar_str[i]) {
+            switch(op_char) {
                 case 'M': operation = 0; break;
                 case 'I': operation = 1; break;
                 case 'D': operation = 2; break;
@@ -323,7 +331,7 @@ static PyObject* calculate_directional_score(PyObject* self, PyObject* args) {
                 case 'X': operation = 8; break;
             }
             
-            if (operation == 0) {  // Match or Mismatch
+            if (operation == 0 || operation == 7 || operation == 8) {  // M, =, X
                 for (long j = 0; j < length; j++) {
                     if (ref_index >= ref_len || query_index >= seq_len) break;
                     
@@ -370,6 +378,8 @@ static PyObject* calculate_directional_score(PyObject* self, PyObject* args) {
                 indels += length;
             } else if (operation == 4) {  // Soft clipping
                 query_index += length;
+            } else if (operation == 3) { // N (skip)
+                ref_index += length;
             }
             
             // Reset length for next operation

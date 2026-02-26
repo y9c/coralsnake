@@ -382,13 +382,17 @@ def _process_and_map_reads(
     if paired:
         # Paired-end: read pairs from both files
         it_reads = (
-            ((r1.name, r1.sequence, r1.quality), (r2.name, r2.sequence, r2.quality))
+            (
+                (r1.name, r1.sequence.strip(), r1.quality.strip()),
+                (r2.name, r2.sequence.strip(), r2.quality.strip()),
+            )
             for r1, r2 in read_paired_fastx(r1_file, r2_file)
         )
     else:
         # Single-end: read from R1 file only
         it_reads = (
-            (rec.name, rec.sequence, rec.quality) for rec in fastx_read(r1_file)
+            (rec.name, rec.sequence.strip(), rec.quality.strip())
+            for rec in fastx_read(r1_file)
         )
 
     batch = []
