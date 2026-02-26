@@ -14,15 +14,9 @@ static PyObject* base_conversion(PyObject* self, PyObject* args) {
     }
     
     seq_len = strlen(seq);
-    PyObject* result = PyUnicode_New(seq_len, 127); // ASCII max
-    if (!result) {
-        return NULL;
-    }
-    
-    const char* result_str = PyUnicode_AsUTF8(result);
-    if (!result_str) {
-        Py_DECREF(result);
-        return NULL;
+    char* target = (char*)malloc(seq_len + 1);
+    if (!target) {
+        return PyErr_NoMemory();
     }
     
     // Create lookup table for conversion
@@ -41,13 +35,14 @@ static PyObject* base_conversion(PyObject* self, PyObject* args) {
     }
     
     // Convert sequence
-    // Note: cast to (char*) is safe here because we know result is a new unique string
-    char* target = (char*)result_str;
     for (Py_ssize_t i = 0; i < seq_len; i++) {
         unsigned char c = (unsigned char)seq[i];
         target[i] = lookup[c] ? lookup[c] : c;
     }
+    target[seq_len] = '\0';
     
+    PyObject* result = PyUnicode_FromStringAndSize(target, seq_len);
+    free(target);
     return result;
 }
 
@@ -61,39 +56,30 @@ static PyObject* reverse_complement(PyObject* self, PyObject* args) {
     }
     
     seq_len = strlen(seq);
-    PyObject* result = PyUnicode_New(seq_len, 127); // ASCII max
-    if (!result) {
-        return NULL;
-    }
-    
-    const char* result_str = PyUnicode_AsUTF8(result);
-    if (!result_str) {
-        Py_DECREF(result);
-        return NULL;
+    char* target = (char*)malloc(seq_len + 1);
+    if (!target) {
+        return PyErr_NoMemory();
     }
     
     // Complement lookup table
     char complement[256];
     memset(complement, 0, 256);
-    complement['A'] = 'T';
-    complement['T'] = 'A';
-    complement['G'] = 'C';
-    complement['C'] = 'G';
+    complement['A'] = 'T'; complement['T'] = 'A';
+    complement['G'] = 'C'; complement['C'] = 'G';
     complement['N'] = 'N';
-    complement['a'] = 't';
-    complement['t'] = 'a';
-    complement['g'] = 'c';
-    complement['c'] = 'g';
+    complement['a'] = 't'; complement['t'] = 'a';
+    complement['g'] = 'c'; complement['c'] = 'g';
     complement['n'] = 'n';
     
     // Reverse and complement
-    // Note: cast to (char*) is safe here because we know result is a new unique string
-    char* target = (char*)result_str;
     for (Py_ssize_t i = 0; i < seq_len; i++) {
         unsigned char c = (unsigned char)seq[seq_len - 1 - i];
         target[i] = complement[c] ? complement[c] : c;
     }
+    target[seq_len] = '\0';
     
+    PyObject* result = PyUnicode_FromStringAndSize(target, seq_len);
+    free(target);
     return result;
 }
 

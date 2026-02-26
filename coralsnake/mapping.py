@@ -581,13 +581,11 @@ def find_properly_paired_hits(hits, fwd=True):
         if len(hits[0]) > 0 and len(hits[1]) > 0:
             for hit1 in hits[0]:
                 for hit2 in hits[1]:
-                    # Removed opposite-strand check since we pre-RC Read2
-                    if fwd:
-                        if hit1.r_st < hit2.r_en and hit2.r_en - hit1.r_st < 1000:
-                            parsed_hits.append((hit1, hit2))
-                    else:
-                        if hit1.r_en > hit2.r_st and hit1.r_en - hit2.r_st < 1000:
-                            parsed_hits.append((hit1, hit2))
+                    # Check if reads are within 1kb of each other, regardless of order
+                    # Since we pre-RC Read2, they should be on the same strand
+                    dist = max(hit1.r_en, hit2.r_en) - min(hit1.r_st, hit2.r_st)
+                    if dist < 1000:
+                        parsed_hits.append((hit1, hit2))
 
     return parsed_hits
 
@@ -685,14 +683,16 @@ def run_mapping_se(
 
                 cigar_str = hit.cigar_str
                 is_orientation1 = orientation == 1
+                # Use correct biological orientation flag for scoring
+                score_fwd = is_orientation1 ^ read_reverse
                 score, _wrong_conv, bad_mm = calculate_directional_score(
-                    cigar_str, s, ref, is_orientation1
+                    cigar_str, s, ref, score_fwd
                 )
                 if bad_mm > max_mismatches // 2:
                     continue
 
                 md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
-                    cigar_str, s, ref, is_orientation1
+                    cigar_str, s, ref, score_fwd
                 )
                 mapq = score_to_mapq(score)
                 tags = [
@@ -944,20 +944,26 @@ def run_mapping_pe(
                 c1_str = hit1.cigar_str
                 c2_str = hit2.cigar_str
 
+                # Determine biological orientation flag for scoring each read
+                # Native conversion for Read 1
+                native1 = is_orientation1 if forward_library else (not is_orientation1)
+                score1_fwd = native1 ^ read1_reverse
+                score2_fwd = (not native1) ^ read2_reverse
+
                 score1, _w1, bad_mm1 = calculate_directional_score(
-                    c1_str, s1, ref1, is_orientation1
+                    c1_str, s1, ref1, score1_fwd
                 )
                 score2, _w2, bad_mm2 = calculate_directional_score(
-                    c2_str, s2, ref2, is_orientation1
+                    c2_str, s2, ref2, score2_fwd
                 )
                 if (bad_mm1 + bad_mm2) > max_mismatches:
                     continue
 
                 md1, yf1, zf1, yc1, zc1, ns1, nc1 = cal_md_and_tag(
-                    c1_str, s1, ref1, is_orientation1
+                    c1_str, s1, ref1, score1_fwd
                 )
                 md2, yf2, zf2, yc2, zc2, ns2, nc2 = cal_md_and_tag(
-                    c2_str, s2, ref2, is_orientation1
+                    c2_str, s2, ref2, score2_fwd
                 )
                 combined_score = score1 + score2
                 # For paired reads, use minimum of the two scores for MAPQ
@@ -973,6 +979,12 @@ def run_mapping_pe(
                     ("NS", ns1),
                     ("NC", nc1),
                 ]
+                # Template length sign: positive for leftmost, negative for rightmost
+                if hit1.r_st <= hit2.r_st:
+                    t1, t2 = tlen, -tlen
+                else:
+                    t1, t2 = -tlen, tlen
+
                 map1 = [
                     name,
                     flag1,
@@ -982,7 +994,7 @@ def run_mapping_pe(
                     c1_str,
                     hit2.ctg,
                     hit2.r_st + 1,
-                    tlen,
+                    t1,
                     s1,
                     q1,
                 ] + tags1
@@ -1005,7 +1017,7 @@ def run_mapping_pe(
                     c2_str,
                     hit1.ctg,
                     hit1.r_st + 1,
-                    -tlen,
+                    t2,
                     s2,
                     q2,
                 ] + tags2
@@ -1045,14 +1057,18 @@ def run_mapping_pe(
                     # Use CIGAR from BWA-MEM directly
                     c_str = hit.cigar_str
 
+                    # Biological orientation for Read 1
+                    native1 = is_orientation1 if forward_library else (not is_orientation1)
+                    score_fwd = native1 ^ read_reverse
+
                     score, _wrong_conv, bad_mm = calculate_directional_score(
-                        c_str, s, ref, is_orientation1
+                        c_str, s, ref, score_fwd
                     )
                     if bad_mm > max_mismatches // 2:
                         continue
 
                     md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
-                        c_str, s, ref, is_orientation1
+                        c_str, s, ref, score_fwd
                     )
                     mapq = score_to_mapq(score)
                     tags = [
@@ -1101,14 +1117,18 @@ def run_mapping_pe(
                     # Use CIGAR from BWA-MEM directly
                     c_str = hit.cigar_str
 
+                    # Biological orientation for Read 2 (opposite of Read 1 native)
+                    native1 = is_orientation1 if forward_library else (not is_orientation1)
+                    score_fwd = (not native1) ^ read_reverse
+
                     score, _wrong_conv, bad_mm = calculate_directional_score(
-                        c_str, s, ref, is_orientation1
+                        c_str, s, ref, score_fwd
                     )
                     if bad_mm > max_mismatches // 2:
                         continue
 
                     md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
-                        c_str, s, ref, is_orientation1
+                        c_str, s, ref, score_fwd
                     )
                     mapq = score_to_mapq(score)
                     tags = [
@@ -1187,7 +1207,7 @@ def create_bam_record(header, map_data, is_secondary):
 def create_unmapped_record(header, name, seq, qual, flag):
     """Create an unmapped pysam.AlignedSegment."""
     a = pysam.AlignedSegment(header=header)
-    a.query_name = name.split()[0]
+    a.query_name = name
     a.flag = flag
     a.reference_id = -1
     a.reference_start = -1
@@ -1327,9 +1347,11 @@ def map_file(
     # Streaming batches in parallel (no file splitting). threads = workers
     paired = r2_file is not None
 
-    # Normalize output_files to list
+    # Normalize output_files to list (Click gives tuples)
     if isinstance(output_files, str):
         output_files = [output_files]
+    elif isinstance(output_files, tuple):
+        output_files = list(output_files)
     elif output_files is None:
         output_files = []
 

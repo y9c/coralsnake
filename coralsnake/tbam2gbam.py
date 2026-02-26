@@ -40,26 +40,38 @@ def flip_flag(flag):
 
 @lru_cache(maxsize=10000)
 def reverse_md(md: str) -> str:
+    # Parse MD into components: numbers, mismatches, deletions
     parts = []
-    num = ""
-    for char in md:
-        if char.isdigit():
-            num += char
+    import re
+    # Match numbers, mismatches (single base), or deletions (^ followed by bases)
+    for m in re.finditer(r"([0-9]+)|([A-Z])|(\^[A-Z]+)", md):
+        if m.group(1): # Number
+            parts.append(int(m.group(1)))
+        elif m.group(2): # Mismatch base
+            parts.append(m.group(2).translate(COMP))
+        elif m.group(3): # Deletion
+            # Complement the deletion bases and reverse them
+            # Group 3 includes the '^'
+            del_bases = m.group(3)[1:]
+            parts.append("^" + del_bases.translate(COMP)[::-1])
+    
+    # Reverse the parts list
+    parts.reverse()
+    
+    # Merge adjacent numbers
+    merged_parts = []
+    current_num = 0
+    for p in parts:
+        if isinstance(p, int):
+            current_num += p
         else:
-            if num:
-                parts.append(num)
-                num = ""
-            if char == "^":
-                deletion = "^"
-                while md and md[0].isalpha():
-                    deletion += md[0]
-                    md = md[1:]
-                parts.append(deletion[::-1])
-            else:
-                parts.append(char.translate(COMP))
-    if num:
-        parts.append(num)
-    return "".join(reversed(parts))
+            if current_num > 0 or not merged_parts:
+                merged_parts.append(str(current_num))
+            current_num = 0
+            merged_parts.append(p)
+    merged_parts.append(str(current_num))
+    
+    return "".join(merged_parts)
 
 
 @lru_cache(maxsize=100000)
@@ -151,7 +163,7 @@ def remap_to_genome(
 
 def parse_alignment(
     align: pysam.AlignedSegment,
-    annot: dict[str, dict[str, Transcript]],
+    annot: dict[str, Transcript],
     genome_header: pysam.AlignmentHeader,
 ) -> pysam.AlignedSegment:
     if (
@@ -165,9 +177,9 @@ def parse_alignment(
         align.next_reference_start = -1
         return align
 
-    transcript = next(iter(annot[align.reference_name].values()))
+    transcript = annot[align.reference_name]
     if align.next_reference_name in annot:
-        next_transcript = next(iter(annot[align.next_reference_name].values()))
+        next_transcript = annot[align.next_reference_name]
     else:
         next_transcript = None
     new_align = remap_to_genome(align, genome_header, transcript, next_transcript)
@@ -183,7 +195,13 @@ _WORKER_TRANSCRIPT_HEADER = None
 def _init_worker(annotation_file, genome_header_dict, transcript_header_dict):
     """Initialize worker with shared annotation and headers."""
     global _WORKER_ANNOT, _WORKER_GENOME_HEADER, _WORKER_TRANSCRIPT_HEADER
-    _WORKER_ANNOT = load_annotation(annotation_file)
+    raw_annot = load_annotation(annotation_file)
+    # Build flat mapping for transcript lookups
+    _WORKER_ANNOT = {}
+    for g_id in raw_annot:
+        for t_id, tx in raw_annot[g_id].items():
+            _WORKER_ANNOT[t_id] = tx
+            
     _WORKER_GENOME_HEADER = pysam.AlignmentHeader.from_dict(genome_header_dict)
     _WORKER_TRANSCRIPT_HEADER = pysam.AlignmentHeader.from_dict(transcript_header_dict)
 
@@ -232,7 +250,11 @@ def convert_bam(
         ) as out_bam:
             if threads <= 1:
                 LOGGER.info("Loading annotation for single-threaded processing...")
-                annot = load_annotation(annotation_file)
+                raw_annot = load_annotation(annotation_file)
+                annot = {}
+                for g_id in raw_annot:
+                    for t_id, tx in raw_annot[g_id].items():
+                        annot[t_id] = tx
                 for align in track(in_bam, description="Processing..."):
                     new_align = parse_alignment(align, annot, genome_header)
                     out_bam.write(new_align)
@@ -272,8 +294,8 @@ def convert_bam(
                     if chunk:
                         futures.append(executor.submit(_process_chunk, chunk))
 
-                    # Drain remaining futures
-                    for fut in as_completed(futures):
+                    # Drain remaining futures in order to maintain read sequence
+                    for fut in futures:
                         for res_str in fut.result():
                             res_align = pysam.AlignedSegment.fromstring(
                                 res_str, genome_header
