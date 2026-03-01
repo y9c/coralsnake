@@ -517,13 +517,14 @@ def _write_unmapped_record(paired, read_info, bam_unmap):
         bam_unmap.write(a1)
 
 
-def _setup_output_bams(output_files, unmap_file, header, stack):
+def _setup_output_bams(output_files, unmap_file, unified_header, ref_headers, stack):
     """Setup BAM output files for single/multiple outputs and unmapped reads.
 
     Args:
         output_files: List of output file paths
         unmap_file: Optional unmapped reads file path
-        header: BAM header dict
+        unified_header: Unified BAM header dict (all sequences)
+        ref_headers: List of per-reference BAM headers
         stack: ExitStack context manager for managing file handles
 
     Returns:
@@ -532,22 +533,22 @@ def _setup_output_bams(output_files, unmap_file, header, stack):
                  default_bam file for single output case)
     """
     if len(output_files) > 1:
-        # Create multiple BAM files
+        # Create multiple BAM files with per-reference headers
         bam_outs = {}
         for i, out_file in enumerate(output_files):
             mode = "w" if out_file.endswith(".sam") else "wb"
             bam_outs[i] = stack.enter_context(
-                pysam.AlignmentFile(out_file, mode, header=header)
+                pysam.AlignmentFile(out_file, mode, header=ref_headers[i])
             )
         # Use last output file for unmapped reads (unless unmap_file is specified)
         default_bam = bam_outs[len(output_files) - 1]
     else:
-        # Single output file (backward compatibility)
+        # Single output file (backward compatibility) with unified header
         if not output_files:
             raise ValueError("output_files must be provided")
         mode = "w" if output_files[0].endswith(".sam") else "wb"
         default_bam = stack.enter_context(
-            pysam.AlignmentFile(output_files[0], mode, header=header)
+            pysam.AlignmentFile(output_files[0], mode, header=unified_header)
         )
         bam_outs = None
 
@@ -555,7 +556,7 @@ def _setup_output_bams(output_files, unmap_file, header, stack):
     if unmap_file:
         mode = "w" if unmap_file.endswith(".sam") else "wb"
         bam_unmap = stack.enter_context(
-            pysam.AlignmentFile(unmap_file, mode, header=header)
+            pysam.AlignmentFile(unmap_file, mode, header=unified_header)
         )
     else:
         # Use default (last output file or single output file)
@@ -1323,14 +1324,19 @@ def map_file(
     if index_only:
         return
 
-    # BAM header: include all references (deduplicate by sequence name)
-    header = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": []}
+    # Build BAM headers
+    # Always build a unified header for unmapped file or single output
+    unified_header = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": []}
     seen_seqs = set()
+    ref_headers = []
     for orig_fa, _, _ in ref_indices:
+        h = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": []}
         for rec in fastx_read(orig_fa):
+            h["SQ"].append({"SN": rec.name, "LN": rec.length})
             if rec.name not in seen_seqs:
-                header["SQ"].append({"SN": rec.name, "LN": rec.length})
+                unified_header["SQ"].append({"SN": rec.name, "LN": rec.length})
                 seen_seqs.add(rec.name)
+        ref_headers.append(h)
 
     # Streaming batches in parallel (no file splitting). threads = workers
     paired = r2_file is not None
@@ -1354,7 +1360,7 @@ def map_file(
     with ExitStack() as stack:
         # Setup BAM output files
         bam_outs, bam_unmap, default_bam = _setup_output_bams(
-            output_files, unmap_file, header, stack
+            output_files, unmap_file, unified_header, ref_headers, stack
         )
 
         progress = stack.enter_context(
