@@ -308,8 +308,8 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
 @click.option(
     "--index-dir",
     type=click.Path(),
-    default=None,
-    help="Directory to store/load index files (.mmi). If specified, indices will be reused across runs. If not specified, uses temporary directory (default: None)",
+    multiple=True,
+    help="Directory to store/load index files (.mmi). Can be specified multiple times to match reference files. If not specified, uses temporary directory (default: None)",
 )
 @click.option(
     "--index-only",
@@ -416,6 +416,17 @@ def map(
                     err=True,
                 )
                 raise click.Abort()
+
+        # Validate index-dir count matching
+        if index_dir and len(index_dir) > 1:
+            if len(ref_files) != len(index_dir):
+                click.echo(
+                    f"❌ Error: Number of reference files ({len(ref_files)}) must match "
+                    f"number of index directories ({len(index_dir)}) when multiple index dirs are provided.",
+                    err=True,
+                )
+                raise click.Abort()
+
         # If index-dir is provided and indices exist, ref-files can be omitted
         if not ref_files:
             if not index_dir:
@@ -425,24 +436,24 @@ def map(
                 )
                 raise click.Abort()
 
-            # Check for BWA indices (.bwt is a good indicator)
-            # Look for ref1.orig.bwt, ref1.mk.bwt (or ref.orig.bwt, ref.mk.bwt for backward compatibility)
-            idx_files_exist = False
-            if os.path.exists(
-                os.path.join(index_dir, "ref.orig.bwt")
-            ) and os.path.exists(os.path.join(index_dir, "ref.mk.bwt")):
-                idx_files_exist = True
-            elif os.path.exists(
-                os.path.join(index_dir, "ref1.orig.bwt")
-            ) and os.path.exists(os.path.join(index_dir, "ref1.mk.bwt")):
-                idx_files_exist = True
+            # Check for BWA indices in all specified index directories
+            for d in index_dir:
+                idx_files_exist = False
+                if os.path.exists(
+                    os.path.join(d, "ref.orig.bwt")
+                ) and os.path.exists(os.path.join(d, "ref.mk.bwt")):
+                    idx_files_exist = True
+                elif os.path.exists(
+                    os.path.join(d, "ref1.orig.bwt")
+                ) and os.path.exists(os.path.join(d, "ref1.mk.bwt")):
+                    idx_files_exist = True
 
-            if not idx_files_exist:
-                click.echo(
-                    "❌ Error: --ref-file is required because BWA indices not found in --index-dir",
-                    err=True,
-                )
-                raise click.Abort()
+                if not idx_files_exist:
+                    click.echo(
+                        f"❌ Error: --ref-file is required because BWA indices not found in --index-dir: {d}",
+                        err=True,
+                    )
+                    raise click.Abort()
 
     # Determine forward library flag
     forward_library = library_type == "forward"

@@ -209,7 +209,7 @@ def _init_worker(ref_indices, orientation_filter, forward_library):
 def _build_and_check_indices(
     ref_files,
     ref_indices,
-    index_base_dir,
+    index_dirs,
     index_only,
 ):
     """Build and check indices for all references with unified progress.
@@ -243,6 +243,8 @@ def _build_and_check_indices(
 
             for i, ref_file in enumerate(ref_files, 1):
                 ref_suffix = ref_indices[i - 1][2]
+                # Select correct index directory
+                d = index_dirs[i - 1] if len(index_dirs) == total_refs else index_dirs[0]
 
                 def on_update(conv, p1, p2):
                     elapsed = time.time() - global_start
@@ -262,7 +264,7 @@ def _build_and_check_indices(
                     time.sleep(0.001)
 
                 _build_indices_with_progress(
-                    ref_file, index_base_dir, on_update, ref_suffix=ref_suffix
+                    ref_file, d, on_update, ref_suffix=ref_suffix
                 )
 
             elapsed = time.time() - global_start
@@ -277,8 +279,9 @@ def _build_and_check_indices(
             # Update ref_indices with actual paths
             for i in range(len(ref_indices)):
                 ref_suffix = ref_indices[i][2]
-                orig_fa = os.path.join(index_base_dir, f"ref{ref_suffix}.orig.fa")
-                mk_prefix = os.path.join(index_base_dir, f"ref{ref_suffix}.mk")
+                d = index_dirs[i] if len(index_dirs) == len(ref_indices) else index_dirs[0]
+                orig_fa = os.path.join(d, f"ref{ref_suffix}.orig.fa")
+                mk_prefix = os.path.join(d, f"ref{ref_suffix}.mk")
                 ref_indices[i] = (orig_fa, mk_prefix, ref_suffix)
             return ref_indices
         else:
@@ -288,8 +291,11 @@ def _build_and_check_indices(
 
             for i in range(len(ref_indices)):
                 ref_suffix = ref_indices[i][2]
-                orig_fa = os.path.join(index_base_dir, f"ref{ref_suffix}.orig.fa")
-                mk_prefix = os.path.join(index_base_dir, f"ref{ref_suffix}.mk")
+                # Select correct index directory
+                d = index_dirs[i] if len(index_dirs) == len(ref_indices) else index_dirs[0]
+                
+                orig_fa = os.path.join(d, f"ref{ref_suffix}.orig.fa")
+                mk_prefix = os.path.join(d, f"ref{ref_suffix}.mk")
                 mk_ready = all(
                     os.path.exists(mk_prefix + ext)
                     for ext in [".amb", ".ann", ".bwt", ".pac", ".sa"]
@@ -301,7 +307,7 @@ def _build_and_check_indices(
                 else:
                     all_indices_ready = False
                     refs_to_build.append(
-                        (i, ref_files[i] if i < len(ref_files) else None, ref_suffix)
+                        (i, ref_files[i] if i < len(ref_files) else None, ref_suffix, d)
                     )
 
             if all_indices_ready:
@@ -324,7 +330,7 @@ def _build_and_check_indices(
                 )
                 global_start = time.time()
 
-                for build_idx, (i, ref_file, ref_suffix) in enumerate(refs_to_build, 1):
+                for build_idx, (i, ref_file, ref_suffix, d) in enumerate(refs_to_build, 1):
 
                     def on_update(conv, p1, p2):
                         elapsed = time.time() - global_start
@@ -344,7 +350,7 @@ def _build_and_check_indices(
                         time.sleep(0.001)
 
                     idx0, idx_mk = _build_indices_with_progress(
-                        ref_file, index_base_dir, on_update, ref_suffix=ref_suffix
+                        ref_file, d, on_update, ref_suffix=ref_suffix
                     )
                     ref_indices[i] = (idx0, idx_mk, ref_suffix)
 
@@ -1245,6 +1251,7 @@ def map_file(
         forward_library: True for forward library, False for reverse library.
         orientation_filter: If specified, only map to this orientation (1 or 2).
                           None means map to both orientations (default).
+        index_dir: Optional list of directories to store/load indices.
     """
     # Ensure ref_files and output_files are lists (Click gives tuples)
     if ref_files is None:
@@ -1268,57 +1275,68 @@ def map_file(
             if not os.path.exists(ref_file):
                 raise FileNotFoundError(f"Reference file {i} not found: {ref_file}")
 
-    # Determine index directory path and auto-clean temp via atexit
-    if index_dir:
-        os.makedirs(index_dir, exist_ok=True)
-        index_base_dir = index_dir
-    else:
-        index_base_dir = tempfile.mkdtemp(prefix="coralsnake_")
+    # Normalize index_dir to a list of paths
+    if index_dir is None:
+        # Create a single temporary directory if none provided
+        tmp_dir = tempfile.mkdtemp(prefix="coralsnake_")
         atexit.register(
-            lambda p=index_base_dir: os.path.isdir(p)
-            and shutil.rmtree(p, ignore_errors=True)
+            lambda p=tmp_dir: os.path.isdir(p) and shutil.rmtree(p, ignore_errors=True)
         )
-
-    # Determine which references to index (backward compatibility + multi-reference support)
-    # If no ref_files, check for existing indices
-    if not ref_files:
-        # Look for existing indices (single ref or multi-ref format)
-        if os.path.exists(os.path.join(index_base_dir, "ref.orig.fa")):
-            ref_indices = [
-                (
-                    os.path.join(index_base_dir, "ref.orig.fa"),
-                    os.path.join(index_base_dir, "ref.mk"),
-                    "",
-                )
-            ]
-        else:
-            # Check for ref1, ref2, etc.
-            ref_indices = []
-            i = 1
-            while os.path.exists(os.path.join(index_base_dir, f"ref{i}.orig.fa")):
-                ref_indices.append(
-                    (
-                        os.path.join(index_base_dir, f"ref{i}.orig.fa"),
-                        os.path.join(index_base_dir, f"ref{i}.mk"),
-                        str(i),
-                    )
-                )
-                i += 1
-            if not ref_indices:
-                raise RuntimeError(
-                    "No reference files provided and no indices found in index-dir"
-                )
+        index_dirs = [tmp_dir]
+    elif isinstance(index_dir, str):
+        index_dirs = [index_dir]
     else:
-        # Single reference: use backward-compatible naming (ref.orig, ref.mk)
-        # Multiple references: use numbered naming (ref1, ref2, etc.)
-        if len(ref_files) == 1:
-            ref_indices = [(None, None, "")]  # Will be filled during indexing
-        else:
-            ref_indices = [(None, None, str(i)) for i in range(1, len(ref_files) + 1)]
+        index_dirs = list(index_dir)
+
+    # Ensure all index directories exist
+    for d in index_dirs:
+        os.makedirs(d, exist_ok=True)
+
+    # Determine which references to index
+    if not ref_files:
+        # Look for existing indices in provided index_dirs
+        ref_indices = []
+        for d in index_dirs:
+            # Check for ref.orig.fa (single-ref format)
+            if os.path.exists(os.path.join(d, "ref.orig.fa")):
+                ref_indices.append((os.path.join(d, "ref.orig.fa"), os.path.join(d, "ref.mk"), ""))
+            else:
+                # Check for ref1, ref2, etc. (multi-ref format in this dir)
+                i = 1
+                while os.path.exists(os.path.join(d, f"ref{i}.orig.fa")):
+                    ref_indices.append(
+                        (
+                            os.path.join(d, f"ref{i}.orig.fa"),
+                            os.path.join(d, f"ref{i}.mk"),
+                            str(i),
+                        )
+                    )
+                    i += 1
+        if not ref_indices:
+            raise RuntimeError(
+                "No reference files provided and no indices found in index-dir(s)"
+            )
+    else:
+        # Multiple references provided
+        ref_indices = []
+        for i in range(len(ref_files)):
+            # If multiple index_dirs match ref_files count, use them 1-to-1
+            if len(index_dirs) == len(ref_files):
+                d = index_dirs[i]
+                # Use ref.orig naming for 1-to-1 mapping
+                ref_indices.append((None, None, ""))
+            else:
+                # Single shared index_dir
+                d = index_dirs[0]
+                # Use ref1, ref2 naming for shared directory (unless only one ref)
+                if len(ref_files) == 1:
+                    ref_indices.append((None, None, ""))
+                else:
+                    ref_indices.append((None, None, str(i+1)))
 
     # Build indices for all references with unified progress bar
     ref_indices = _build_and_check_indices(
-        ref_files, ref_indices, index_base_dir, index_only
+        ref_files, ref_indices, index_dirs, index_only
     )
 
     if index_only:
