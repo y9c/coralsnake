@@ -83,22 +83,20 @@ static PyObject* reverse_complement(PyObject* self, PyObject* args) {
     return result;
 }
 
-// MD tag and conversion statistics calculation
-static PyObject* cal_md_and_tag(PyObject* self, PyObject* args) {
+// Optimized combined function: Score + MD tag + Stats
+static PyObject* cal_score_and_md_and_tag(PyObject* self, PyObject* args) {
     const char* cigar_str;
     const char* seq;
     const char* ref;
-    int fwd;
+    int is_orientation1;
     
-    if (!PyArg_ParseTuple(args, "sssp", &cigar_str, &seq, &ref, &fwd)) {
+    if (!PyArg_ParseTuple(args, "sssp", &cigar_str, &seq, &ref, &is_orientation1)) {
         return NULL;
     }
     
     Py_ssize_t seq_len = strlen(seq);
     Py_ssize_t ref_len = strlen(ref);
     
-    // Allocate MD tag buffer (worst case: every base is a mismatch)
-    // snprintf needs room for null terminator, and matches can be long
     size_t buffer_size = seq_len * 10 + 64; 
     char* md_buffer = (char*)malloc(buffer_size);
     if (!md_buffer) {
@@ -106,15 +104,20 @@ static PyObject* cal_md_and_tag(PyObject* self, PyObject* args) {
     }
     
     int yf = 0, zf = 0, yc = 0, zc = 0, ns = 0, nc = 0;
+    int matches = 0, expected_conversions = 0, wrong_conversions = 0;
+    int other_mismatches = 0, indels = 0;
     int ref_index = 0, query_index = 0, match_count = 0;
     int md_pos = 0;
     
-    // Set bases based on direction
-    char b1, b2, b3, b4;
-    if (fwd) {
-        b1 = 'A'; b2 = 'G'; b3 = 'C'; b4 = 'T';
+    // Orientation 1: MK conversion (C->T, A->G expected)
+    // Orientation 2: KM conversion (G->A, T->C expected)
+    char b_match1, b_conv1, b_match2, b_conv2;
+    if (is_orientation1) {
+        b_match1 = 'A'; b_conv1 = 'G'; // A -> G
+        b_match2 = 'C'; b_conv2 = 'T'; // C -> T
     } else {
-        b1 = 'T'; b2 = 'C'; b3 = 'G'; b4 = 'A';
+        b_match1 = 'G'; b_conv1 = 'A'; // G -> A
+        b_match2 = 'T'; b_conv2 = 'C'; // T -> C
     }
     
     long length = 0;
@@ -140,23 +143,37 @@ static PyObject* cal_md_and_tag(PyObject* self, PyObject* args) {
                 for (long j = 0; j < length; j++) {
                     if (ref_index >= ref_len || query_index >= seq_len) break;
                     
-                    if (ref[ref_index] == seq[query_index]) {
+                    char r_b = ref[ref_index];
+                    if (r_b >= 'a' && r_b <= 'z') r_b -= 32;
+                    char s_b = seq[query_index];
+                    if (s_b >= 'a' && s_b <= 'z') s_b -= 32;
+
+                    if (r_b == s_b) {
                         match_count++;
-                        if (seq[query_index] == b1) {
+                        matches++;
+                        if (s_b == b_match1) {
                             zf++;
-                        } else if (seq[query_index] == b3) {
+                        } else if (s_b == b_match2) {
                             zc++;
                         }
                     } else {
-                        // Mismatch: add match_count and mismatch base
-                        md_pos += snprintf(md_buffer + md_pos, buffer_size - md_pos, "%d%c", match_count, ref[ref_index]);
+                        // Mismatch: add match_count and mismatch base to MD
+                        md_pos += snprintf(md_buffer + md_pos, buffer_size - md_pos, "%d%c", match_count, r_b);
                         match_count = 0;
                         
-                        if (seq[query_index] == b2) {
-                            yf++;
-                        } else if (seq[query_index] == b4) {
-                            yc++;
+                        // Classify mismatch for scoring
+                        if ((r_b == b_match1 && s_b == b_conv1) || (r_b == b_match2 && s_b == b_conv2)) {
+                            expected_conversions++;
+                            if (s_b == b_conv1) {
+                                yf++;
+                            } else {
+                                yc++;
+                            }
+                        } else if ((r_b == b_conv1 && s_b == b_match1) || (r_b == b_conv2 && s_b == b_match2)) {
+                            wrong_conversions++;
+                            ns++;
                         } else {
+                            other_mismatches++;
                             ns++;
                         }
                     }
@@ -166,21 +183,23 @@ static PyObject* cal_md_and_tag(PyObject* self, PyObject* args) {
             } else if (operation == 1) {  // Insertion
                 query_index += length;
                 nc += length;
+                indels += length;
             } else if (operation == 4) {  // Soft clipping
                 query_index += length;
                 nc += length;
             } else if (operation == 2) {  // Deletion
                 md_pos += snprintf(md_buffer + md_pos, buffer_size - md_pos, "%d^", match_count);
                 for (long j = 0; j < length && ref_index < ref_len; j++) {
+                    char r_b = ref[ref_index++];
+                    if (r_b >= 'a' && r_b <= 'z') r_b -= 32;
                     if (md_pos < buffer_size - 1) {
-                        md_buffer[md_pos++] = ref[ref_index++];
-                    } else {
-                        ref_index++; // Drop if buffer full (shouldn't happen with our size)
+                        md_buffer[md_pos++] = r_b;
                     }
                 }
                 match_count = 0;
                 nc += length;
-            } else if (operation == 3) { // N (skip) - treated like deletion for reference pos
+                indels += length;
+            } else if (operation == 3) { // N (skip)
                 ref_index += length;
             }
             
@@ -188,10 +207,13 @@ static PyObject* cal_md_and_tag(PyObject* self, PyObject* args) {
         }
     }
     
-    // Append final match count
+    // Append final match count to MD
     md_pos += snprintf(md_buffer + md_pos, buffer_size - md_pos, "%d", match_count);
     
-    // Create Python string from buffer
+    // Calculate final score
+    int score = matches + expected_conversions - wrong_conversions - other_mismatches - indels;
+    int bad_mm = wrong_conversions + other_mismatches;
+    
     PyObject* md_tag = PyUnicode_FromStringAndSize(md_buffer, md_pos);
     free(md_buffer);
     
@@ -199,9 +221,8 @@ static PyObject* cal_md_and_tag(PyObject* self, PyObject* args) {
         return NULL;
     }
     
-    // Return tuple (md_tag, yf, zf, yc, zc, ns, nc)
-    // Use "N" to steal the reference from md_tag (avoids leak)
-    return Py_BuildValue("(Niiiiii)", md_tag, yf, zf, yc, zc, ns, nc);
+    // Return tuple: (score, bad_mm, md_tag, yf, zf, yc, zc, ns, nc)
+    return Py_BuildValue("(iiNiiiiii)", score, bad_mm, md_tag, yf, zf, yc, zc, ns, nc);
 }
 
 // FASTA file conversion (line-by-line, memory efficient)
@@ -215,7 +236,6 @@ static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
         return NULL;
     }
     
-    // Open input and output files
     FILE* input_file = fopen(input_path, "r");
     if (!input_file) {
         PyErr_SetString(PyExc_IOError, "Cannot open input file");
@@ -229,14 +249,10 @@ static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
         return NULL;
     }
     
-    // Create lookup table for conversion
     char lookup[256];
     memset(lookup, 0, 256);
-    
-    // Build lookup table
     for (int i = 0; from_bases[i] && to_bases[i]; i++) {
         lookup[(unsigned char)from_bases[i]] = to_bases[i];
-        // Also handle lowercase
         if (from_bases[i] >= 'A' && from_bases[i] <= 'Z') {
             lookup[(unsigned char)from_bases[i] + 32] = to_bases[i] + 32;
         } else if (from_bases[i] >= 'a' && from_bases[i] <= 'z') {
@@ -244,7 +260,6 @@ static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
         }
     }
     
-    // Buffer for reading lines (large enough for typical FASTA lines)
     char* line_buffer = (char*)malloc(1048576);  // 1MB buffer
     if (!line_buffer) {
         fclose(input_file);
@@ -252,14 +267,11 @@ static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
         return PyErr_NoMemory();
     }
     
-    // Process file line by line (release GIL for long-running I/O)
     Py_BEGIN_ALLOW_THREADS
     while (fgets(line_buffer, 1048576, input_file)) {
         if (line_buffer[0] == '>') {
-            // Header line - write directly
             fputs(line_buffer, output_file);
         } else {
-            // Sequence line - convert bases
             size_t len = strlen(line_buffer);
             for (size_t i = 0; i < len; i++) {
                 unsigned char c = (unsigned char)line_buffer[i];
@@ -272,7 +284,6 @@ static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
     }
     Py_END_ALLOW_THREADS
     
-    // Clean up
     free(line_buffer);
     fclose(input_file);
     fclose(output_file);
@@ -280,115 +291,11 @@ static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
     Py_RETURN_NONE;
 }
 
-// Directional score calculation
-static PyObject* calculate_directional_score(PyObject* self, PyObject* args) {
-    const char* cigar_str;
-    const char* seq;
-    const char* ref;
-    int is_orientation1;
-    
-    // Accept string "sssp" instead of object "Ossp"
-    if (!PyArg_ParseTuple(args, "sssp", &cigar_str, &seq, &ref, &is_orientation1)) {
-        return NULL;
-    }
-    
-    Py_ssize_t seq_len = strlen(seq);
-    Py_ssize_t ref_len = strlen(ref);
-    
-    int ref_index = 0, query_index = 0;
-    int matches = 0, expected_conversions = 0, wrong_conversions = 0;
-    int other_mismatches = 0, indels = 0;
-    
-    long length = 0;
-    for (int i = 0; cigar_str[i]; i++) {
-        if (cigar_str[i] >= '0' && cigar_str[i] <= '9') {
-            length = length * 10 + (cigar_str[i] - '0');
-        } else {
-            char op_char = cigar_str[i];
-            int operation = -1;
-            switch(op_char) {
-                case 'M': operation = 0; break;
-                case 'I': operation = 1; break;
-                case 'D': operation = 2; break;
-                case 'N': operation = 3; break;
-                case 'S': operation = 4; break;
-                case 'H': operation = 5; break;
-                case 'P': operation = 6; break;
-                case '=': operation = 7; break;
-                case 'X': operation = 8; break;
-            }
-            
-            if (operation == 0 || operation == 7 || operation == 8) {  // M, =, X
-                for (long j = 0; j < length; j++) {
-                    if (ref_index >= ref_len || query_index >= seq_len) break;
-                    
-                    char ref_base = ref[ref_index];
-                    char read_base = seq[query_index];
-                    
-                    if (ref_base == read_base) {
-                        matches++;
-                    } else {
-                        // Classify mismatch
-                        if (is_orientation1) {
-                            // Orientation 1: MK conversion (C->T, A->G expected)
-                            if ((ref_base == 'C' && read_base == 'T') || 
-                                (ref_base == 'A' && read_base == 'G')) {
-                                expected_conversions++;
-                            } else if ((ref_base == 'T' && read_base == 'C') || 
-                                       (ref_base == 'G' && read_base == 'A')) {
-                                wrong_conversions++;
-                            } else {
-                                other_mismatches++;
-                            }
-                        } else {
-                            // Orientation 2: KM conversion (G->A, T->C expected)
-                            if ((ref_base == 'G' && read_base == 'A') || 
-                                (ref_base == 'T' && read_base == 'C')) {
-                                expected_conversions++;
-                            } else if ((ref_base == 'A' && read_base == 'G') || 
-                                       (ref_base == 'C' && read_base == 'T')) {
-                                wrong_conversions++;
-                            } else {
-                                other_mismatches++;
-                            }
-                        }
-                    }
-                    ref_index++;
-                    query_index++;
-                }
-            } else if (operation == 1 || operation == 2) {  // Insertion or Deletion
-                if (operation == 1) {
-                    query_index += length;
-                } else {
-                    ref_index += length;
-                }
-                indels += length;
-            } else if (operation == 4) {  // Soft clipping
-                query_index += length;
-            } else if (operation == 3) { // N (skip)
-                ref_index += length;
-            }
-            
-            // Reset length for next operation
-            length = 0;
-        }
-    }
-    
-    // Calculate score
-    int score = matches + expected_conversions - wrong_conversions - other_mismatches - indels;
-    int total_bad_mismatches = wrong_conversions + other_mismatches;
-    
-    // Return tuple (score, wrong_conversions, total_bad_mismatches)
-    return Py_BuildValue("(iii)", score, wrong_conversions, total_bad_mismatches);
-}
-
-
 // Method definitions
 static PyMethodDef SeqOpsMethods[] = {
     {"base_conversion", base_conversion, METH_VARARGS, "Base conversion"},
     {"reverse_complement", reverse_complement, METH_VARARGS, "Reverse complement"},
-    {"cal_md_and_tag", cal_md_and_tag, METH_VARARGS, "MD tag and conversion stats calculation"},
-    {"calculate_directional_score", calculate_directional_score, METH_VARARGS, "Directional score calculation"},
+    {"cal_score_and_md_and_tag", cal_score_and_md_and_tag, METH_VARARGS, "Combined score, MD tag, and stats calculation"},
     {"convert_fasta_file", convert_fasta_file, METH_VARARGS, "FASTA file conversion (line-by-line)"},
     {NULL, NULL, 0, NULL}
 };
