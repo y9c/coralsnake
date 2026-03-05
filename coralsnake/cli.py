@@ -309,7 +309,7 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     "--index-dir",
     type=click.Path(),
     multiple=True,
-    help="Directory to store/load index files (.mmi). Can be specified multiple times to match reference files. If not specified, uses temporary directory (default: None)",
+    help="Directory to store/load index files. Can be specified multiple times to match reference files. If not specified, uses temporary directory (default: None)",
 )
 @click.option(
     "--index-only",
