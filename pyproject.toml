@@ -1,6 +1,6 @@
 [project]
 name = "coralsnake"
-version = "0.0.182"
+version = "0.0.183"
 description = "Transcriptome mapping in two colors"
 authors = [{ name = "Chang Ye", email = "yech1990@gmail.com" }]
 requires-python = ">=3.12"
@@ -9,7 +9,7 @@ license = { text = "GPL-3.0-only" }
 keywords = ["transcriptome", "mapping"]
 # Runtime dependencies only (build tools belong under [build-system])
 dependencies = [
-  "bwamem>=0.0.46",
+  "bwamem>=0.0.47",
   "ruranges>=0.0.14",
   "numpy>=1.26",
   "pyfamsa>=0.4",
