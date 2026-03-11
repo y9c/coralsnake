@@ -23,21 +23,18 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-@lru_cache(maxsize=10000)
 def reverse_complement(seq: str) -> str:
     """Fast reverse complement using C implementation."""
     return seqops.reverse_complement(seq)
 
 
-@lru_cache(maxsize=10000)
 def mk_conversion(seq: str) -> str:
-    """Convert A->G, C->T (M to K conversion). Cached for performance."""
+    """Convert A->G, C->T (M to K conversion)."""
     return seqops.base_conversion(seq, "AC", "GT")
 
 
-@lru_cache(maxsize=10000)
 def km_conversion(seq: str) -> str:
-    """Convert G->A, T->C (K to M conversion). Cached for performance."""
+    """Convert G->A, T->C (K to M conversion)."""
     return seqops.base_conversion(seq, "GT", "AC")
 
 

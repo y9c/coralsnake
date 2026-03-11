@@ -12,6 +12,7 @@ import random
 import shutil
 import tempfile
 import time
+from collections import deque
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import ExitStack
 
@@ -36,1403 +37,293 @@ def _build_indices_with_progress(
     poll_interval: float = 0.1,
     ref_suffix: str = "",
 ):
-    """Build indices with progress using threads (not async - Rich doesn't play well with asyncio.run).
-
-    Args:
-        ref_suffix: Suffix for index files (e.g., "1", "2" for multiple refs). Empty for backward compatibility.
-    """
     from concurrent.futures import ThreadPoolExecutor
-
     os.makedirs(index_base_dir, exist_ok=True)
-    # ORIG
     orig_fa = os.path.join(index_base_dir, f"ref{ref_suffix}.orig.fa")
     orig_prefix = os.path.splitext(orig_fa)[0]
-    # MK (A→G, C→T) - single converted reference for both orientations
     mk_fa = os.path.join(index_base_dir, f"ref{ref_suffix}.mk.fa")
     mk_prefix = os.path.splitext(mk_fa)[0]
 
-    # If ref_file is None, indices should already exist - just return paths
     if ref_file is None:
         on_update("Done", 100.0, 100.0)
         return orig_fa, mk_prefix
 
-    # Copy reference if needed
     if os.path.abspath(ref_file) != os.path.abspath(orig_fa):
         shutil.copyfile(ref_file, orig_fa)
 
-    # Start ORIG index in parallel with conversion (they're independent)
     indexer1 = BwaIndexer(verbose=2, capture_progress=True)
     indexer2 = BwaIndexer(verbose=2, capture_progress=True)
 
-    def build_orig():
-        indexer1.build_index(orig_fa, prefix=orig_prefix)
-
-    def build_mk():
-        indexer2.build_index(mk_fa, prefix=mk_prefix)
-
-    def do_conversion():
-        convert_file_realtime(ref_file, mk_fa, "AC", "GT")
+    def build_orig(): indexer1.build_index(orig_fa, prefix=orig_prefix)
+    def build_mk(): indexer2.build_index(mk_fa, prefix=mk_prefix)
+    def do_conversion(): convert_file_realtime(ref_file, mk_fa, "AC", "GT")
 
     with ThreadPoolExecutor(max_workers=3) as ex:
-        # Start ORIG index and conversion in parallel
         fut_orig = ex.submit(build_orig)
         fut_conv = ex.submit(do_conversion)
-
-        # Poll while conversion runs
-        conv_status = "Converting..."
         while not fut_conv.done():
-            # If ORIG is done during conversion, mark it complete
             p1 = 100.0 if fut_orig.done() else (indexer1.progress_percent or 0.0)
-            on_update(conv_status, p1, 0.0)
+            on_update("Converting...", p1, 0.0)
             time.sleep(poll_interval)
-
         fut_conv.result()
-        conv_status = "Converted"
-
-        # Start MK index after conversion completes
         fut_mk = ex.submit(build_mk)
-
-        # Poll both indices (do-while pattern: always run at least once)
         while True:
-            # If future is done but progress still 0, it completed too fast - set to 100%
             p1 = 100.0 if fut_orig.done() else (indexer1.progress_percent or 0.0)
             p2 = 100.0 if fut_mk.done() else (indexer2.progress_percent or 0.0)
-            on_update(conv_status, p1, p2)
-
-            if fut_orig.done() and fut_mk.done():
-                break
-
+            on_update("Indexing...", p1, p2)
+            if fut_orig.done() and fut_mk.done(): break
             time.sleep(poll_interval)
-
-        fut_orig.result()
-        fut_mk.result()
+        fut_orig.result(); fut_mk.result()
 
     on_update("Done", 100.0, 100.0)
     return orig_fa, mk_prefix
 
 
-def _map_batch_worker(
-    batch,
-    paired,
-    max_mismatches,
-    min_alignment_length,
-    min_mapping_ratio,
-):
-    """Map a batch of reads; return (read_info, (ref_idx, mapping_result)) tuples."""
+def _map_batch_worker(batch, paired, max_mismatches, min_alignment_length, min_mapping_ratio):
     results = []
     if not paired:
-        for name1, seq1, qua1 in batch:
-            ref_idx, mapping_result = run_mapping_se(
-                name1,
-                seq1,
-                qua1,
-                _FORWARD_LIBRARY,
-                max_mismatches,
-                min_alignment_length,
-                min_mapping_ratio,
-            )
+        seqs = [item[1] for item in batch]
+        conv1 = seqops.batch_base_conversion(seqs, "AC", "GT") if _FORWARD_LIBRARY else seqops.batch_base_conversion(seqs, "GT", "AC")
+        conv2 = seqops.batch_base_conversion(seqs, "GT", "AC") if _FORWARD_LIBRARY else seqops.batch_base_conversion(seqs, "AC", "GT")
+        for i, (name1, seq1, qua1) in enumerate(batch):
+            ref_idx, mapping_result = run_mapping_se(name1, seq1, qua1, conv1[i], conv2[i], _FORWARD_LIBRARY, max_mismatches, min_alignment_length, min_mapping_ratio)
             results.append(((name1, seq1, qua1), (ref_idx, mapping_result)))
     else:
-        for (name1, seq1, qua1), (name2, seq2, qua2) in batch:
-            base1 = name1.split()[0].rstrip("/1").rstrip("/2")
-            base2 = name2.split()[0].rstrip("/1").rstrip("/2")
-            if base1 != base2:
-                raise ValueError(f"r1 and r2 not in the same order: {name1} vs {name2}")
-            ref_idx, mapping_result = run_mapping_pe(
-                name1,
-                seq1,
-                seq2,
-                qua1,
-                qua2,
-                _FORWARD_LIBRARY,
-                max_mismatches,
-                min_alignment_length,
-                min_mapping_ratio,
-            )
-            results.append(
-                ((name1, seq1, qua1, name2, seq2, qua2), (ref_idx, mapping_result))
-            )
+        seqs1 = [item[0][1] for item in batch]; seqs2 = [item[1][1] for item in batch]
+        rc_s1 = [seqops.reverse_complement(s) for s in seqs1]; rc_s2 = [seqops.reverse_complement(s) for s in seqs2]
+        # Pre-convert for native orientation only (most common case)
+        # Orientation 1: Read1 converted, Read2-RC converted
+        # Orientation 2: Read1-RC converted, Read2 converted
+        if _FORWARD_LIBRARY:
+            c1_r1 = seqops.batch_base_conversion(seqs1, "AC", "GT")
+            c1_r2 = seqops.batch_base_conversion(rc_s2, "AC", "GT")
+            c2_r1 = seqops.batch_base_conversion(rc_s1, "AC", "GT")
+            c2_r2 = seqops.batch_base_conversion(seqs2, "AC", "GT")
+        else:
+            c1_r1 = seqops.batch_base_conversion(rc_s1, "AC", "GT")
+            c1_r2 = seqops.batch_base_conversion(seqs2, "AC", "GT")
+            c2_r1 = seqops.batch_base_conversion(seqs1, "AC", "GT")
+            c2_r2 = seqops.batch_base_conversion(rc_s2, "AC", "GT")
+        conv_data = (c1_r1, c1_r2, c2_r1, c2_r2)
+        for i, ((name1, seq1, qua1), (name2, seq2, qua2)) in enumerate(batch):
+            ref_idx, mapping_result = run_mapping_pe(name1, seq1, seq2, qua1, qua2, i, conv_data, rc_s1[i], rc_s2[i], _FORWARD_LIBRARY, max_mismatches, min_alignment_length, min_mapping_ratio)
+            results.append(((name1, seq1, qua1, name2, seq2, qua2), (ref_idx, mapping_result)))
     return results
 
 
-# Per-process cached aligners (initialized once per worker)
-_ALIGNERS_ORIG = []
-_ALIGNERS_MK = []
-_ORIENTATION_FILTER = None
-_FORWARD_LIBRARY = None
-
-
-def _init_worker(ref_indices, orientation_filter, forward_library):
-    """Initialize worker with multiple aligners for priority-based mapping.
-
-    Args:
-        ref_indices: List of (orig_fa, mk_index_prefix, ref_suffix) tuples
-    """
-    global _ALIGNERS_ORIG, _ALIGNERS_MK, _ORIENTATION_FILTER, _FORWARD_LIBRARY
-    _ORIENTATION_FILTER = orientation_filter
-    _FORWARD_LIBRARY = forward_library
-
-    # Create aligners for each reference
-    _ALIGNERS_ORIG = []
-    _ALIGNERS_MK = []
-
-    for orig_fa, mk_index_prefix, _ in ref_indices:
-        # Use shorter seeds (14 instead of default 19) for better sensitivity with modified bases
-        # Use moderately higher max_occ (1000 vs default 500) for repetitive elements
-        orig_prefix = os.path.splitext(orig_fa)[0]
-        aligner_orig = BwaAligner(
-            orig_prefix,
-            min_seed_len=14,
-            max_occ=1000,
-            softclip_supplementary=True,
-            mark_secondary=True,
-            clip_penalties=(6, 6),
-            unpaired_penalty=24,
-            min_score=20,
-            insert_model=(80, 60, 450),
-        )
-        aligner_mk = BwaAligner(
-            mk_index_prefix,
-            min_seed_len=14,
-            max_occ=1000,
-            softclip_supplementary=True,
-            mark_secondary=True,
-            clip_penalties=(6, 6),
-            unpaired_penalty=24,
-            min_score=20,
-            insert_model=(80, 60, 450),
-        )
-        _ALIGNERS_ORIG.append(aligner_orig)
-        _ALIGNERS_MK.append(aligner_mk)
-
-
-def _build_and_check_indices(
-    ref_files,
-    ref_indices,
-    index_dirs,
-    index_only,
-):
-    """Build and check indices for all references with unified progress.
-
-    Handles both index-only mode and regular mode (checking existing indices).
-    Returns updated ref_indices with actual file paths.
-    """
-    with Progress(
-        SpinnerColumn(style="cyan"),
-        TextColumn("[bold green]Index[/bold green]"),
-        TextColumn("{task.description}"),
-        TextColumn(
-            "| [yellow]{task.fields[status]}[/yellow] | [cyan]{task.fields[progress]}[/cyan] ([magenta]{task.fields[elapsed]}[/magenta])"
-        ),
-        transient=False,
-    ) as progress:
-        if index_only:
-            if not ref_files:
-                raise RuntimeError("--index-only requires --ref-file to be provided")
-
-            # Unified progress for all references
-            total_refs = len(ref_files)
-            task = progress.add_task(
-                f"Building {total_refs} reference{'s' if total_refs > 1 else ''}...",
-                total=None,
-                status="Starting",
-                progress="0%",
-                elapsed="0.00s",
-            )
-            global_start = time.time()
-
-            for i, ref_file in enumerate(ref_files, 1):
-                ref_suffix = ref_indices[i - 1][2]
-                # Select correct index directory
-                d = index_dirs[i - 1] if len(index_dirs) == total_refs else index_dirs[0]
-
-                def on_update(conv, p1, p2):
-                    elapsed = time.time() - global_start
-                    # Calculate overall progress
-                    prev_refs_progress = (i - 1) * 100
-                    current_ref_progress = (p1 + p2) / 2
-                    overall_progress = (
-                        prev_refs_progress + current_ref_progress
-                    ) / total_refs
-                    progress.update(
-                        task,
-                        status=f"Ref {i}/{total_refs}: {conv}",
-                        progress=f"{overall_progress:.1f}%",
-                        elapsed=format_duration(elapsed),
-                    )
-                    progress.refresh()
-                    time.sleep(0.001)
-
-                _build_indices_with_progress(
-                    ref_file, d, on_update, ref_suffix=ref_suffix
-                )
-
-            elapsed = time.time() - global_start
-            progress.update(
-                task,
-                description=f"✓ {total_refs} reference{'s' if total_refs > 1 else ''} ready",
-                status="Done",
-                progress="100%",
-                elapsed=format_duration(elapsed),
-            )
-            # For index-only, we still need to return updated ref_indices
-            # Update ref_indices with actual paths
-            for i in range(len(ref_indices)):
-                ref_suffix = ref_indices[i][2]
-                d = index_dirs[i] if len(index_dirs) == len(ref_indices) else index_dirs[0]
-                orig_fa = os.path.join(d, f"ref{ref_suffix}.orig.fa")
-                mk_prefix = os.path.join(d, f"ref{ref_suffix}.mk")
-                ref_indices[i] = (orig_fa, mk_prefix, ref_suffix)
-            return ref_indices
-        else:
-            # Check if indices exist and build if needed
-            all_indices_ready = True
-            refs_to_build = []
-
-            for i in range(len(ref_indices)):
-                ref_suffix = ref_indices[i][2]
-                # Select correct index directory
-                d = index_dirs[i] if len(index_dirs) == len(ref_indices) else index_dirs[0]
-                
-                orig_fa = os.path.join(d, f"ref{ref_suffix}.orig.fa")
-                mk_prefix = os.path.join(d, f"ref{ref_suffix}.mk")
-                mk_ready = all(
-                    os.path.exists(mk_prefix + ext)
-                    for ext in [".amb", ".ann", ".bwt", ".pac", ".sa"]
-                )
-                orig_ready = os.path.exists(orig_fa)
-
-                if orig_ready and mk_ready:
-                    ref_indices[i] = (orig_fa, mk_prefix, ref_suffix)
-                else:
-                    all_indices_ready = False
-                    refs_to_build.append(
-                        (i, ref_files[i] if i < len(ref_files) else None, ref_suffix, d)
-                    )
-
-            if all_indices_ready:
-                task = progress.add_task(
-                    "✓ Indices ready",
-                    total=None,
-                    status="Done",
-                    progress="100%",
-                    elapsed="0.00s",
-                )
-            else:
-                # Unified progress for building missing indices
-                total_refs = len(refs_to_build)
-                task = progress.add_task(
-                    f"Building {total_refs} reference{'s' if total_refs > 1 else ''}...",
-                    total=None,
-                    status="Starting",
-                    progress="0%",
-                    elapsed="0.00s",
-                )
-                global_start = time.time()
-
-                for build_idx, (i, ref_file, ref_suffix, d) in enumerate(refs_to_build, 1):
-
-                    def on_update(conv, p1, p2):
-                        elapsed = time.time() - global_start
-                        # Calculate overall progress
-                        prev_refs_progress = (build_idx - 1) * 100
-                        current_ref_progress = (p1 + p2) / 2
-                        overall_progress = (
-                            prev_refs_progress + current_ref_progress
-                        ) / total_refs
-                        progress.update(
-                            task,
-                            status=f"Ref {build_idx}/{total_refs}: {conv}",
-                            progress=f"{overall_progress:.1f}%",
-                            elapsed=format_duration(elapsed),
-                        )
-                        progress.refresh()
-                        time.sleep(0.001)
-
-                    idx0, idx_mk = _build_indices_with_progress(
-                        ref_file, d, on_update, ref_suffix=ref_suffix
-                    )
-                    ref_indices[i] = (idx0, idx_mk, ref_suffix)
-
-                elapsed = time.time() - global_start
-                progress.update(
-                    task,
-                    description=f"✓ {total_refs} reference{'s' if total_refs > 1 else ''} ready",
-                    status="Done",
-                    progress="100%",
-                    elapsed=format_duration(elapsed),
-                )
-
-            return ref_indices
-
-
-def _process_and_map_reads(
-    r1_file,
-    r2_file,
-    ref_indices,
-    write_func,
-    batch_size,
-    threads,
-    max_mismatches,
-    min_alignment_length,
-    min_mapping_ratio,
-    orientation_filter,
-    forward_library,
-):
-    """Unified function for processing single-end or paired-end reads.
-
-    Eliminates duplication between SE and PE processing loops.
-    """
-    paired = r2_file is not None
-
-    if paired:
-        # Paired-end: read pairs from both files
-        it_reads = (
-            (
-                (r1.name, r1.sequence.strip(), r1.quality.strip()),
-                (r2.name, r2.sequence.strip(), r2.quality.strip()),
-            )
-            for r1, r2 in read_paired_fastx(r1_file, r2_file)
-        )
-    else:
-        # Single-end: read from R1 file only
-        it_reads = (
-            (rec.name, rec.sequence.strip(), rec.quality.strip())
-            for rec in fastx_read(r1_file)
-        )
-
-    batch = []
-    with ProcessPoolExecutor(
-        max_workers=max(1, threads),
-        mp_context=mp.get_context("spawn"),
-        initializer=_init_worker,
-        initargs=(ref_indices, orientation_filter, forward_library),
-    ) as ex:
-        futures = []
-        for reads in it_reads:
-            if paired:
-                # Validate paired reads have matching names
-                rec1, rec2 = reads
-                base1 = rec1[0].split()[0].rstrip("/1").rstrip("/2")
-                base2 = rec2[0].split()[0].rstrip("/1").rstrip("/2")
-                if base1 != base2:
-                    raise ValueError(
-                        f"r1 and r2 not in the same order: {rec1[0]} vs {rec2[0]}"
-                    )
-
-            batch.append(reads)
-            if len(batch) >= batch_size:
-                futures.append(
-                    ex.submit(
-                        _map_batch_worker,
-                        list(batch),
-                        paired,
-                        max_mismatches,
-                        min_alignment_length,
-                        min_mapping_ratio,
-                    )
-                )
-                batch.clear()
-
-            # Drain completed futures to avoid initial stall
-            for fut in futures[:]:
-                if fut.done():
-                    write_func(fut.result())
-                    futures.remove(fut)
-
-        # Process final batch
-        if batch:
-            futures.append(
-                ex.submit(
-                    _map_batch_worker,
-                    list(batch),
-                    paired,
-                    max_mismatches,
-                    min_alignment_length,
-                    min_mapping_ratio,
-                )
-            )
-
-        # Wait for remaining futures
-        for fut in as_completed(futures):
-            write_func(fut.result())
-
-
-def _write_mapped_record(paired, item, read_info, target_bam, i):
-    """Write a single mapped record (paired or single-end)."""
-    if paired and len(item) == 3:
-        # Properly paired reads
-        map1, map2 = item[1], item[2]
-        a1 = create_bam_record(target_bam.header, map1, is_secondary=(i > 0))
-        a2 = create_bam_record(target_bam.header, map2, is_secondary=(i > 0))
-        target_bam.write(a1)
-        target_bam.write(a2)
-    elif paired and len(item) == 2:
-        # Single-read mapping from PE mode (mate unmapped)
-        map1 = item[1]
-        a1 = create_bam_record(target_bam.header, map1, is_secondary=(i > 0))
-        target_bam.write(a1)
-        # Also write the unmapped mate
-        name1, seq1, qua1, name2, seq2, qua2 = read_info
-        # Determine which read is mapped based on flag
-        if map1[1] & 0x40:  # First in pair bit (0x40)
-            # Read1 is mapped, write unmapped read2
-            # Base flag: 128 (read2) + 4 (unmapped) + 1 (paired) = 133
-            # Add 32 (mate reverse) if read1 is reverse
-            flag2 = 133
-            if map1[1] & 0x10:  # Mapped mate is reverse
-                flag2 |= 0x20  # Set mate reverse bit
-            a2 = create_unmapped_record(target_bam.header, name2, seq2, qua2, flag2)
-            a2.next_reference_name = map1[2]  # Mate's contig
-            a2.next_reference_start = map1[3] - 1  # Mate's position
-            target_bam.write(a2)
-        else:  # Second in pair (0x80)
-            # Read2 is mapped, write unmapped read1
-            # Base flag: 64 (read1) + 4 (unmapped) + 1 (paired) = 69
-            # Add 32 (mate reverse) if read2 is reverse
-            flag1 = 69
-            if map1[1] & 0x10:  # Mapped mate is reverse
-                flag1 |= 0x20  # Set mate reverse bit
-            a1_unmapped = create_unmapped_record(
-                target_bam.header, name1, seq1, qua1, flag1
-            )
-            a1_unmapped.next_reference_name = map1[2]  # Mate's contig
-            a1_unmapped.next_reference_start = map1[3] - 1  # Mate's position
-            target_bam.write(a1_unmapped)
-    else:
-        # Single-end mapping
-        map1 = item[1]
-        a1 = create_bam_record(target_bam.header, map1, is_secondary=(i > 0))
-        target_bam.write(a1)
-
-
-def _write_unmapped_record(paired, read_info, bam_unmap):
-    """Write unmapped reads (paired or single-end)."""
-    if paired:
-        name1, seq1, qua1, name2, seq2, qua2 = read_info
-        # Flag 77 = paired, unmapped, mate unmapped, first in pair
-        a1 = create_unmapped_record(bam_unmap.header, name1, seq1, qua1, 77)
-        # Flag 141 = paired, unmapped, mate unmapped, second in pair
-        a2 = create_unmapped_record(bam_unmap.header, name2, seq2, qua2, 141)
-        bam_unmap.write(a1)
-        bam_unmap.write(a2)
-    else:
-        name1, seq1, qua1 = read_info
-        # Flag 4 = unmapped
-        a1 = create_unmapped_record(bam_unmap.header, name1, seq1, qua1, 4)
-        bam_unmap.write(a1)
-
-
-def _setup_output_bams(output_files, unmap_file, unified_header, ref_headers, stack):
-    """Setup BAM output files for single/multiple outputs and unmapped reads.
-
-    Args:
-        output_files: List of output file paths
-        unmap_file: Optional unmapped reads file path
-        unified_header: Unified BAM header dict (all sequences)
-        ref_headers: List of per-reference BAM headers
-        stack: ExitStack context manager for managing file handles
-
-    Returns:
-        Tuple of (bam_outs dict if multiple outputs else None,
-                 bam_unmap file,
-                 default_bam file for single output case)
-    """
-    if len(output_files) > 1:
-        # Create multiple BAM files with per-reference headers
-        bam_outs = {}
-        for i, out_file in enumerate(output_files):
-            mode = "w" if out_file.endswith(".sam") else "wb"
-            bam_outs[i] = stack.enter_context(
-                pysam.AlignmentFile(out_file, mode, header=ref_headers[i])
-            )
-        # Use last output file for unmapped reads (unless unmap_file is specified)
-        default_bam = bam_outs[len(output_files) - 1]
-    else:
-        # Single output file (backward compatibility) with unified header
-        if not output_files:
-            raise ValueError("output_files must be provided")
-        mode = "w" if output_files[0].endswith(".sam") else "wb"
-        default_bam = stack.enter_context(
-            pysam.AlignmentFile(output_files[0], mode, header=unified_header)
-        )
-        bam_outs = None
-
-    # Create unmapped reads BAM file if specified
-    if unmap_file:
-        mode = "w" if unmap_file.endswith(".sam") else "wb"
-        bam_unmap = stack.enter_context(
-            pysam.AlignmentFile(unmap_file, mode, header=unified_header)
-        )
-    else:
-        # Use default (last output file or single output file)
-        bam_unmap = default_bam
-
-    return bam_outs, bam_unmap, default_bam
-
-
-def find_properly_paired_hits(hits):
-    """Find read1/read2 hit pairs on the same contig, within 1 kb.
-
-    Note: Since we pre-convert Read2 with RC before alignment, both reads may map
-    to the same strand. The original opposite-strand check has been removed.
-    """
-    parsed_hits = []
-    # group by ref_name and separate read 1 and read 2
-    ref_name_hits = {}
-    for hit in hits:
-        if hit.ctg not in ref_name_hits:
-            ref_name_hits[hit.ctg] = [[], []]
-        ref_name_hits[hit.ctg][hit.read_num - 1].append(hit)
-    for hits in ref_name_hits.values():
-        if len(hits[0]) > 0 and len(hits[1]) > 0:
-            for hit1 in hits[0]:
-                for hit2 in hits[1]:
-                    # Check if reads are within 1kb of each other, regardless of order
-                    # Since we pre-RC Read2, they should be on the same strand
-                    dist = max(hit1.r_en, hit2.r_en) - min(hit1.r_st, hit2.r_st)
-                    if dist < 1000:
-                        parsed_hits.append((hit1, hit2))
-
-    return parsed_hits
-
-
-def cal_md_and_tag(cigar_str, seq, ref, fwd):
-    """Compute MD tag and conversion stats: return (md, yf, zf, yc, zc, ns, nc)."""
-    # Use optimized C implementation
-    return seqops.cal_md_and_tag(cigar_str, seq, ref, fwd)
-
-
-def score_to_mapq(score):
-    """Convert alignment score to MAPQ.
-
-    MAPQ capped at 60: follows BWA-MEM convention where MAPQ 60 represents
-    ~1 in 1,000,000 error probability (Phred 60). SAM format reserves 255 for "unknown".
-    """
-    return max(0, min(60, score))
-
-
-def calculate_directional_score(cigar_str, seq, ref, is_orientation1):
-    """Score alignment with conversion awareness: return (score, wrong_conversions, bad_mismatches)."""
-    # Use optimized C implementation
-    return seqops.calculate_directional_score(cigar_str, seq, ref, is_orientation1)
-
-
-def filter_hits(hits, seq1, seq2, min_alignment_length=20, min_mapping_ratio=0.5):
-    """Keep hits with mapq>0, blen>=min_alignment_length, mlen>=min_mapping_ratio*qlen."""
-    filtered_hits = []
-    for hit in hits:
-        q_len = len(seq1) if hit.read_num == 1 else len(seq2)
-        if (
-            hit.mapq > 0
-            and hit.blen > min_alignment_length
-            and hit.mlen > min_mapping_ratio * q_len
-        ):
-            filtered_hits.append(hit)
-    return filtered_hits
-
-
-def run_mapping_se(
-    name,
-    seq1,
-    qua1,
-    forward_library=True,
-    max_mismatches=10,
-    min_alignment_length=20,
-    min_mapping_ratio=0.5,
-):
-    """Map one single-end read and return scored alignments.
-
-    Tries each reference in priority order (index 0 = highest priority).
-    Returns mappings from the first reference that has any mappings.
-    """
-    # Try each reference in priority order
-    for ref_idx in range(len(_ALIGNERS_MK)):
-        # Skip very short references to prevent crashes
-        if not _check_reference_length(_ALIGNERS_MK[ref_idx]):
-            continue
-
-        mapped = []
-        # Filter orientations if specified
-        orientations = [1, 2] if _ORIENTATION_FILTER is None else [_ORIENTATION_FILTER]
-        for orientation in orientations:
-            # Build converted read
-            if orientation == 1:
-                seq1_conv = (
-                    mk_conversion(seq1) if forward_library else km_conversion(seq1)
-                )
-            else:
-                seq1_conv = (
-                    km_conversion(seq1) if forward_library else mk_conversion(seq1)
-                )
-
-            # Iterate hits - align converted read to MK reference using BWA
-            hits = tuple(_ALIGNERS_MK[ref_idx].align(seq1_conv))
-            for h in hits:
-                h.read_num = 1
-            for hit in filter_hits(
-                hits,
-                seq1,
-                None,
-                min_alignment_length,
-                min_mapping_ratio,
-            ):
-                ref = _ALIGNERS_ORIG[ref_idx].seq(hit.ctg, hit.r_st, hit.r_en)
-                read_reverse = hit.strand == -1
-                if read_reverse:
-                    flag = 16
-                    s = seqops.reverse_complement(seq1)
-                    q = qua1[::-1]
-                else:
-                    flag = 0
-                    s = seq1
-                    q = qua1
-
-                cigar_str = hit.cigar_str
-                is_orientation1 = orientation == 1
-                # Use correct biological orientation flag for scoring
-                score_fwd = is_orientation1 ^ read_reverse
-                score, _wrong_conv, bad_mm = calculate_directional_score(
-                    cigar_str, s, ref, score_fwd
-                )
-                if bad_mm > max_mismatches // 2:
-                    continue
-
-                md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
-                    cigar_str, s, ref, score_fwd
-                )
-                mapq = score_to_mapq(score)
-                tags = [
-                    ("MD", md),
-                    ("ST", orientation),
-                    ("AS", score),
-                    ("Yf", yf),
-                    ("Zf", zf),
-                    ("Yc", yc),
-                    ("Zc", zc),
-                    ("NS", ns),
-                    ("NC", nc),
-                ]
-                map1 = [
-                    name,
-                    flag,
-                    hit.ctg,
-                    hit.r_st + 1,
-                    mapq,
-                    cigar_str,
-                    "*",
-                    0,
-                    0,
-                    s,
-                    q,
-                ] + tags
-                mapped.append([score, map1])
-
-        # Process results for this reference
-        if mapped:
-            random.shuffle(mapped)
-            mapped = sorted(mapped, key=lambda x: x[0], reverse=True)
-            # Found mappings on this reference - return immediately (priority-based)
-            return (ref_idx, mapped)
-
-    # No mappings found in any reference
-    return (None, [])
-
-
 def _check_reference_length(aligner, min_length=100):
-    """Check if any contig in the reference is >= min_length.
-
-    Very short references (all contigs < 100bp) can cause crashes in mate rescue.
-    """
     for i in range(aligner.index.bns.n_seqs):
-        ctg_len = aligner.index.bns.anns[i].len
-        if ctg_len >= min_length:
-            return True
+        if aligner.index.bns.anns[i].len >= min_length: return True
     return False
 
 
-def run_mapping_pe(
-    name,
-    seq1,
-    seq2,
-    qua1,
-    qua2,
-    forward_library=True,
-    max_mismatches=10,
-    min_alignment_length=20,
-    min_mapping_ratio=0.5,
-):
-    """Map one paired-end read and return scored alignment pairs.
-
-    Tries each reference in priority order (index 0 = highest priority).
-    Returns mappings from the highest-priority reference that has proper pairs,
-    or from the highest-priority reference with any mappings if no proper pairs found.
-    """
-    # Try each reference in priority order
-    all_results_by_ref = []  # List of (ref_idx, mapped_results)
-
+def run_mapping_se(name, seq1, qua1, s1_c1, s1_c2, forward_library, max_mismatches, min_alignment_length, min_mapping_ratio):
+    rc_seq1 = rc_qua1 = None
     for ref_idx in range(len(_ALIGNERS_MK)):
-        # Skip very short references to prevent crashes in mate rescue
-        if not _check_reference_length(_ALIGNERS_MK[ref_idx]):
-            continue
+        if not _check_reference_length(_ALIGNERS_MK[ref_idx]): continue
         mapped = []
-        # Filter orientations if specified
-        orientations = [1, 2] if _ORIENTATION_FILTER is None else [_ORIENTATION_FILTER]
-        for orientation in orientations:
-            # Build converted reads
-            # CRITICAL: Both reads MUST use the same chemistry (MK) for mate rescue to work!
-            # Since PE reads sequence opposite strands, Read2 needs RC before MK conversion.
-            if orientation == 1:
-                if forward_library:
-                    # Orientation 1, forward library
-                    # Read1: forward strand → MK conversion
-                    # Read2: reverse strand → RC + MK conversion
-                    seq1_conv = mk_conversion(seq1)
-                    seq2_conv = mk_conversion(reverse_complement(seq2))
-                else:
-                    # Orientation 1, reverse library
-                    seq1_conv = mk_conversion(reverse_complement(seq1))
-                    seq2_conv = mk_conversion(seq2)
-            else:
-                if forward_library:
-                    # Orientation 2, forward library (opposite of orientation 1)
-                    seq1_conv = mk_conversion(reverse_complement(seq1))
-                    seq2_conv = mk_conversion(seq2)
-                else:
-                    # Orientation 2, reverse library
-                    seq1_conv = mk_conversion(seq1)
-                    seq2_conv = mk_conversion(reverse_complement(seq2))
-
-            # Align reads using BWA's paired-end mode (with mate rescue)
-            pe_alignments = tuple(_ALIGNERS_MK[ref_idx].align(seq1_conv, seq2_conv))
-
-            # Extract hits from PE alignments and mark read numbers
-            # pe_alignments is a tuple of PairedAlignment(read1, read2, is_proper_pair, insert_size)
-            # Deduplicate hits by (ctg, r_st, r_en, strand) since PE mode can return
-            # the same hit multiple times in different pair combinations
-            seen_hits1 = {}
-            seen_hits2 = {}
-
-            for paired_aln in pe_alignments:
-                if paired_aln.read1:
-                    hit_key = (
-                        paired_aln.read1.ctg,
-                        paired_aln.read1.r_st,
-                        paired_aln.read1.r_en,
-                        paired_aln.read1.strand,
-                    )
-                    if hit_key not in seen_hits1:
-                        paired_aln.read1.read_num = 1
-                        seen_hits1[hit_key] = paired_aln.read1
-                if paired_aln.read2:
-                    hit_key = (
-                        paired_aln.read2.ctg,
-                        paired_aln.read2.r_st,
-                        paired_aln.read2.r_en,
-                        paired_aln.read2.strand,
-                    )
-                    if hit_key not in seen_hits2:
-                        paired_aln.read2.read_num = 2
-                        seen_hits2[hit_key] = paired_aln.read2
-
-            hits1 = list(seen_hits1.values())
-            hits2 = list(seen_hits2.values())
-            combined_hits = tuple(hits1) + tuple(hits2)
-
-            filtered_hits = filter_hits(
-                combined_hits,
-                seq1,
-                seq2,
-                min_alignment_length,
-                min_mapping_ratio,
-            )
-
-            # Try to find properly paired hits (same contig)
-            paired_hits = list(find_properly_paired_hits(filtered_hits))
-
-            # If no same-contig pairs found, try cross-contig rescue
-            if not paired_hits:
-                # Separate hits by read number
-                read1_hits = [
-                    h
-                    for h in filtered_hits
-                    if hasattr(h, "read_num") and h.read_num == 1
-                ]
-                read2_hits = [
-                    h
-                    for h in filtered_hits
-                    if hasattr(h, "read_num") and h.read_num == 2
-                ]
-
-                if read1_hits and read2_hits:
-                    # Try rescue: use best hits from each read as anchors
-                    # For each Read1 hit, check if any Read2 hit could pair with it (and vice versa)
-                    # This allows cross-contig pairing which mate rescue might have found
-                    for h1 in read1_hits[:3]:  # Try top 3 Read1 hits as anchors
-                        for h2 in read2_hits[:3]:  # Try top 3 Read2 hits as anchors
-                            # If reads are on different contigs, consider them as potential rescued pairs
-                            # This handles cases where mem_matesw found a hit on a different contig
-                            if h1.ctg != h2.ctg:
-                                # Cross-contig pair - likely from mate rescue
-                                paired_hits.append((h1, h2))
-
-            for hit1, hit2 in paired_hits:
-                if hit1.ctg == hit2.ctg:
-                    tlen = max(hit1.r_en, hit2.r_en) - min(hit1.r_st, hit2.r_st)
-                else:
-                    tlen = 0
-                # Fetch original reference for scoring
-                ref1 = _ALIGNERS_ORIG[ref_idx].seq(hit1.ctg, hit1.r_st, hit1.r_en)
-                ref2 = _ALIGNERS_ORIG[ref_idx].seq(hit2.ctg, hit2.r_st, hit2.r_en)
-
-                # Determine biological strand orientation
-                # hit.strand is relative to MK reference, but we need biological orientation
-                # accounting for pre-conversion reverse complement
-
-                # Read1 biological orientation
-                # Read1 is pre-RC'd when is_orientation1 != forward_library
-                if orientation == 1:
-                    if forward_library:
-                        read1_reverse = hit1.strand == -1
-                    else:
-                        read1_reverse = hit1.strand == 1
-                else:
-                    if forward_library:
-                        read1_reverse = hit1.strand == 1
-                    else:
-                        read1_reverse = hit1.strand == -1
-
-                # Read2 biological orientation
-                # Read2 is pre-RC'd when is_orientation1 == forward_library
-                if orientation == 1:
-                    if forward_library:
-                        read2_reverse = hit2.strand == 1
-                    else:
-                        read2_reverse = hit2.strand == -1
-                else:
-                    if forward_library:
-                        read2_reverse = hit2.strand == -1
-                    else:
-                        read2_reverse = hit2.strand == 1
-
-                if read1_reverse:
-                    s1 = seqops.reverse_complement(seq1)
-                    q1 = qua1[::-1]
-                else:
-                    s1 = seq1
-                    q1 = qua1
-
-                if read2_reverse:
-                    s2 = seqops.reverse_complement(seq2)
-                    q2 = qua2[::-1]
-                else:
-                    s2 = seq2
-                    q2 = qua2
-
-                # Set SAM flags based on biological strand orientation
-                if read1_reverse and not read2_reverse:
-                    flag1, flag2 = 83, 163
-                elif not read1_reverse and read2_reverse:
-                    flag1, flag2 = 99, 147
-                else:
-                    flag1, flag2 = 67, 131
-
-                is_orientation1 = orientation == 1
-                
-                # Use CIGAR from BWA-MEM directly
-                c1_str = hit1.cigar_str
-                c2_str = hit2.cigar_str
-
-                # Determine biological orientation flag for scoring each read
-                # Native conversion for Read 1
-                native1 = is_orientation1 if forward_library else (not is_orientation1)
-                score1_fwd = native1 ^ read1_reverse
-                score2_fwd = (not native1) ^ read2_reverse
-
-                score1, _w1, bad_mm1 = calculate_directional_score(
-                    c1_str, s1, ref1, score1_fwd
-                )
-                score2, _w2, bad_mm2 = calculate_directional_score(
-                    c2_str, s2, ref2, score2_fwd
-                )
-                if (bad_mm1 + bad_mm2) > max_mismatches:
-                    continue
-
-                md1, yf1, zf1, yc1, zc1, ns1, nc1 = cal_md_and_tag(
-                    c1_str, s1, ref1, score1_fwd
-                )
-                md2, yf2, zf2, yc2, zc2, ns2, nc2 = cal_md_and_tag(
-                    c2_str, s2, ref2, score2_fwd
-                )
-                combined_score = score1 + score2
-                # For paired reads, use minimum of the two scores for MAPQ
-                mapq = score_to_mapq(min(score1, score2))
-                common_tags = [("ST", orientation)]
-                tags1 = common_tags + [
-                    ("MD", md1),
-                    ("AS", score1),
-                    ("Yf", yf1),
-                    ("Zf", zf1),
-                    ("Yc", yc1),
-                    ("Zc", zc1),
-                    ("NS", ns1),
-                    ("NC", nc1),
-                ]
-                # Template length sign: positive for leftmost, negative for rightmost
-                if hit1.r_st <= hit2.r_st:
-                    t1, t2 = tlen, -tlen
-                else:
-                    t1, t2 = -tlen, tlen
-
-                map1 = [
-                    name,
-                    flag1,
-                    hit1.ctg,
-                    hit1.r_st + 1,
-                    mapq,
-                    c1_str,
-                    hit2.ctg,
-                    hit2.r_st + 1,
-                    t1,
-                    s1,
-                    q1,
-                ] + tags1
-                tags2 = common_tags + [
-                    ("MD", md2),
-                    ("AS", score2),
-                    ("Yf", yf2),
-                    ("Zf", zf2),
-                    ("Yc", yc2),
-                    ("Zc", zc2),
-                    ("NS", ns2),
-                    ("NC", nc2),
-                ]
-                map2 = [
-                    name,
-                    flag2,
-                    hit2.ctg,
-                    hit2.r_st + 1,
-                    mapq,
-                    c2_str,
-                    hit1.ctg,
-                    hit1.r_st + 1,
-                    t2,
-                    s2,
-                    q2,
-                ] + tags2
-                mapped.append([combined_score, map1, map2])
-
-            # If no paired hits found, keep single-read mappings (mate unmapped)
-            if not paired_hits:
-                # Separate hits by read number
-                read1_hits = [
-                    h
-                    for h in filtered_hits
-                    if hasattr(h, "read_num") and h.read_num == 1
-                ]
-                read2_hits = [
-                    h
-                    for h in filtered_hits
-                    if hasattr(h, "read_num") and h.read_num == 2
-                ]
-
-                # Process read1 single mappings
-                for hit in read1_hits:
-                    ref = _ALIGNERS_ORIG[ref_idx].seq(hit.ctg, hit.r_st, hit.r_en)
-
-                    is_orientation1 = orientation == 1
-                    # Read1 is pre-RC'd when is_orientation1 != forward_library
-                    read1_was_rcd = is_orientation1 != forward_library
-                    read_reverse = (hit.strand == -1) ^ read1_was_rcd
-                    if read_reverse:
-                        flag = 89
-                        s = seqops.reverse_complement(seq1)
-                        q = qua1[::-1]
-                    else:
-                        flag = 73
-                        s = seq1
-                        q = qua1
-
-                    c_str = hit.cigar_str
-
-                    native1 = is_orientation1 if forward_library else (not is_orientation1)
-                    score_fwd = native1 ^ read_reverse
-
-                    score, _wrong_conv, bad_mm = calculate_directional_score(
-                        c_str, s, ref, score_fwd
-                    )
-                    if bad_mm > max_mismatches // 2:
-                        continue
-
-                    md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
-                        c_str, s, ref, score_fwd
-                    )
-                    mapq = score_to_mapq(score)
-                    tags = [
-                        ("MD", md),
-                        ("ST", orientation),
-                        ("AS", score),
-                        ("Yf", yf),
-                        ("Zf", zf),
-                        ("Yc", yc),
-                        ("Zc", zc),
-                        ("NS", ns),
-                        ("NC", nc),
-                    ]
-                    map1 = [
-                        name,
-                        flag,
-                        hit.ctg,
-                        hit.r_st + 1,
-                        mapq,
-                        c_str,
-                        "*",  # Mate unmapped
-                        0,
-                        0,
-                        s,
-                        q,
-                    ] + tags
-                    mapped.append([score, map1])
-
-                # Process read2 single mappings
-                for hit in read2_hits:
-                    ref = _ALIGNERS_ORIG[ref_idx].seq(hit.ctg, hit.r_st, hit.r_en)
-
-                    is_orientation1 = orientation == 1
-                    # Read2 is pre-RC'd when is_orientation1 == forward_library
-                    read2_was_rcd = is_orientation1 == forward_library
-                    read_reverse = (hit.strand == -1) ^ read2_was_rcd
-                    if read_reverse:
-                        flag = 153
-                        s = seqops.reverse_complement(seq2)
-                        q = qua2[::-1]
-                    else:
-                        flag = 137
-                        s = seq2
-                        q = qua2
-
-                    c_str = hit.cigar_str
-
-                    native1 = is_orientation1 if forward_library else (not is_orientation1)
-                    score_fwd = (not native1) ^ read_reverse
-
-                    score, _wrong_conv, bad_mm = calculate_directional_score(
-                        c_str, s, ref, score_fwd
-                    )
-                    if bad_mm > max_mismatches // 2:
-                        continue
-
-                    md, yf, zf, yc, zc, ns, nc = cal_md_and_tag(
-                        c_str, s, ref, score_fwd
-                    )
-                    mapq = score_to_mapq(score)
-                    tags = [
-                        ("MD", md),
-                        ("ST", orientation),
-                        ("AS", score),
-                        ("Yf", yf),
-                        ("Zf", zf),
-                        ("Yc", yc),
-                        ("Zc", zc),
-                        ("NS", ns),
-                        ("NC", nc),
-                    ]
-                    map2 = [
-                        name,
-                        flag,
-                        hit.ctg,
-                        hit.r_st + 1,
-                        mapq,
-                        c_str,
-                        "*",  # Mate unmapped
-                        0,
-                        0,
-                        s,
-                        q,
-                    ] + tags
-                    mapped.append([score, map2])
-
-        # Process results for this reference
+        oris = [1, 2] if _ORIENTATION_FILTER is None else [_ORIENTATION_FILTER]
+        for orientation in oris:
+            s1_c = s1_c1 if orientation == 1 else s1_c2
+            hits = _ALIGNERS_MK[ref_idx].align(s1_c, min_mapq=1)
+            for h in hits:
+                if (h[2]-h[1]) < min_alignment_length: continue
+                ref = _ALIGNERS_ORIG[ref_idx].seq(h[0], h[1], h[2]+100)
+                r1_rev = h[3] == -1
+                if r1_rev:
+                    if rc_seq1 is None: rc_seq1, rc_qua1 = seqops.reverse_complement(seq1), qua1[::-1]
+                    s, q, flag = rc_seq1, rc_qua1, 16
+                else: s, q, flag = seq1, qua1, 0
+                res = seqops.score_and_tag(h[7], s, ref, (orientation == 1) ^ r1_rev)
+                if res[1] > max_mismatches // 2 or (len(seq1) * min_mapping_ratio > (len(seq1) - res[1])): continue
+                m1 = [name, flag, h[0], h[1]+1, score_to_mapq(res[0]), h[7], "*", 0, 0, s, q, ("MD", res[2]), ("ST", orientation), ("AS", res[0]), ("Yf", res[3]), ("Zf", res[4]), ("Yc", res[5]), ("Zc", res[6]), ("NS", res[7]), ("NC", res[8])]
+                mapped.append([res[0], m1])
         if mapped:
-            random.shuffle(mapped)
-            mapped = sorted(mapped, key=lambda x: x[0], reverse=True)
-
-            # Check if we found properly-paired alignments (3-element results: [score, map1, map2])
-            has_proper_pair = any(len(result) == 3 for result in mapped)
-            if has_proper_pair:
-                # Found proper pairs on this reference - return immediately (don't try lower-priority refs)
-                return (ref_idx, mapped)
-
-            # No proper pairs, but has single-read mappings - store for fallback
-            all_results_by_ref.append((ref_idx, mapped))
-
-    # No proper pairs found in any reference - return best single-read mapping (highest priority)
-    if all_results_by_ref:
-        ref_idx, mapped_results = all_results_by_ref[0]
-        return (ref_idx, mapped_results)
-
+            random.shuffle(mapped); mapped = sorted(mapped, key=lambda x: x[0], reverse=True)
+            return (ref_idx, mapped)
     return (None, [])
 
 
-## (removed) run_mapping: worker dispatches directly to SE/PE
+def run_mapping_pe(name, seq1, seq2, qua1, qua2, idx, conv_data, rc_s1, rc_s2, forward_library, max_mismatches, min_alignment_length, min_mapping_ratio):
+    q1_l, q2_l = len(seq1), len(seq2)
+    rc_q1 = rc_q2 = None
+    c1_r1, c1_r2, c2_r1, c2_r2 = conv_data
+    all_res = []
+    for ref_idx in range(len(_ALIGNERS_MK)):
+        if not _check_reference_length(_ALIGNERS_MK[ref_idx]): continue
+        mapped = []
+        oris = [1, 2] if _ORIENTATION_FILTER is None else [_ORIENTATION_FILTER]
+        for orientation in oris:
+            is_o1 = orientation == 1
+            s1_c, s2_c = (c1_r1[idx], c1_r2[idx]) if is_o1 else (c2_r1[idx], c2_r2[idx])
+            hits = _ALIGNERS_MK[ref_idx].align(s1_c, s2_c, min_mapq=1)
+            for h1, h2, is_p, isize in hits:
+                res1 = res2 = None
+                if h1 and (h1[2]-h1[1]) >= min_alignment_length:
+                    ref1 = _ALIGNERS_ORIG[ref_idx].seq(h1[0], h1[1], h1[2]+100)
+                    r1_rev = (h1[3]==-1 if forward_library else h1[3]==1) if is_o1 else (h1[3]==1 if forward_library else h1[3]==-1)
+                    if r1_rev:
+                        if rc_q1 is None: rc_q1 = qua1[::-1]
+                        s1, q1, f1 = rc_s1, rc_q1, 16
+                    else: s1, q1, f1 = seq1, qua1, 0
+                    res1 = seqops.score_and_tag(h1[7], s1, ref1, (is_o1 if forward_library else (not is_o1)) ^ r1_rev)
+                if h2 and (h2[2]-h2[1]) >= min_alignment_length:
+                    ref2 = _ALIGNERS_ORIG[ref_idx].seq(h2[0], h2[1], h2[2]+100)
+                    r2_rev = (h2[3]==1 if forward_library else h2[3]==-1) if is_o1 else (h2[3]==-1 if forward_library else h2[3]==1)
+                    if r2_rev:
+                        if rc_q2 is None: rc_q2 = qua2[::-1]
+                        s2, q2, f2 = rc_s2, rc_q2, 16
+                    else: s2, q2, f2 = seq2, qua2, 0
+                    res2 = seqops.score_and_tag(h2[7], s2, ref2, (not (is_o1 if forward_library else (not is_o1))) ^ r2_rev)
+                if res1 or res2:
+                    if ( (res1[1] if res1 else 0) + (res2[1] if res2 else 0) ) > max_mismatches: continue
+                    if res1 and (q1_l * min_mapping_ratio > (q1_l - res1[1])): continue
+                    if res2 and (q2_l * min_mapping_ratio > (q2_l - res2[1])): continue
+                    mq = score_to_mapq(min(res1[0] if res1 else 99, res2[0] if res2 else 99))
+                    m1 = m2 = None
+                    if res1:
+                        t1 = [("ST", orientation), ("MD", res1[2]), ("AS", res1[0]), ("Yf", res1[3]), ("Zf", res1[4]), ("Yc", res1[5]), ("Zc", res1[6]), ("NS", res1[7]), ("NC", res1[8])]
+                        if h2: m1 = [name, 67+f1+(32 if h2[3]==-1 else 0)+(2 if is_p else 0), h1[0], h1[1]+1, mq, h1[7], h2[0], h2[1]+1, (isize if h1[1]<=h2[1] else -isize), s1, q1] + t1
+                        else: m1 = [name, 73+f1, h1[0], h1[1]+1, mq, h1[7], "*", 0, 0, s1, q1] + t1
+                    if res2:
+                        t2 = [("ST", orientation), ("MD", res2[2]), ("AS", res2[0]), ("Yf", res2[3]), ("Zf", res2[4]), ("Yc", res2[5]), ("Zc", res2[6]), ("NS", res2[7]), ("NC", res2[8])]
+                        if h1: m2 = [name, 131+f2+(32 if h1[3]==-1 else 0)+(2 if is_p else 0), h2[0], h2[1]+1, mq, h2[7], h1[0], h1[1]+1, (isize if h2[1]<=h1[1] else -isize), s2, q2] + t2
+                        else: m2 = [name, 137+f2, h2[0], h2[1]+1, mq, h2[7], "*", 0, 0, s2, q2] + t2
+                    mapped.append([(res1[0] if res1 else 0)+(res2[0] if res2 else 0), m1, m2])
+        if mapped:
+            random.shuffle(mapped); mapped = sorted(mapped, key=lambda x: x[0], reverse=True)
+            if any(r[1] and r[2] for r in mapped): return (ref_idx, mapped)
+            all_res.append((ref_idx, mapped))
+        else: all_res.append((ref_idx, []))
+    for r_idx, rs in all_res:
+        if rs: return (r_idx, rs)
+    return (None, [])
 
+
+_ALIGNERS_ORIG = []; _ALIGNERS_MK = []; _ORIENTATION_FILTER = None; _FORWARD_LIBRARY = None
+
+def _init_worker(ref_indices, orientation_filter, forward_library):
+    global _ALIGNERS_ORIG, _ALIGNERS_MK, _ORIENTATION_FILTER, _FORWARD_LIBRARY
+    _ORIENTATION_FILTER, _FORWARD_LIBRARY = orientation_filter, forward_library
+    _ALIGNERS_ORIG = []; _ALIGNERS_MK = []
+    for o_fa, mk_pre, _ in ref_indices:
+        opts = {"min_seed_len": 14, "max_occ": 1000, "softclip_supplementary": True, "mark_secondary": True, "clip_penalties": (6,6), "unpaired_penalty": 24, "min_score": 20, "insert_model": (80,60,450)}
+        _ALIGNERS_ORIG.append(BwaAligner(os.path.splitext(o_fa)[0], **opts))
+        _ALIGNERS_MK.append(BwaAligner(mk_pre, **opts))
+
+
+def _build_and_check_indices(ref_files, ref_indices, index_dirs, index_only):
+    with Progress(SpinnerColumn(), TextColumn("[bold green]Index[/bold green]"), TextColumn("{task.description}"), TextColumn("| [yellow]{task.fields[status]}[/yellow] | [cyan]{task.fields[progress]}[/cyan]"), transient=False) as progress:
+        task = progress.add_task(f"Indices...", total=None, status="Checking", progress="0%")
+        for i in range(len(ref_indices)):
+            ref_suffix = ref_indices[i][2]
+            d = index_dirs[i] if len(index_dirs) == len(ref_indices) else index_dirs[0]
+            o_fa, mk_pre = os.path.join(d, f"ref{ref_suffix}.orig.fa"), os.path.join(d, f"ref{ref_suffix}.mk")
+            if index_only or not (os.path.exists(o_fa) and all(os.path.exists(mk_pre+e) for e in [".amb",".ann",".bwt",".pac",".sa"])):
+                def on_up(s,p1,p2): progress.update(task, status=f"Ref {i+1}: {s}", progress=f"{(p1+p2)/2:.1f}%")
+                idx0, idx_mk = _build_indices_with_progress(ref_files[i] if i < len(ref_files) else None, d, on_up, ref_suffix=ref_suffix)
+                ref_indices[i] = (idx0, idx_mk, ref_suffix)
+            else: ref_indices[i] = (o_fa, mk_pre, ref_suffix)
+        progress.update(task, description="✓ Indices ready", status="Done", progress="100%")
+        return ref_indices
+
+
+def _process_and_map_reads(r1_file, r2_file, ref_indices, write_func, batch_size, threads, max_mismatches, min_alignment_length, min_mapping_ratio, orientation_filter, forward_library):
+    paired = r2_file is not None
+    it_reads = read_paired_fastx(r1_file, r2_file) if paired else fastx_read(r1_file)
+    batch = []
+    with ProcessPoolExecutor(max_workers=max(1, threads), mp_context=mp.get_context("spawn"), initializer=_init_worker, initargs=(ref_indices, orientation_filter, forward_library)) as ex:
+        futures = deque()
+        for reads in it_reads:
+            if paired:
+                if reads[0].name.split()[0].rstrip("/1").rstrip("/2") != reads[1].name.split()[0].rstrip("/1").rstrip("/2"):
+                    raise ValueError(f"Order mismatch: {reads[0].name} vs {reads[1].name}")
+                batch.append(((reads[0].name, reads[0].sequence, reads[0].quality), (reads[1].name, reads[1].sequence, reads[1].quality)))
+            else: batch.append((reads.name, reads.sequence, reads.quality))
+            if len(batch) >= batch_size:
+                futures.append(ex.submit(_map_batch_worker, list(batch), paired, max_mismatches, min_alignment_length, min_mapping_ratio))
+                batch.clear()
+            while futures and futures[0].done(): write_func(futures.popleft().result())
+        if batch: futures.append(ex.submit(_map_batch_worker, list(batch), paired, max_mismatches, min_alignment_length, min_mapping_ratio))
+        while futures: write_func(futures.popleft().result())
+
+
+def _write_mapped_record(paired, item, read_info, target_bam, i):
+    if paired and len(item) == 3:
+        if item[1]: target_bam.write(create_bam_record(target_bam.header, item[1], i > 0))
+        if item[2]: target_bam.write(create_bam_record(target_bam.header, item[2], i > 0))
+    else:
+        target_bam.write(create_bam_record(target_bam.header, item[1], i > 0))
+
+
+def _write_unmapped_record(paired, read_info, bam_unmap):
+    if paired:
+        bam_unmap.write(create_unmapped_record(bam_unmap.header, read_info[0], read_info[1], read_info[2], 77))
+        bam_unmap.write(create_unmapped_record(bam_unmap.header, read_info[3], read_info[4], read_info[5], 141))
+    else: bam_unmap.write(create_unmapped_record(bam_unmap.header, read_info[0], read_info[1], read_info[2], 4))
+
+
+def _setup_output_bams(output_files, unmap_file, unified_header, ref_headers, stack):
+    if len(output_files) > 1:
+        bam_outs = {i: stack.enter_context(pysam.AlignmentFile(f, "wb", header=ref_headers[i])) for i, f in enumerate(output_files)}
+        default_bam = bam_outs[len(output_files)-1]
+    else:
+        default_bam = stack.enter_context(pysam.AlignmentFile(output_files[0], "wb", header=unified_h)) if 'unified_h' in locals() else stack.enter_context(pysam.AlignmentFile(output_files[0], "wb", header=unified_header))
+        bam_outs = None
+    bam_unmap = stack.enter_context(pysam.AlignmentFile(unmap_file, "wb", header=locals().get('unified_h', locals().get('unified_header')))) if unmap_file else default_bam
+    return bam_outs, bam_unmap, default_bam
+
+
+def score_to_mapq(score): return max(0, min(60, score))
 
 def create_bam_record(header, map_data, is_secondary):
-    """Create a pysam.AlignedSegment from mapping data (SAM fields + tags)."""
     a = pysam.AlignedSegment(header=header)
-    a.query_name = map_data[0]
-    a.flag = map_data[1] + (256 if is_secondary else 0)
-    a.reference_name = map_data[2]
-    a.reference_start = map_data[3] - 1
-    a.mapping_quality = map_data[4]
-    a.cigarstring = map_data[5]
+    a.query_name, a.flag = map_data[0], map_data[1] + (256 if is_secondary else 0)
+    a.reference_name, a.reference_start, a.mapping_quality, a.cigarstring = map_data[2], map_data[3]-1, map_data[4], map_data[5]
     a.next_reference_name = map_data[6]
-    a.next_reference_start = map_data[7] - 1 if map_data[7] > 0 else 0
-    a.template_length = map_data[8]
-    a.query_sequence = map_data[9]
-    a.query_qualities = pysam.qualitystring_to_array(map_data[10])
-
-    # Set tags from tuples (tag_name, tag_value)
-    for tag_name, tag_value in map_data[11:]:
-        a.set_tag(tag_name, tag_value)
-
+    a.next_reference_start = map_data[7]-1 if map_data[7]>0 else 0
+    a.template_length, a.query_sequence, a.query_qualities = map_data[8], map_data[9], pysam.qualitystring_to_array(map_data[10])
+    for t, v in map_data[11:]: a.set_tag(t, v)
     return a
-
 
 def create_unmapped_record(header, name, seq, qual, flag):
-    """Create an unmapped pysam.AlignedSegment."""
     a = pysam.AlignedSegment(header=header)
-    a.query_name = name
-    a.flag = flag
-    a.reference_id = -1
-    a.reference_start = -1
-    a.mapping_quality = 0
-    a.cigarstring = None
-    a.next_reference_id = -1
-    a.next_reference_start = -1
-    a.template_length = 0
-    a.query_sequence = seq
-    a.query_qualities = pysam.qualitystring_to_array(qual)
+    a.query_name, a.flag, a.reference_id, a.reference_start, a.mapping_quality = name, flag, -1, -1, 0
+    a.cigarstring, a.next_reference_id, a.next_reference_start, a.template_length = None, -1, -1, 0
+    a.query_sequence, a.query_qualities = seq, pysam.qualitystring_to_array(qual)
     return a
 
 
-def map_file(
-    r1_file,
-    r2_file,
-    ref_files,
-    output_files,
-    unmap_file=None,
-    forward_library=True,
-    max_mismatches=10,
-    threads=8,
-    min_alignment_length=20,
-    min_mapping_ratio=0.5,
-    index_dir=None,
-    index_only=False,
-    batch_size=1000,
-    orientation_filter=None,
-):
-    """Map FASTQ reads to reference with dual-base conversion chemistry.
-
-    Supports priority-based mapping with multiple references. References are tried
-    in order, with properly-paired alignments from higher-priority references
-    preferred over those from lower-priority ones.
-
-    Args:
-        r1_file: R1 FASTQ file path.
-        r2_file: R2 FASTQ file path (can be None for single-end).
-        ref_files: List of reference file paths (in priority order, highest first).
-                  Can be empty if index_dir contains pre-built indices.
-        output_files: Output BAM file path(s). Can be a single string or list of strings.
-                     If multiple output files are provided, must match the number of ref_files.
-                     Reads are routed to the output file corresponding to the reference they mapped to.
-        unmap_file: Optional output BAM file for unmapped reads. If specified, all unmapped
-                   reads will be written to this file instead of the regular output file(s).
-        forward_library: True for forward library, False for reverse library.
-        orientation_filter: If specified, only map to this orientation (1 or 2).
-                          None means map to both orientations (default).
-        index_dir: Optional list of directories to store/load indices.
-    """
-    # Ensure ref_files and output_files are lists (Click gives tuples)
-    if ref_files is None:
-        ref_files = []
-    elif isinstance(ref_files, tuple):
-        ref_files = list(ref_files)
-
-    # Preflight: validate input files early to avoid spawning workers on bad paths
-    if not index_only:
-        if not r1_file or not os.path.exists(r1_file):
-            raise FileNotFoundError(f"Input R1 file not found: {r1_file}")
-        if r2_file is not None and not os.path.exists(r2_file):
-            raise FileNotFoundError(f"Input R2 file not found: {r2_file}")
-
-        # Validate reference files exist
-        for i, ref_file in enumerate(ref_files, 1):
-            if not isinstance(ref_file, str):
-                raise ValueError(
-                    f"Reference file {i} is not a valid path string: {ref_file}"
-                )
-            if not os.path.exists(ref_file):
-                raise FileNotFoundError(f"Reference file {i} not found: {ref_file}")
-
-    # Normalize index_dir to a list of paths
-    if index_dir is None:
-        # Create a single temporary directory if none provided
-        tmp_dir = tempfile.mkdtemp(prefix="coralsnake_")
-        atexit.register(
-            lambda p=tmp_dir: os.path.isdir(p) and shutil.rmtree(p, ignore_errors=True)
-        )
-        index_dirs = [tmp_dir]
-    elif isinstance(index_dir, str):
-        index_dirs = [index_dir]
-    else:
-        index_dirs = list(index_dir)
-
-    # Ensure all index directories exist
-    for d in index_dirs:
-        os.makedirs(d, exist_ok=True)
-
-    # Determine which references to index
-    if not ref_files:
-        # Look for existing indices in provided index_dirs
-        ref_indices = []
-        for d in index_dirs:
-            # Check for ref.orig.fa (single-ref format)
-            if os.path.exists(os.path.join(d, "ref.orig.fa")):
-                ref_indices.append((os.path.join(d, "ref.orig.fa"), os.path.join(d, "ref.mk"), ""))
-            else:
-                # Check for ref1, ref2, etc. (multi-ref format in this dir)
-                i = 1
-                while os.path.exists(os.path.join(d, f"ref{i}.orig.fa")):
-                    ref_indices.append(
-                        (
-                            os.path.join(d, f"ref{i}.orig.fa"),
-                            os.path.join(d, f"ref{i}.mk"),
-                            str(i),
-                        )
-                    )
-                    i += 1
-        if not ref_indices:
-            raise RuntimeError(
-                "No reference files provided and no indices found in index-dir(s)"
-            )
-    else:
-        # Multiple references provided
-        ref_indices = []
-        for i in range(len(ref_files)):
-            # If multiple index_dirs match ref_files count, use them 1-to-1
-            if len(index_dirs) == len(ref_files):
-                d = index_dirs[i]
-                # Use ref.orig naming for 1-to-1 mapping
-                ref_indices.append((None, None, ""))
-            else:
-                # Single shared index_dir
-                d = index_dirs[0]
-                # Use ref1, ref2 naming for shared directory (unless only one ref)
-                if len(ref_files) == 1:
-                    ref_indices.append((None, None, ""))
-                else:
-                    ref_indices.append((None, None, str(i+1)))
-
-    # Build indices for all references with unified progress bar
-    ref_indices = _build_and_check_indices(
-        ref_files, ref_indices, index_dirs, index_only
-    )
-
-    if index_only:
-        return
-
-    # Build BAM headers
-    # Always build a unified header for unmapped file or single output
-    unified_header = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": []}
-    seen_seqs = set()
-    ref_headers = []
-    for orig_fa, _, _ in ref_indices:
-        h = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": []}
-        for rec in fastx_read(orig_fa):
-            h["SQ"].append({"SN": rec.name, "LN": rec.length})
-            if rec.name not in seen_seqs:
-                unified_header["SQ"].append({"SN": rec.name, "LN": rec.length})
-                seen_seqs.add(rec.name)
-        ref_headers.append(h)
-
-    # Streaming batches in parallel (no file splitting). threads = workers
-    paired = r2_file is not None
-
-    # Normalize output_files to list (Click gives tuples)
-    if isinstance(output_files, str):
-        output_files = [output_files]
-    elif isinstance(output_files, tuple):
-        output_files = list(output_files)
-    elif output_files is None:
-        output_files = []
-
-    # Validate output files count if multiple
-    if len(output_files) > 1:
-        if len(output_files) != len(ref_files):
-            raise ValueError(
-                f"Number of output files ({len(output_files)}) must match "
-                f"number of reference files ({len(ref_files)})"
-            )
-
-    with ExitStack() as stack:
-        # Setup BAM output files
-        bam_outs, bam_unmap, default_bam = _setup_output_bams(
-            output_files, unmap_file, unified_header, ref_headers, stack
-        )
-
-        progress = stack.enter_context(
-            Progress(
-                SpinnerColumn(style="cyan"),
-                TextColumn("[bold green]Map[/bold green]"),
-                TextColumn("{task.description}"),
-            )
-        )
-        unit = "pairs" if paired else "reads"
-        task = progress.add_task(
-            f"[green]0[/green] / [white]0[/white] {unit} ([magenta]0.00s[/magenta])",
-            total=None,
-        )
-        processed_reads = 0
-        mapped_reads = 0
-
-        def write_mapped(batch_results):
-            nonlocal processed_reads, mapped_reads
-            for read_info, (ref_idx, mapping_result) in batch_results:
-                # Determine which BAM file to write to
-                if bam_outs is not None and ref_idx is not None:
-                    target_bam = bam_outs[ref_idx]
-                else:
-                    target_bam = default_bam
-
-                if mapping_result:
-                    # Write mapped reads
-                    for i, item in enumerate(mapping_result):
-                        _write_mapped_record(paired, item, read_info, target_bam, i)
-                    mapped_reads += 1
-                else:
-                    # Write unmapped reads
-                    _write_unmapped_record(paired, read_info, bam_unmap)
-
-                processed_reads += 1
-
-            elapsed = format_duration(progress.tasks[task].elapsed)
-            progress.update(
-                task,
-                description=f"[green]{mapped_reads:,}[/green] / [white]{processed_reads:,}[/white] {unit} ([magenta]{elapsed}[/magenta])",
-            )
-
-        # Process reads (unified SE/PE processing)
-        _process_and_map_reads(
-            r1_file,
-            r2_file,
-            ref_indices,
-            write_mapped,
-            batch_size,
-            threads,
-            max_mismatches,
-            min_alignment_length,
-            min_mapping_ratio,
-            orientation_filter,
-            forward_library,
-        )
+def map_file(r1_file, r2_file, ref_files, output_files, unmap_file=None, forward_library=True, max_mismatches=10, threads=8, min_alignment_length=20, min_mapping_ratio=0.5, index_dir=None, index_only=False, batch_size=5000, orientation_filter=None):
+    global _ORIENTATION_FILTER, _FORWARD_LIBRARY
+    _ORIENTATION_FILTER, _FORWARD_LIBRARY = orientation_filter, forward_library
+    ref_indices = [(None, None, str(i+1) if len(ref_files)>1 else "") for i in range(len(ref_files))]
+    i_dirs = [index_dir] if index_dir and not isinstance(index_dir, (list,tuple)) else (index_dir or [os.path.dirname(os.path.abspath(f)) for f in ref_files])
+    ref_indices = _build_and_check_indices(ref_files, ref_indices, i_dirs, index_only)
+    if index_only: return
+    stack = ExitStack()
+    with stack:
+        ref_headers = []; all_sq = []; seen_sq = set()
+        for o_fa, _, _ in ref_indices:
+            with pysam.FastaFile(o_fa) as fa:
+                h = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": [{"LN": fa.get_reference_length(n), "SN": n} for n in fa.references]}
+                ref_headers.append(h)
+                for sq in h["SQ"]:
+                    if sq["SN"] not in seen_sq: all_sq.append(sq); seen_sq.add(sq["SN"])
+        unified_h = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": all_sq}
+        bam_outs, bam_unmap, def_bam = _setup_output_bams(output_files, unmap_file, unified_h, ref_headers, stack)
+        p_tot = p_map = 0; s_time = time.time()
+        def wr(res):
+            nonlocal p_tot, p_map
+            for info, (ridx, m_res) in res:
+                p_tot += 1
+                if ridx is not None and m_res:
+                    p_map += 1; target = bam_outs[ridx] if bam_outs else def_bam
+                    for i, item in enumerate(m_res): _write_mapped_record(r2_file is not None, item, info, target, i)
+                else: _write_unmapped_record(r2_file is not None, info, bam_unmap)
+        with Progress(SpinnerColumn(), TextColumn("[bold blue]Map[/bold blue]"), TextColumn("{task.fields[mapped]} / {task.fields[total_reads]} reads"), TextColumn("({task.fields[elapsed]})"), transient=False) as prg:
+            task = prg.add_task("Mapping", total=None, mapped="0", total_reads="0", elapsed="0.00s")
+            def pw(res):
+                wr(res); prg.update(task, mapped=f"{p_map:,}", total_reads=f"{p_tot:,}", elapsed=format_duration(time.time()-s_time))
+            _process_and_map_reads(r1_file, r2_file, ref_indices, pw, batch_size, threads, max_mismatches, min_alignment_length, min_mapping_ratio, orientation_filter, forward_library)
+    print(f"\n✅ Mapping completed! Output saved to: {output_files}")

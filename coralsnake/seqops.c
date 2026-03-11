@@ -2,407 +2,134 @@
 #include <string.h>
 #include <zlib.h>
 
-// Base conversion function
-static PyObject* base_conversion(PyObject* self, PyObject* args) {
-    const char* seq;
-    const char* from_bases;
-    const char* to_bases;
-    Py_ssize_t seq_len;
-    
-    if (!PyArg_ParseTuple(args, "sss", &seq, &from_bases, &to_bases)) {
-        return NULL;
-    }
-    
-    seq_len = strlen(seq);
-    char* target = (char*)malloc(seq_len + 1);
-    if (!target) {
-        return PyErr_NoMemory();
-    }
-    
-    // Create lookup table for conversion
-    char lookup[256];
-    memset(lookup, 0, 256);
-    
-    // Build lookup table
-    for (int i = 0; from_bases[i] && to_bases[i]; i++) {
-        lookup[(unsigned char)from_bases[i]] = to_bases[i];
-        // Also handle lowercase
-        if (from_bases[i] >= 'A' && from_bases[i] <= 'Z') {
-            lookup[(unsigned char)from_bases[i] + 32] = to_bases[i] + 32;
-        } else if (from_bases[i] >= 'a' && from_bases[i] <= 'z') {
-            lookup[(unsigned char)from_bases[i] - 32] = to_bases[i] - 32;
+// Fast C-based directional scoring
+static PyObject* score_and_tag(PyObject* self, PyObject* args) {
+    const char *cigar_str, *seq, *ref;
+    int is_o1;
+    if (!PyArg_ParseTuple(args, "sssp", &cigar_str, &seq, &ref, &is_o1)) return NULL;
+    Py_ssize_t q_len = strlen(seq), r_len = strlen(ref);
+    size_t buf_sz = q_len * 16 + 128;
+    char* md_buf = (char*)malloc(buf_sz);
+    if (!md_buf) return PyErr_NoMemory();
+    int yf=0, zf=0, yc=0, zc=0, ns=0, nc=0, r_idx=0, q_idx=0, match_count=0;
+    size_t md_pos=0;
+    int matches=0, exp_conv=0, wr_conv=0, other_mm=0, indels=0;
+    char b1 = is_o1 ? 'A' : 'T', b3 = is_o1 ? 'C' : 'G';
+    long length = 0;
+    for (int i = 0; cigar_str[i]; i++) {
+        if (cigar_str[i] >= '0' && cigar_str[i] <= '9') length = length * 10 + (cigar_str[i] - '0');
+        else {
+            char op = cigar_str[i];
+            if (op == 'M' || op == '=' || op == 'X') {
+                for (long j = 0; j < length && r_idx < r_len && q_idx < q_len; j++) {
+                    char rb = ref[r_idx], qb = seq[q_idx];
+                    if (rb == qb) { matches++; match_count++; if (qb == b1) zf++; else if (qb == b3) zc++; }
+                    else {
+                        md_pos += snprintf(md_buf + md_pos, buf_sz - md_pos, "%d%c", match_count, rb);
+                        match_count = 0;
+                        if (is_o1) {
+                            if ((rb == 'C' && qb == 'T') || (rb == 'A' && qb == 'G')) { exp_conv++; if (qb == 'G') yf++; else yc++; }
+                            else { wr_conv++; ns++; }
+                        } else {
+                            if ((rb == 'G' && qb == 'A') || (rb == 'T' && qb == 'C')) { exp_conv++; if (qb == 'A') yf++; else yc++; }
+                            else { wr_conv++; ns++; }
+                        }
+                    }
+                    r_idx++; q_idx++;
+                }
+            } else if (op == 'I') { q_idx += length; nc += length; indels += length; }
+            else if (op == 'S') { q_idx += length; nc += length; }
+            else if (op == 'D') {
+                md_pos += snprintf(md_buf + md_pos, buf_sz - md_pos, "%d^", match_count);
+                for (long j = 0; j < length && r_idx < r_len; j++) md_buf[md_pos++] = ref[r_idx++];
+                match_count = 0; nc += length; indels += length;
+            } else if (op == 'N') r_idx += length;
+            length = 0;
         }
     }
-    
-    // Convert sequence
-    for (Py_ssize_t i = 0; i < seq_len; i++) {
-        unsigned char c = (unsigned char)seq[i];
-        target[i] = lookup[c] ? lookup[c] : c;
-    }
-    target[seq_len] = '\0';
-    
-    PyObject* result = PyUnicode_FromStringAndSize(target, seq_len);
-    free(target);
-    return result;
+    md_pos += snprintf(md_buf + md_pos, buf_sz - md_pos, "%d", match_count);
+    int score = matches + exp_conv - wr_conv - other_mm - indels;
+    PyObject* res = Py_BuildValue("(iiNiiiiii)", score, wr_conv + other_mm, PyUnicode_FromStringAndSize(md_buf, md_pos), yf, zf, yc, zc, ns, nc);
+    free(md_buf); return res;
 }
 
-// Reverse complement function
 static PyObject* reverse_complement(PyObject* self, PyObject* args) {
     const char* seq;
-    Py_ssize_t seq_len;
-    
-    if (!PyArg_ParseTuple(args, "s", &seq)) {
-        return NULL;
+    if (!PyArg_ParseTuple(args, "s", &seq)) return NULL;
+    Py_ssize_t len = strlen(seq);
+    char* rc = (char*)malloc(len + 1);
+    if (!rc) return PyErr_NoMemory();
+    static char complement[256];
+    static int initialized = 0;
+    if (!initialized) {
+        for (int i = 0; i < 256; i++) complement[i] = (char)i;
+        complement['A'] = 'T'; complement['C'] = 'G'; complement['G'] = 'C'; complement['T'] = 'A';
+        complement['a'] = 't'; complement['c'] = 'g'; complement['g'] = 'c'; complement['t'] = 'a';
+        initialized = 1;
     }
-    
-    seq_len = strlen(seq);
-    char* target = (char*)malloc(seq_len + 1);
-    if (!target) {
-        return PyErr_NoMemory();
-    }
-    
-    // Complement lookup table
-    char complement[256];
-    memset(complement, 0, 256);
-    complement['A'] = 'T'; complement['T'] = 'A';
-    complement['G'] = 'C'; complement['C'] = 'G';
-    complement['N'] = 'N';
-    complement['a'] = 't'; complement['t'] = 'a';
-    complement['g'] = 'c'; complement['c'] = 'g';
-    complement['n'] = 'n';
-    
-    // Reverse and complement
-    for (Py_ssize_t i = 0; i < seq_len; i++) {
-        unsigned char c = (unsigned char)seq[seq_len - 1 - i];
-        target[i] = complement[c] ? complement[c] : c;
-    }
-    target[seq_len] = '\0';
-    
-    PyObject* result = PyUnicode_FromStringAndSize(target, seq_len);
-    free(target);
+    for (Py_ssize_t i = 0; i < len; i++) rc[len - 1 - i] = complement[(unsigned char)seq[i]];
+    rc[len] = '\0';
+    PyObject* result = PyUnicode_FromStringAndSize(rc, len);
+    free(rc);
     return result;
 }
 
-// MD tag and conversion statistics calculation
-static PyObject* cal_md_and_tag(PyObject* self, PyObject* args) {
-    const char* cigar_str;
-    const char* seq;
-    const char* ref;
-    int fwd;
-    
-    if (!PyArg_ParseTuple(args, "sssp", &cigar_str, &seq, &ref, &fwd)) {
-        return NULL;
-    }
-    
-    Py_ssize_t seq_len = strlen(seq);
-    Py_ssize_t ref_len = strlen(ref);
-    
-    // Allocate MD tag buffer (worst case: every base is a mismatch)
-    // snprintf needs room for null terminator, and matches can be long
-    size_t buffer_size = seq_len * 10 + 64; 
-    char* md_buffer = (char*)malloc(buffer_size);
-    if (!md_buffer) {
-        return PyErr_NoMemory();
-    }
-    
-    int yf = 0, zf = 0, yc = 0, zc = 0, ns = 0, nc = 0;
-    int ref_index = 0, query_index = 0, match_count = 0;
-    int md_pos = 0;
-    
-    // Set bases based on direction
-    char b1, b2, b3, b4;
-    if (fwd) {
-        b1 = 'A'; b2 = 'G'; b3 = 'C'; b4 = 'T';
-    } else {
-        b1 = 'T'; b2 = 'C'; b3 = 'G'; b4 = 'A';
-    }
-    
-    long length = 0;
-    for (int i = 0; cigar_str[i]; i++) {
-        if (cigar_str[i] >= '0' && cigar_str[i] <= '9') {
-            length = length * 10 + (cigar_str[i] - '0');
-        } else {
-            char op_char = cigar_str[i];
-            int operation = -1;
-            switch(op_char) {
-                case 'M': operation = 0; break;
-                case 'I': operation = 1; break;
-                case 'D': operation = 2; break;
-                case 'N': operation = 3; break;
-                case 'S': operation = 4; break;
-                case 'H': operation = 5; break;
-                case 'P': operation = 6; break;
-                case '=': operation = 7; break;
-                case 'X': operation = 8; break;
-            }
-            
-            if (operation == 0 || operation == 7 || operation == 8) {  // M, =, X
-                for (long j = 0; j < length; j++) {
-                    if (ref_index >= ref_len || query_index >= seq_len) break;
-                    
-                    if (ref[ref_index] == seq[query_index]) {
-                        match_count++;
-                        if (seq[query_index] == b1) {
-                            zf++;
-                        } else if (seq[query_index] == b3) {
-                            zc++;
-                        }
-                    } else {
-                        // Mismatch: add match_count and mismatch base
-                        md_pos += snprintf(md_buffer + md_pos, buffer_size - md_pos, "%d%c", match_count, ref[ref_index]);
-                        match_count = 0;
-                        
-                        if (seq[query_index] == b2) {
-                            yf++;
-                        } else if (seq[query_index] == b4) {
-                            yc++;
-                        } else {
-                            ns++;
-                        }
-                    }
-                    ref_index++;
-                    query_index++;
-                }
-            } else if (operation == 1) {  // Insertion
-                query_index += length;
-                nc += length;
-            } else if (operation == 4) {  // Soft clipping
-                query_index += length;
-                nc += length;
-            } else if (operation == 2) {  // Deletion
-                md_pos += snprintf(md_buffer + md_pos, buffer_size - md_pos, "%d^", match_count);
-                for (long j = 0; j < length && ref_index < ref_len; j++) {
-                    if (md_pos < buffer_size - 1) {
-                        md_buffer[md_pos++] = ref[ref_index++];
-                    } else {
-                        ref_index++; // Drop if buffer full (shouldn't happen with our size)
-                    }
-                }
-                match_count = 0;
-                nc += length;
-            } else if (operation == 3) { // N (skip) - treated like deletion for reference pos
-                ref_index += length;
-            }
-            
-            length = 0;
-        }
-    }
-    
-    // Append final match count
-    md_pos += snprintf(md_buffer + md_pos, buffer_size - md_pos, "%d", match_count);
-    
-    // Create Python string from buffer
-    PyObject* md_tag = PyUnicode_FromStringAndSize(md_buffer, md_pos);
-    free(md_buffer);
-    
-    if (!md_tag) {
-        return NULL;
-    }
-    
-    // Return tuple (md_tag, yf, zf, yc, zc, ns, nc)
-    // Use "N" to steal the reference from md_tag (avoids leak)
-    return Py_BuildValue("(Niiiiii)", md_tag, yf, zf, yc, zc, ns, nc);
-}
-
-// FASTA file conversion (line-by-line, memory efficient)
-static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
-    const char* input_path;
-    const char* output_path;
-    const char* from_bases;
-    const char* to_bases;
-    
-    if (!PyArg_ParseTuple(args, "ssss", &input_path, &output_path, &from_bases, &to_bases)) {
-        return NULL;
-    }
-    
-    // Open input and output files
-    FILE* input_file = fopen(input_path, "r");
-    if (!input_file) {
-        PyErr_SetString(PyExc_IOError, "Cannot open input file");
-        return NULL;
-    }
-    
-    FILE* output_file = fopen(output_path, "w");
-    if (!output_file) {
-        fclose(input_file);
-        PyErr_SetString(PyExc_IOError, "Cannot open output file");
-        return NULL;
-    }
-    
-    // Create lookup table for conversion
-    char lookup[256];
-    memset(lookup, 0, 256);
-    
-    // Build lookup table
+static PyObject* batch_base_conversion(PyObject* self, PyObject* args) {
+    PyObject* seq_list;
+    const char *from_bases, *to_bases;
+    if (!PyArg_ParseTuple(args, "O!ss", &PyList_Type, &seq_list, &from_bases, &to_bases)) return NULL;
+    Py_ssize_t n = PyList_Size(seq_list);
+    PyObject* result_list = PyList_New(n);
+    if (!result_list) return NULL;
+    char lookup[256]; memset(lookup, 0, 256);
     for (int i = 0; from_bases[i] && to_bases[i]; i++) {
         lookup[(unsigned char)from_bases[i]] = to_bases[i];
-        // Also handle lowercase
-        if (from_bases[i] >= 'A' && from_bases[i] <= 'Z') {
-            lookup[(unsigned char)from_bases[i] + 32] = to_bases[i] + 32;
-        } else if (from_bases[i] >= 'a' && from_bases[i] <= 'z') {
-            lookup[(unsigned char)from_bases[i] - 32] = to_bases[i] - 32;
-        }
+        if (from_bases[i] >= 'A' && from_bases[i] <= 'Z') lookup[(unsigned char)from_bases[i] + 32] = to_bases[i] + 32;
+        else if (from_bases[i] >= 'a' && from_bases[i] <= 'z') lookup[(unsigned char)from_bases[i] - 32] = to_bases[i] - 32;
     }
-    
-    // Buffer for reading lines (large enough for typical FASTA lines)
-    char* line_buffer = (char*)malloc(1048576);  // 1MB buffer
-    if (!line_buffer) {
-        fclose(input_file);
-        fclose(output_file);
-        return PyErr_NoMemory();
+    for (Py_ssize_t i = 0; i < n; i++) {
+        Py_ssize_t len;
+        const char* seq = PyUnicode_AsUTF8AndSize(PyList_GetItem(seq_list, i), &len);
+        char* target = (char*)malloc(len + 1);
+        for (Py_ssize_t j = 0; j < len; j++) { unsigned char c = (unsigned char)seq[j]; target[j] = lookup[c] ? lookup[c] : c; }
+        target[len] = '\0';
+        PyList_SetItem(result_list, i, PyUnicode_FromStringAndSize(target, len));
+        free(target);
     }
-    
-    // Process file line by line (release GIL for long-running I/O)
-    Py_BEGIN_ALLOW_THREADS
-    while (fgets(line_buffer, 1048576, input_file)) {
-        if (line_buffer[0] == '>') {
-            // Header line - write directly
-            fputs(line_buffer, output_file);
-        } else {
-            // Sequence line - convert bases
-            size_t len = strlen(line_buffer);
-            for (size_t i = 0; i < len; i++) {
-                unsigned char c = (unsigned char)line_buffer[i];
-                if (lookup[c]) {
-                    line_buffer[i] = lookup[c];
-                }
-            }
-            fputs(line_buffer, output_file);
-        }
-    }
-    Py_END_ALLOW_THREADS
-    
-    // Clean up
-    free(line_buffer);
-    fclose(input_file);
-    fclose(output_file);
-    
-    Py_RETURN_NONE;
+    return result_list;
 }
 
-// Directional score calculation
-static PyObject* calculate_directional_score(PyObject* self, PyObject* args) {
-    const char* cigar_str;
-    const char* seq;
-    const char* ref;
-    int is_orientation1;
-    
-    // Accept string "sssp" instead of object "Ossp"
-    if (!PyArg_ParseTuple(args, "sssp", &cigar_str, &seq, &ref, &is_orientation1)) {
-        return NULL;
+static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
+    const char *in_fn, *out_fa, *f_bases, *t_fa;
+    if (!PyArg_ParseTuple(args, "ssss", &in_fn, &out_fa, &f_bases, &t_fa)) return NULL;
+    gzFile in = gzopen(in_fn, "r");
+    if (!in) return PyErr_SetFromErrno(PyExc_IOError);
+    FILE* out = fopen(out_fa, "w");
+    if (!out) { gzclose(in); return PyErr_SetFromErrno(PyExc_IOError); }
+    char lookup[256]; memset(lookup, 0, 256);
+    for (int i=0; f_bases[i] && t_fa[i]; i++) {
+        lookup[(unsigned char)f_bases[i]] = t_fa[i];
+        if (f_bases[i]>='A' && f_bases[i]<='Z') lookup[(unsigned char)f_bases[i]+32] = t_fa[i]+32;
+        else if (f_bases[i]>='a' && f_bases[i]<='z') lookup[(unsigned char)f_bases[i]-32] = t_fa[i]-32;
     }
-    
-    Py_ssize_t seq_len = strlen(seq);
-    Py_ssize_t ref_len = strlen(ref);
-    
-    int ref_index = 0, query_index = 0;
-    int matches = 0, expected_conversions = 0, wrong_conversions = 0;
-    int other_mismatches = 0, indels = 0;
-    
-    long length = 0;
-    for (int i = 0; cigar_str[i]; i++) {
-        if (cigar_str[i] >= '0' && cigar_str[i] <= '9') {
-            length = length * 10 + (cigar_str[i] - '0');
-        } else {
-            char op_char = cigar_str[i];
-            int operation = -1;
-            switch(op_char) {
-                case 'M': operation = 0; break;
-                case 'I': operation = 1; break;
-                case 'D': operation = 2; break;
-                case 'N': operation = 3; break;
-                case 'S': operation = 4; break;
-                case 'H': operation = 5; break;
-                case 'P': operation = 6; break;
-                case '=': operation = 7; break;
-                case 'X': operation = 8; break;
-            }
-            
-            if (operation == 0 || operation == 7 || operation == 8) {  // M, =, X
-                for (long j = 0; j < length; j++) {
-                    if (ref_index >= ref_len || query_index >= seq_len) break;
-                    
-                    char ref_base = ref[ref_index];
-                    char read_base = seq[query_index];
-                    
-                    if (ref_base == read_base) {
-                        matches++;
-                    } else {
-                        // Classify mismatch
-                        if (is_orientation1) {
-                            // Orientation 1: MK conversion (C->T, A->G expected)
-                            if ((ref_base == 'C' && read_base == 'T') || 
-                                (ref_base == 'A' && read_base == 'G')) {
-                                expected_conversions++;
-                            } else if ((ref_base == 'T' && read_base == 'C') || 
-                                       (ref_base == 'G' && read_base == 'A')) {
-                                wrong_conversions++;
-                            } else {
-                                other_mismatches++;
-                            }
-                        } else {
-                            // Orientation 2: KM conversion (G->A, T->C expected)
-                            if ((ref_base == 'G' && read_base == 'A') || 
-                                (ref_base == 'T' && read_base == 'C')) {
-                                expected_conversions++;
-                            } else if ((ref_base == 'A' && read_base == 'G') || 
-                                       (ref_base == 'C' && read_base == 'T')) {
-                                wrong_conversions++;
-                            } else {
-                                other_mismatches++;
-                            }
-                        }
-                    }
-                    ref_index++;
-                    query_index++;
-                }
-            } else if (operation == 1 || operation == 2) {  // Insertion or Deletion
-                if (operation == 1) {
-                    query_index += length;
-                } else {
-                    ref_index += length;
-                }
-                indels += length;
-            } else if (operation == 4) {  // Soft clipping
-                query_index += length;
-            } else if (operation == 3) { // N (skip)
-                ref_index += length;
-            }
-            
-            // Reset length for next operation
-            length = 0;
+    char buf[65536];
+    while (gzgets(in, buf, sizeof(buf))) {
+        if (buf[0] == '>') fputs(buf, out);
+        else {
+            for (int i=0; buf[i]; i++) { unsigned char c = (unsigned char)buf[i]; if (lookup[c]) buf[i] = lookup[c]; }
+            fputs(buf, out);
         }
     }
-    
-    // Calculate score
-    int score = matches + expected_conversions - wrong_conversions - other_mismatches - indels;
-    int total_bad_mismatches = wrong_conversions + other_mismatches;
-    
-    // Return tuple (score, wrong_conversions, total_bad_mismatches)
-    return Py_BuildValue("(iii)", score, wrong_conversions, total_bad_mismatches);
+    gzclose(in); fclose(out); Py_RETURN_NONE;
 }
 
-
-// Method definitions
 static PyMethodDef SeqOpsMethods[] = {
-    {"base_conversion", base_conversion, METH_VARARGS, "Base conversion"},
-    {"reverse_complement", reverse_complement, METH_VARARGS, "Reverse complement"},
-    {"cal_md_and_tag", cal_md_and_tag, METH_VARARGS, "MD tag and conversion stats calculation"},
-    {"calculate_directional_score", calculate_directional_score, METH_VARARGS, "Directional score calculation"},
-    {"convert_fasta_file", convert_fasta_file, METH_VARARGS, "FASTA file conversion (line-by-line)"},
+    {"score_and_tag", score_and_tag, METH_VARARGS, ""},
+    {"reverse_complement", reverse_complement, METH_VARARGS, ""},
+    {"batch_base_conversion", batch_base_conversion, METH_VARARGS, ""},
+    {"convert_fasta_file", convert_fasta_file, METH_VARARGS, ""},
     {NULL, NULL, 0, NULL}
 };
 
-// Module definition
-static struct PyModuleDef seqopsmodule = {
-    PyModuleDef_HEAD_INIT,
-    "seqops",
-    "Fast sequence operations in C",
-    -1,
-    SeqOpsMethods
-};
-
-// Module initialization
-PyMODINIT_FUNC PyInit_seqops(void) {
-    return PyModule_Create(&seqopsmodule);
-}
+static struct PyModuleDef seqopsmodule = { PyModuleDef_HEAD_INIT, "seqops", "", -1, SeqOpsMethods };
+PyMODINIT_FUNC PyInit_seqops(void) { return PyModule_Create(&seqopsmodule); }

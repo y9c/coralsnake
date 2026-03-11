@@ -167,3 +167,4 @@ cython_debug/
 test/*.bam
 test/*.bam.bai
 test/ref.fa.mk.fa.tmp
+tests/benchmark/
