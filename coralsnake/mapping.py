@@ -9,6 +9,7 @@ import atexit
 import multiprocessing as mp
 import os
 import random
+import re
 import shutil
 import tempfile
 import time
@@ -91,19 +92,12 @@ def _map_batch_worker(batch, paired, max_mismatches, min_alignment_length, min_m
     else:
         seqs1 = [item[0][1] for item in batch]; seqs2 = [item[1][1] for item in batch]
         rc_s1 = [seqops.reverse_complement(s) for s in seqs1]; rc_s2 = [seqops.reverse_complement(s) for s in seqs2]
-        # Pre-convert for native orientation only (most common case)
-        # Orientation 1: Read1 converted, Read2-RC converted
-        # Orientation 2: Read1-RC converted, Read2 converted
         if _FORWARD_LIBRARY:
-            c1_r1 = seqops.batch_base_conversion(seqs1, "AC", "GT")
-            c1_r2 = seqops.batch_base_conversion(rc_s2, "AC", "GT")
-            c2_r1 = seqops.batch_base_conversion(rc_s1, "AC", "GT")
-            c2_r2 = seqops.batch_base_conversion(seqs2, "AC", "GT")
+            c1_r1, c1_r2 = seqops.batch_base_conversion(seqs1, "AC", "GT"), seqops.batch_base_conversion(rc_s2, "AC", "GT")
+            c2_r1, c2_r2 = seqops.batch_base_conversion(rc_s1, "AC", "GT"), seqops.batch_base_conversion(seqs2, "AC", "GT")
         else:
-            c1_r1 = seqops.batch_base_conversion(rc_s1, "AC", "GT")
-            c1_r2 = seqops.batch_base_conversion(seqs2, "AC", "GT")
-            c2_r1 = seqops.batch_base_conversion(seqs1, "AC", "GT")
-            c2_r2 = seqops.batch_base_conversion(rc_s2, "AC", "GT")
+            c1_r1, c1_r2 = seqops.batch_base_conversion(rc_s1, "AC", "GT"), seqops.batch_base_conversion(seqs2, "AC", "GT")
+            c2_r1, c2_r2 = seqops.batch_base_conversion(seqs1, "AC", "GT"), seqops.batch_base_conversion(rc_s2, "AC", "GT")
         conv_data = (c1_r1, c1_r2, c2_r1, c2_r2)
         for i, ((name1, seq1, qua1), (name2, seq2, qua2)) in enumerate(batch):
             ref_idx, mapping_result = run_mapping_pe(name1, seq1, seq2, qua1, qua2, i, conv_data, rc_s1[i], rc_s2[i], _FORWARD_LIBRARY, max_mismatches, min_alignment_length, min_mapping_ratio)
@@ -135,7 +129,7 @@ def run_mapping_se(name, seq1, qua1, s1_c1, s1_c2, forward_library, max_mismatch
                     s, q, flag = rc_seq1, rc_qua1, 16
                 else: s, q, flag = seq1, qua1, 0
                 res = seqops.score_and_tag(h[7], s, ref, (orientation == 1) ^ r1_rev)
-                if res[1] > max_mismatches // 2 or (len(seq1) * min_mapping_ratio > (len(seq1) - res[1])): continue
+                if res[0] < -500 or res[1] > max_mismatches // 2 or (h[5] - h[4]) < len(seq1) * min_mapping_ratio: continue
                 m1 = [name, flag, h[0], h[1]+1, score_to_mapq(res[0]), h[7], "*", 0, 0, s, q, ("MD", res[2]), ("ST", orientation), ("AS", res[0]), ("Yf", res[3]), ("Zf", res[4]), ("Yc", res[5]), ("Zc", res[6]), ("NS", res[7]), ("NC", res[8])]
                 mapped.append([res[0], m1])
         if mapped:
@@ -145,17 +139,16 @@ def run_mapping_se(name, seq1, qua1, s1_c1, s1_c2, forward_library, max_mismatch
 
 
 def run_mapping_pe(name, seq1, seq2, qua1, qua2, idx, conv_data, rc_s1, rc_s2, forward_library, max_mismatches, min_alignment_length, min_mapping_ratio):
-    q1_l, q2_l = len(seq1), len(seq2)
-    rc_q1 = rc_q2 = None
-    c1_r1, c1_r2, c2_r1, c2_r2 = conv_data
-    all_res = []
+    q1_l, q2_l = len(seq1), len(seq2); rc_q1 = rc_q2 = None
+    c1_r1, c1_r2, c2_r1, c2_r2 = conv_data; all_res = []
     for ref_idx in range(len(_ALIGNERS_MK)):
         if not _check_reference_length(_ALIGNERS_MK[ref_idx]): continue
         mapped = []
         oris = [1, 2] if _ORIENTATION_FILTER is None else [_ORIENTATION_FILTER]
         for orientation in oris:
             is_o1 = orientation == 1
-            s1_c, s2_c = (c1_r1[idx], c1_r2[idx]) if is_o1 else (c2_r1[idx], c2_r2[idx])
+            if is_o1: s1_c, s2_c = (c1_r1[idx], c1_r2[idx]) if forward_library else (c2_r1[idx], c2_r2[idx])
+            else: s1_c, s2_c = (c2_r1[idx], c2_r2[idx]) if forward_library else (c1_r1[idx], c1_r2[idx])
             hits = _ALIGNERS_MK[ref_idx].align(s1_c, s2_c, min_mapq=1)
             for h1, h2, is_p, isize in hits:
                 res1 = res2 = None
@@ -176,19 +169,22 @@ def run_mapping_pe(name, seq1, seq2, qua1, qua2, idx, conv_data, rc_s1, rc_s2, f
                     else: s2, q2, f2 = seq2, qua2, 0
                     res2 = seqops.score_and_tag(h2[7], s2, ref2, (not (is_o1 if forward_library else (not is_o1))) ^ r2_rev)
                 if res1 or res2:
+                    if (res1 and res1[0] < -500) or (res2 and res2[0] < -500): continue
                     if ( (res1[1] if res1 else 0) + (res2[1] if res2 else 0) ) > max_mismatches: continue
-                    if res1 and (q1_l * min_mapping_ratio > (q1_l - res1[1])): continue
-                    if res2 and (q2_l * min_mapping_ratio > (q2_l - res2[1])): continue
+                    if res1 and (h1[5] - h1[4]) < q1_l * min_mapping_ratio: continue
+                    if res2 and (h2[5] - h2[4]) < q2_l * min_mapping_ratio: continue
                     mq = score_to_mapq(min(res1[0] if res1 else 99, res2[0] if res2 else 99))
                     m1 = m2 = None
                     if res1:
+                        ff1 = 1 | (2 if is_p else 0) | 64 | f1 | (32 if (h2 and h2[3]==-1) else 0)
                         t1 = [("ST", orientation), ("MD", res1[2]), ("AS", res1[0]), ("Yf", res1[3]), ("Zf", res1[4]), ("Yc", res1[5]), ("Zc", res1[6]), ("NS", res1[7]), ("NC", res1[8])]
-                        if h2: m1 = [name, 67+f1+(32 if h2[3]==-1 else 0)+(2 if is_p else 0), h1[0], h1[1]+1, mq, h1[7], h2[0], h2[1]+1, (isize if h1[1]<=h2[1] else -isize), s1, q1] + t1
-                        else: m1 = [name, 73+f1, h1[0], h1[1]+1, mq, h1[7], "*", 0, 0, s1, q1] + t1
+                        if h2: m1 = [name, ff1, h1[0], h1[1]+1, mq, h1[7], h2[0], h2[1]+1, (isize if h1[1]<=h2[1] else -isize), s1, q1] + t1
+                        else: m1 = [name, ff1 | 8, h1[0], h1[1]+1, mq, h1[7], "*", 0, 0, s1, q1] + t1
                     if res2:
+                        ff2 = 1 | (2 if is_p else 0) | 128 | f2 | (32 if (h1 and h1[3]==-1) else 0)
                         t2 = [("ST", orientation), ("MD", res2[2]), ("AS", res2[0]), ("Yf", res2[3]), ("Zf", res2[4]), ("Yc", res2[5]), ("Zc", res2[6]), ("NS", res2[7]), ("NC", res2[8])]
-                        if h1: m2 = [name, 131+f2+(32 if h1[3]==-1 else 0)+(2 if is_p else 0), h2[0], h2[1]+1, mq, h2[7], h1[0], h1[1]+1, (isize if h2[1]<=h1[1] else -isize), s2, q2] + t2
-                        else: m2 = [name, 137+f2, h2[0], h2[1]+1, mq, h2[7], "*", 0, 0, s2, q2] + t2
+                        if h1: m2 = [name, ff2, h2[0], h2[1]+1, mq, h2[7], h1[0], h1[1]+1, (isize if h2[1]<=h1[1] else -isize), s2, q2] + t2
+                        else: m2 = [name, ff2 | 8, h2[0], h2[1]+1, mq, h2[7], "*", 0, 0, s2, q2] + t2
                     mapped.append([(res1[0] if res1 else 0)+(res2[0] if res2 else 0), m1, m2])
         if mapped:
             random.shuffle(mapped); mapped = sorted(mapped, key=lambda x: x[0], reverse=True)
@@ -268,9 +264,9 @@ def _setup_output_bams(output_files, unmap_file, unified_header, ref_headers, st
         bam_outs = {i: stack.enter_context(pysam.AlignmentFile(f, "wb", header=ref_headers[i])) for i, f in enumerate(output_files)}
         default_bam = bam_outs[len(output_files)-1]
     else:
-        default_bam = stack.enter_context(pysam.AlignmentFile(output_files[0], "wb", header=unified_h)) if 'unified_h' in locals() else stack.enter_context(pysam.AlignmentFile(output_files[0], "wb", header=unified_header))
+        default_bam = stack.enter_context(pysam.AlignmentFile(output_files[0], "wb", header=unified_header))
         bam_outs = None
-    bam_unmap = stack.enter_context(pysam.AlignmentFile(unmap_file, "wb", header=locals().get('unified_h', locals().get('unified_header')))) if unmap_file else default_bam
+    bam_unmap = stack.enter_context(pysam.AlignmentFile(unmap_file, "wb", header=unified_header)) if unmap_file else default_bam
     return bam_outs, bam_unmap, default_bam
 
 
@@ -326,4 +322,3 @@ def map_file(r1_file, r2_file, ref_files, output_files, unmap_file=None, forward
             def pw(res):
                 wr(res); prg.update(task, mapped=f"{p_map:,}", total_reads=f"{p_tot:,}", elapsed=format_duration(time.time()-s_time))
             _process_and_map_reads(r1_file, r2_file, ref_indices, pw, batch_size, threads, max_mismatches, min_alignment_length, min_mapping_ratio, orientation_filter, forward_library)
-    print(f"\n✅ Mapping completed! Output saved to: {output_files}")
