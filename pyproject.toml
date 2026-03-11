@@ -46,3 +46,4 @@ packages = ["coralsnake"]
 
 # force release
 # force release sync
+# ci: linux only release

@@ -6,9 +6,10 @@ name: Upload Python Package
 on:
   push:
     paths:
-      - 'pyproject.toml'
+      - "pyproject.toml"
     branches:
-      - main # or your default branch
+      - main
+      - master
 
 permissions:
   contents: read
@@ -19,8 +20,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
-
+        os: [ubuntu-latest]
+    
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,7 +33,7 @@ jobs:
           CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
           CIBW_SKIP: "*-musllinux_* *-manylinux_i686"
           CIBW_ARCHS_LINUX: "x86_64"
-          CIBW_ARCHS_MACOS: "x86_64 arm64"
+          CIBW_ENVIRONMENT_LINUX: "CFLAGS='-O3 -march=native -mtune=native -ffast-math -funroll-loops'"
       
       - uses: actions/upload-artifact@v4
         with:
@@ -50,7 +51,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: "3.x"
       
       - name: Install dependencies
         run: |
