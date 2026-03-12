@@ -4,7 +4,9 @@ from pathlib import Path
 
 import pytest
 
-run_annot = pytest.importorskip("coralsnake.annot", reason="annot deps not available", exc_type=ImportError).run_annot
+run_annot = pytest.importorskip(
+    "coralsnake.annot", reason="annot deps not available", exc_type=ImportError
+).run_annot
 
 
 def _write(p: Path, content: str) -> str:

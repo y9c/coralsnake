@@ -81,34 +81,26 @@ class TestCalMdAndTag:
         assert nc == 2  # insertion counted
 
     def test_soft_clip(self):
-        md, yf, zf, yc, zc, ns, nc = seqops.cal_md_and_tag(
-            "2S3M", "NNACG", "ACG", True
-        )
+        md, yf, zf, yc, zc, ns, nc = seqops.cal_md_and_tag("2S3M", "NNACG", "ACG", True)
         assert md == "3"
         assert nc == 2
 
     def test_conversion_fwd(self):
         # fwd=True: b1=A, b2=G → ref=A, seq=G is a yf (expected conversion)
-        md, yf, zf, yc, zc, ns, nc = seqops.cal_md_and_tag(
-            "2M", "GA", "AA", True
-        )
+        md, yf, zf, yc, zc, ns, nc = seqops.cal_md_and_tag("2M", "GA", "AA", True)
         assert yf == 1
         assert zf == 1  # second base A matches, counted in zf
 
     def test_conversion_rev(self):
         # fwd=False: b1=T, b2=C → ref=T, seq=C is a yf (expected conversion)
-        md, yf, zf, yc, zc, ns, nc = seqops.cal_md_and_tag(
-            "2M", "CT", "TT", False
-        )
+        md, yf, zf, yc, zc, ns, nc = seqops.cal_md_and_tag("2M", "CT", "TT", False)
         assert yf == 1
         assert zf == 1
 
     def test_ns_count(self):
         # Non-conversion mismatch: ref=A, seq=C with fwd=True
         # b1=A, b2=G, b3=C, b4=T → seq[0]=C is neither b2 nor b4 → ns++
-        md, yf, zf, yc, zc, ns, nc = seqops.cal_md_and_tag(
-            "1M", "C", "A", True
-        )
+        md, yf, zf, yc, zc, ns, nc = seqops.cal_md_and_tag("1M", "C", "A", True)
         assert ns == 1
 
 

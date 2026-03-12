@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 import pysam
 
-mapping = pytest.importorskip("coralsnake.mapping", reason="mapping deps (bwamem) not available")
+mapping = pytest.importorskip(
+    "coralsnake.mapping", reason="mapping deps (bwamem) not available"
+)
 
 score_to_mapq = mapping.score_to_mapq
 cal_md_and_tag = mapping.cal_md_and_tag
@@ -103,7 +105,9 @@ class TestFilterHits:
 
     def test_passes(self):
         h = self.FakeHit(mapq=10, blen=50, mlen=40, read_num=1)
-        result = filter_hits([h], "A" * 50, None, min_alignment_length=20, min_mapping_ratio=0.5)
+        result = filter_hits(
+            [h], "A" * 50, None, min_alignment_length=20, min_mapping_ratio=0.5
+        )
         assert len(result) == 1
 
     def test_low_mapq(self):

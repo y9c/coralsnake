@@ -41,20 +41,21 @@ def reverse_md(md: str) -> str:
     # Parse MD into components: numbers, mismatches, deletions
     parts = []
     import re
+
     # Match numbers, mismatches (single base), or deletions (^ followed by bases)
     for m in re.finditer(r"([0-9]+)|([A-Z])|(\^[A-Z]+)", md):
-        if m.group(1) is not None: # Number
+        if m.group(1) is not None:  # Number
             parts.append(int(m.group(1)))
-        elif m.group(2): # Mismatch base
+        elif m.group(2):  # Mismatch base
             parts.append(m.group(2).translate(COMP))
-        elif m.group(3): # Deletion
+        elif m.group(3):  # Deletion
             # Complement the deletion bases and reverse them
             del_bases = m.group(3)[1:]
             parts.append("^" + del_bases.translate(COMP)[::-1])
-    
+
     # Reverse the parts list
     parts.reverse()
-    
+
     # Merge adjacent numbers, ensuring 0s are kept between non-numbers
     merged_parts = []
     current_num = 0
@@ -196,7 +197,7 @@ def _init_worker(annotation_file, genome_header_dict, transcript_header_dict):
     for g_id in raw_annot:
         for t_id, tx in raw_annot[g_id].items():
             _WORKER_ANNOT[t_id] = tx
-            
+
     _WORKER_GENOME_HEADER = pysam.AlignmentHeader.from_dict(genome_header_dict)
     _WORKER_TRANSCRIPT_HEADER = pysam.AlignmentHeader.from_dict(transcript_header_dict)
 

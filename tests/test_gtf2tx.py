@@ -64,7 +64,10 @@ class TestRankTranscript:
         assert rank_transcript("LOC_Os01g01010-01", tx) == (3, 1)
 
     def test_fallback_length(self):
-        tx = Transcript(exons={1: __import__("coralsnake.utils", fromlist=["Span"]).Span(0, 500)}, strand="+")
+        tx = Transcript(
+            exons={1: __import__("coralsnake.utils", fromlist=["Span"]).Span(0, 500)},
+            strand="+",
+        )
         tx.priority = (10, 0)
         r = rank_transcript("UNKNOWN", tx)
         assert r[0] == 4

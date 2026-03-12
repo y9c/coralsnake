@@ -1,4 +1,5 @@
 """Setup script for building C extensions."""
+
 from setuptools import Extension, setup
 
 # Define the C extension
@@ -13,4 +14,3 @@ seqops_module = Extension(
 setup(
     ext_modules=[seqops_module],
 )
-

@@ -97,7 +97,7 @@ wheels = [
 
 [[package]]
 name = "coralsnake"
-version = "0.0.185"
+version = "0.0.186"
 source = { editable = "." }
 dependencies = [
     { name = "bwamem" },

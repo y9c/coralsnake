@@ -439,9 +439,9 @@ def map(
             # Check for BWA indices in all specified index directories
             for d in index_dir:
                 idx_files_exist = False
-                if os.path.exists(
-                    os.path.join(d, "ref.orig.bwt")
-                ) and os.path.exists(os.path.join(d, "ref.mk.bwt")):
+                if os.path.exists(os.path.join(d, "ref.orig.bwt")) and os.path.exists(
+                    os.path.join(d, "ref.mk.bwt")
+                ):
                     idx_files_exist = True
                 elif os.path.exists(
                     os.path.join(d, "ref1.orig.bwt")

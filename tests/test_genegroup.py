@@ -64,9 +64,9 @@ class TestReassignment:
             "geneA": [FakeTx("a1", "ACGTACGTACGT")],
             "geneB": [FakeTx("b1", "GGGGGGGG")],
             "unnamed": [
-                FakeTx("u1", "ACGT"),       # too short ratio for geneA
-                FakeTx("u2", "ACGTACGT"),    # matches geneA (8 > 0.5*12)
-                FakeTx("u3", "GGGG"),        # too short ratio for geneB
+                FakeTx("u1", "ACGT"),  # too short ratio for geneA
+                FakeTx("u2", "ACGTACGT"),  # matches geneA (8 > 0.5*12)
+                FakeTx("u3", "GGGG"),  # too short ratio for geneB
             ],
         }
 
@@ -110,5 +110,6 @@ class TestGroupGenes:
             threads=2,
         )
         from pathlib import Path
+
         assert Path(output).exists()
         assert Path(output).stat().st_size > 0

@@ -91,7 +91,10 @@ class TestFlipFlag:
 class TestTranscriptToGenome:
     def _tx(self, strand="+"):
         return Transcript(
-            gene_id="G", transcript_id="T", chrom="chr1", strand=strand,
+            gene_id="G",
+            transcript_id="T",
+            chrom="chr1",
+            strand=strand,
             exons={1: Span(1000, 1100), 2: Span(2000, 2050), 3: Span(3000, 3030)},
         )
 
@@ -132,8 +135,13 @@ class TestTranscriptToGenome:
             transcript_to_genome(-1, self._tx())
 
     def test_single_exon(self):
-        tx = Transcript(gene_id="G", transcript_id="T", chrom="chr1", strand="+",
-                        exons={1: Span(500, 600)})
+        tx = Transcript(
+            gene_id="G",
+            transcript_id="T",
+            chrom="chr1",
+            strand="+",
+            exons={1: Span(500, 600)},
+        )
         pos, idx = transcript_to_genome(50, tx)
         assert (pos, idx) == (550, 0)
 
@@ -143,24 +151,38 @@ class TestTranscriptToGenome:
 # ---------------------------------------------------------------------------
 class TestRemapToGenome:
     def _genome_header(self):
-        return pysam.AlignmentHeader.from_dict({
-            "HD": {"VN": "1.6"},
-            "SQ": [{"SN": "chr1", "LN": 10000}],
-        })
+        return pysam.AlignmentHeader.from_dict(
+            {
+                "HD": {"VN": "1.6"},
+                "SQ": [{"SN": "chr1", "LN": 10000}],
+            }
+        )
 
     def _tx_header(self):
-        return pysam.AlignmentHeader.from_dict({
-            "HD": {"VN": "1.6"},
-            "SQ": [{"SN": "TX1", "LN": 300}, {"SN": "TX2", "LN": 300}],
-        })
+        return pysam.AlignmentHeader.from_dict(
+            {
+                "HD": {"VN": "1.6"},
+                "SQ": [{"SN": "TX1", "LN": 300}, {"SN": "TX2", "LN": 300}],
+            }
+        )
 
     def _plus_tx(self):
-        return Transcript(gene_id="G1", transcript_id="TX1", chrom="chr1", strand="+",
-                          exons={1: Span(1000, 1050), 2: Span(2000, 2050)})
+        return Transcript(
+            gene_id="G1",
+            transcript_id="TX1",
+            chrom="chr1",
+            strand="+",
+            exons={1: Span(1000, 1050), 2: Span(2000, 2050)},
+        )
 
     def _minus_tx(self):
-        return Transcript(gene_id="G2", transcript_id="TX2", chrom="chr1", strand="-",
-                          exons={1: Span(1000, 1050), 2: Span(2000, 2050)})
+        return Transcript(
+            gene_id="G2",
+            transcript_id="TX2",
+            chrom="chr1",
+            strand="-",
+            exons={1: Span(1000, 1050), 2: Span(2000, 2050)},
+        )
 
     def _make_align(self, ref_name, start, cigar, flag=0, seq="ACGTACGTAC", md="10"):
         a = pysam.AlignedSegment(header=self._tx_header())
@@ -210,7 +232,7 @@ class TestRemapToGenome:
     def test_minus_reverses_cigar(self):
         a = self._make_align("TX2", 0, "2S8M", seq="AAACGTACGT", md="8")
         r = remap_to_genome(a, self._genome_header(), self._minus_tx(), None)
-        assert r.cigartuples[0][0] == 0   # M first
+        assert r.cigartuples[0][0] == 0  # M first
         assert r.cigartuples[-1][0] == 4  # S last
 
     def test_minus_intron_spanning(self):
@@ -218,9 +240,9 @@ class TestRemapToGenome:
         a = self._make_align("TX2", 45, "10M", seq="ACGTACGTAC", md="10")
         r = remap_to_genome(a, self._genome_header(), self._minus_tx(), None)
         ops = r.cigartuples
-        assert ops[0] == (0, 5)     # 5M in first genomic exon
-        assert ops[1] == (3, 950)   # 950N intron
-        assert ops[2] == (0, 5)     # 5M in second genomic exon
+        assert ops[0] == (0, 5)  # 5M in first genomic exon
+        assert ops[1] == (3, 950)  # 950N intron
+        assert ops[2] == (0, 5)  # 5M in second genomic exon
 
 
 # ---------------------------------------------------------------------------

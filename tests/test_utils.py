@@ -1,6 +1,12 @@
 """Tests for coralsnake.utils – Transcript, Span, helpers."""
 
-from coralsnake.utils import Span, Transcript, format_duration, load_annotation, load_faidx
+from coralsnake.utils import (
+    Span,
+    Transcript,
+    format_duration,
+    load_annotation,
+    load_faidx,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -30,9 +36,9 @@ class TestTranscript:
             chrom="chr1",
             strand=strand,
             exons={
-                1: Span(100, 200),   # 100 bp
-                2: Span(300, 450),   # 150 bp
-                3: Span(500, 530),   #  30 bp
+                1: Span(100, 200),  # 100 bp
+                2: Span(300, 450),  # 150 bp
+                3: Span(500, 530),  #  30 bp
             },
         )
 
