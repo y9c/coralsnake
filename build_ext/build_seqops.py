@@ -1,6 +1,5 @@
 from setuptools import setup, Extension
 import platform
-import os
 
 
 def get_compile_args():
@@ -11,18 +10,13 @@ def get_compile_args():
         "-DNDEBUG",
         "-fomit-frame-pointer",
         "-flto",
+        "-fPIC",
     ]
     machine = platform.machine().lower()
-    if machine in ["x86_64", "amd64"]:
-        args.append("-march=native")
-        args.append("-msse4.2")
-    elif machine in ["arm64", "aarch64"]:
+    if machine in ["x86_64", "amd64", "arm64", "aarch64"]:
         args.append("-march=native")
     return args
 
-
-# Path to BWA static library
-bwa_lib = os.path.abspath("../bwamem/bwa/libbwa.a")
 
 setup(
     name="seqops",
@@ -32,7 +26,7 @@ setup(
             ["coralsnake/seqops.c"],
             libraries=["z"],
             extra_compile_args=get_compile_args(),
-            extra_link_args=["-flto", bwa_lib],  # Link directly to BWA
+            extra_link_args=["-flto"],
         )
     ],
 )

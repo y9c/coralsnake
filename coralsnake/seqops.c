@@ -15,7 +15,7 @@ static PyObject* score_and_tag(PyObject* self, PyObject* args) {
     const char *cigar_str, *seq, *ref; int is_o1;
     if (!PyArg_ParseTuple(args, "sssp", &cigar_str, &seq, &ref, &is_o1)) return NULL;
     Py_ssize_t q_len = strlen(seq), r_len = strlen(ref);
-    size_t buf_sz = (size_t)q_len * 8 + (size_t)r_len + 128;
+    size_t buf_sz = (size_t)q_len * 16 + (size_t)r_len + 128;
     char* md_buf = (char*)malloc(buf_sz);
     if (!md_buf) return PyErr_NoMemory();
     int yf=0, zf=0, yc=0, zc=0, ns=0, nc=0;

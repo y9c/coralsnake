@@ -180,6 +180,7 @@ def _check_reference_length(aligner, min_length=100):
 def run_mapping_se(
     seq1, qua1, s1_c1, s1_c2, max_mismatches, min_alignment_length, min_mapping_ratio
 ):
+    rc_seq1 = None
     for ref_idx in range(len(_ALIGNERS_MK)):
         if not _check_reference_length(_ALIGNERS_MK[ref_idx]):
             continue
@@ -205,10 +206,11 @@ def run_mapping_se(
                 if (
                     not res
                     or res[0] < -500
-                    or res[1] > max_mismatches // 2
+                    or res[1] > max_mismatches
                     or (h[5] - h[4]) < len(seq1) * min_mapping_ratio
                 ):
                     continue
+                # SE data: [is_rev, rname, pos, mq, cigar, score, md, ori, yf, zf, yc, zc, ns, nc, rid]
                 mapped.append(
                     [
                         is_rev,
@@ -263,6 +265,20 @@ def run_mapping_pe(
                 continue
             for h1, h2, is_p, isize in hits:
                 res1 = res2 = None
+                rid1 = rid2 = -1
+
+                # Strand logic strictly matching standard FR orientation
+                # If Library is Forward, O1 is forward, Read 1 maps Fwd, Read 2 maps Rev
+                # The BAM flag `is_reverse` should track the biological strand of the fragment.
+                if is_o1:
+                    r1_abs_rev = (h1[3] == -1) if h1 else False
+                    # Read 2 in O1 should map reverse if proper, so its true strand is reversed from its mapped strand
+                    r2_abs_rev = (h2[3] == 1) if h2 else False
+                else:
+                    # In O2, the original fragment was reverse.
+                    r1_abs_rev = (h1[3] == 1) if h1 else False
+                    r2_abs_rev = (h2[3] == -1) if h2 else False
+
                 if h1 and (h1[2] - h1[1]) >= min_alignment_length:
                     r1_rev = (
                         (h1[3] == -1 if _FORWARD_LIBRARY else h1[3] == 1)
@@ -299,6 +315,7 @@ def run_mapping_pe(
                             ref2,
                             (not (is_o1 if _FORWARD_LIBRARY else (not is_o1))) ^ r2_rev,
                         )
+
                 if res1 or res2:
                     if (res1 and res1[0] < -500) or (res2 and res2[0] < -500):
                         continue
@@ -313,9 +330,10 @@ def run_mapping_pe(
                     mq = score_to_mapq(
                         min(res1[0] if res1 else 99, res2[0] if res2 else 99)
                     )
+                    # PE data: [is_rev, rname, pos, mq, cigar, rnext, pnext, isize, score, md, ori, yf, zf, yc, zc, ns, nc, rid, is_p, mate_rev, mate_unmap]
                     m1 = (
                         [
-                            h1[3] == -1,
+                            r1_abs_rev,
                             h1[0],
                             h1[1],
                             mq,
@@ -334,7 +352,7 @@ def run_mapping_pe(
                             res1[8],
                             rid1,
                             bool(is_p),
-                            bool(h2 and h2[3] == -1),
+                            bool(r2_abs_rev),
                             bool(not h2),
                         ]
                         if res1
@@ -342,7 +360,7 @@ def run_mapping_pe(
                     )
                     m2 = (
                         [
-                            h2[3] == -1,
+                            r2_abs_rev,
                             h2[0],
                             h2[1],
                             mq,
@@ -361,7 +379,7 @@ def run_mapping_pe(
                             res2[8],
                             rid2,
                             bool(is_p),
-                            bool(h1 and h1[3] == -1),
+                            bool(r1_abs_rev),
                             bool(not h1),
                         ]
                         if res2
@@ -422,6 +440,9 @@ def _init_worker(ref_indices, orientation_filter, forward_library):
                 for i in range(a_orig.index.bns.n_seqs)
             }
         )
+        import ctypes
+
+        ptr = int(ffi.cast("uintptr_t", a_orig.index))
 
 
 def _build_and_check_indices(ref_files, ref_indices, index_dirs, index_only):
@@ -483,9 +504,6 @@ def create_bam_record(
 ):
     a = pysam.AlignedSegment(header=header)
     a.query_name = name
-    a.is_paired = True
-    a.is_read1 = read_id == 1
-    a.is_read2 = read_id == 2
     a.is_secondary = is_secondary
     a.reference_id = global_rid_map.get(map_data[1], -1)
     a.reference_start, a.mapping_quality, a.cigarstring = (
@@ -494,22 +512,29 @@ def create_bam_record(
         map_data[4],
     )
     a.is_reverse = bool(map_data[0])
-    if len(map_data) > 18:
+
+    if len(map_data) > 15:  # PE Hit
+        a.is_paired = True
+        a.is_read1 = read_id == 1
+        a.is_read2 = read_id == 2
         a.is_proper_pair = bool(map_data[18])
         a.mate_is_reverse = bool(map_data[19])
         a.mate_is_unmapped = bool(map_data[20])
         a.next_reference_id = global_rid_map.get(map_data[5], -1)
         a.next_reference_start = map_data[6] if not a.mate_is_unmapped else 0
         a.template_length = map_data[7]
-    else:
+        off = 8
+    else:  # SE Hit
         a.is_paired = False
+        off = 5
+
     if a.is_reverse:
         a.query_sequence = reverse_complement(seq)
         a.query_qualities = pysam.qualitystring_to_array(qual[::-1])
     else:
         a.query_sequence = seq
         a.query_qualities = pysam.qualitystring_to_array(qual)
-    off = 8 if len(map_data) > 18 else 5
+
     tags = [
         ("AS", int(map_data[off])),
         ("MD", str(map_data[off + 1])),
@@ -784,3 +809,4 @@ def map_file(
                 while futures:
                     wait(futures, return_when=FIRST_COMPLETED)
                     flush_done()
+    print(f"\n✅ Mapping completed! Output saved to: {output_files}")
