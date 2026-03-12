@@ -230,12 +230,8 @@ def run_mapping_se(
                     continue
 
                 if max_a2g_ratio < 1.0 or max_c2t_ratio < 1.0:
-                    if orientation == 1:
-                        a2g_mut, a_match = res[3], res[4]
-                        c2t_mut, c_match = res[5], res[6]
-                    else:
-                        a2g_mut, a_match = res[5], res[4]
-                        c2t_mut, c_match = res[3], res[6]
+                    a2g_mut, a_match = res[3], res[4]
+                    c2t_mut, c_match = res[5], res[6]
 
                     if max_a2g_ratio < 1.0:
                         a2g_ratio = (
@@ -376,32 +372,10 @@ def run_mapping_pe(
                         continue
 
                     if max_a2g_ratio < 1.0 or max_c2t_ratio < 1.0:
-                        if orientation == 1:
-                            a2g_mut = (res1[3] if res1 else 0) + (
-                                res2[3] if res2 else 0
-                            )
-                            a_match = (res1[4] if res1 else 0) + (
-                                res2[4] if res2 else 0
-                            )
-                            c2t_mut = (res1[5] if res1 else 0) + (
-                                res2[5] if res2 else 0
-                            )
-                            c_match = (res1[6] if res1 else 0) + (
-                                res2[6] if res2 else 0
-                            )
-                        else:
-                            a2g_mut = (res1[5] if res1 else 0) + (
-                                res2[5] if res2 else 0
-                            )
-                            a_match = (res1[4] if res1 else 0) + (
-                                res2[4] if res2 else 0
-                            )
-                            c2t_mut = (res1[3] if res1 else 0) + (
-                                res2[3] if res2 else 0
-                            )
-                            c_match = (res1[6] if res1 else 0) + (
-                                res2[6] if res2 else 0
-                            )
+                        a2g_mut = (res1[3] if res1 else 0) + (res2[3] if res2 else 0)
+                        a_match = (res1[4] if res1 else 0) + (res2[4] if res2 else 0)
+                        c2t_mut = (res1[5] if res1 else 0) + (res2[5] if res2 else 0)
+                        c_match = (res1[6] if res1 else 0) + (res2[6] if res2 else 0)
 
                         if max_a2g_ratio < 1.0:
                             a2g_ratio = (
