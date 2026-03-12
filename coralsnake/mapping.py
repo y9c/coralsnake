@@ -633,7 +633,7 @@ def _setup_output_bams(
     if len(output_files) > 1:
         bam_outs = {
             i: stack.enter_context(
-                pysam.AlignmentFile(f, "wb", header=ref_headers[i], threads=threads)
+                pysam.AlignmentFile(f, "wb", header=unified_header, threads=threads)
             )
             for i, f in enumerate(output_files)
         }
