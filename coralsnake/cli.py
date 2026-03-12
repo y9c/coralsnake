@@ -86,6 +86,8 @@ click.rich_click.OPTION_GROUPS = {
                 "-m",
                 "--min-alignment-length",
                 "--min-mapping-ratio",
+                "--max-a2g-ratio",
+                "--max-c2t-ratio",
                 "--batch-size",
                 "-t",
             ],
@@ -332,8 +334,8 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
 @click.option(
     "--batch-size",
     type=int,
-    default=1000,
-    help="Number of reads per batch per worker (default: 1000)",
+    default=5000,
+    help="Number of reads per batch per worker (default: 5000)",
 )
 # Strand-specific mapping options (grouped)
 @click.option(

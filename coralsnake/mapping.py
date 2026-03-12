@@ -698,7 +698,7 @@ def map_file(
     max_c2t_ratio=1.0,
     index_dir=None,
     index_only=False,
-    batch_size=2000,
+    batch_size=5000,
     orientation_filter=None,
 ):
     global _ORIENTATION_FILTER, _FORWARD_LIBRARY
