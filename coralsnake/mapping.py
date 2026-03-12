@@ -11,14 +11,17 @@ import os
 import random
 import re
 import shutil
+import sys
 import tempfile
 import time
 from collections import deque
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from contextlib import ExitStack
+from functools import lru_cache
 
 import pysam
 from bwamem import BwaAligner, BwaIndexer, fastx_read, read_paired_fastx
+from bwamem.libbwa import ffi, libbwa
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from . import seqops
@@ -29,6 +32,15 @@ from .utils import (
     mk_conversion,
     reverse_complement,
 )
+
+
+@lru_cache(maxsize=100)
+def _get_ref_cached(idx_ptr, rid, start, end):
+    res_ptr = libbwa.bwa_fetch_seq(idx_ptr, rid, start, end)
+    if res_ptr == ffi.NULL: return None
+    res = ffi.string(res_ptr).decode()
+    libbwa.free(res_ptr)
+    return res
 
 
 def _build_indices_with_progress(
@@ -84,13 +96,11 @@ def _map_batch_worker(batch, paired, max_mismatches, min_alignment_length, min_m
     results = []
     if not paired:
         seqs = [item[1] for item in batch]
-        if _FORWARD_LIBRARY:
-            conv1, conv2 = seqops.batch_base_conversion(seqs, "AC", "GT"), seqops.batch_base_conversion(seqs, "GT", "AC")
-        else:
-            conv1, conv2 = seqops.batch_base_conversion(seqs, "GT", "AC"), seqops.batch_base_conversion(seqs, "AC", "GT")
+        conv1 = seqops.batch_base_conversion(seqs, "AC", "GT") if _FORWARD_LIBRARY else seqops.batch_base_conversion(seqs, "GT", "AC")
+        conv2 = seqops.batch_base_conversion(seqs, "GT", "AC") if _FORWARD_LIBRARY else seqops.batch_base_conversion(seqs, "AC", "GT")
         for i, (name1, seq1, qua1) in enumerate(batch):
-            ref_idx, mapping_result = run_mapping_se(name1, seq1, qua1, conv1[i], conv2[i], max_mismatches, min_alignment_length, min_mapping_ratio)
-            results.append(((name1, seq1, qua1), (ref_idx, mapping_result)))
+            ref_idx, mapping_result = run_mapping_se(seq1, qua1, conv1[i], conv2[i], max_mismatches, min_alignment_length, min_mapping_ratio)
+            results.append((ref_idx, mapping_result))
     else:
         seqs1 = [item[0][1] for item in batch]; seqs2 = [item[1][1] for item in batch]
         rc_s1 = [seqops.reverse_complement(s) for s in seqs1]; rc_s2 = [seqops.reverse_complement(s) for s in seqs2]
@@ -102,8 +112,8 @@ def _map_batch_worker(batch, paired, max_mismatches, min_alignment_length, min_m
             c2_r1, c2_r2 = seqops.batch_base_conversion(seqs1, "AC", "GT"), seqops.batch_base_conversion(rc_s2, "AC", "GT")
         conv_data = (c1_r1, c1_r2, c2_r1, c2_r2)
         for i, ((name1, seq1, qua1), (name2, seq2, qua2)) in enumerate(batch):
-            ref_idx, mapping_result = run_mapping_pe(name1, seq1, seq2, qua1, qua2, i, conv_data, rc_s1[i], rc_s2[i], max_mismatches, min_alignment_length, min_mapping_ratio)
-            results.append(((name1, seq1, qua1, name2, seq2, qua2), (ref_idx, mapping_result)))
+            ref_idx, mapping_result = run_mapping_pe(seq1, seq2, qua1, qua2, i, conv_data, rc_s1[i], rc_s2[i], max_mismatches, min_alignment_length, min_mapping_ratio)
+            results.append((ref_idx, mapping_result))
     return results
 
 
@@ -113,8 +123,8 @@ def _check_reference_length(aligner, min_length=100):
     return False
 
 
-def run_mapping_se(name, seq1, qua1, s1_c1, s1_c2, max_mismatches, min_alignment_length, min_mapping_ratio):
-    rc_seq1 = rc_qua1 = None
+def run_mapping_se(seq1, qua1, s1_c1, s1_c2, max_mismatches, min_alignment_length, min_mapping_ratio):
+    rc_seq1 = None
     for ref_idx in range(len(_ALIGNERS_MK)):
         if not _check_reference_length(_ALIGNERS_MK[ref_idx]): continue
         mapped = []
@@ -124,26 +134,23 @@ def run_mapping_se(name, seq1, qua1, s1_c1, s1_c2, max_mismatches, min_alignment
             hits = _ALIGNERS_MK[ref_idx].align(s1_c, min_mapq=1)
             for h in hits:
                 if (h[2]-h[1]) < min_alignment_length: continue
-                ref = _ALIGNERS_ORIG[ref_idx].seq(h[0], h[1], h[2]+100)
-                r1_rev = h[3] == -1
-                if r1_rev:
-                    if rc_seq1 is None: rc_seq1, rc_qua1 = seqops.reverse_complement(seq1), qua1[::-1]
-                    s, q, flag = rc_seq1, rc_qua1, 16
-                else: s, q, flag = seq1, qua1, 0
-                res = seqops.score_and_tag(h[7], s, ref, (orientation == 1) ^ r1_rev)
+                is_rev = h[3] == -1
+                s = seqops.reverse_complement(seq1) if is_rev else seq1
+                rid = h[10] if len(h) > 10 else _RID_MAPS[ref_idx].get(h[0], -1)
+                if rid < 0: continue
+                ref = _get_ref_cached(_ALIGNERS_ORIG[ref_idx].index, rid, h[1], h[2]+100)
+                res = seqops.score_and_tag(h[7], s, ref, (orientation == 1) ^ is_rev)
                 if res[0] < -500 or res[1] > max_mismatches // 2 or (h[5] - h[4]) < len(seq1) * min_mapping_ratio: continue
-                m1 = [name, flag, h[0], h[1]+1, score_to_mapq(res[0]), h[7], "*", 0, 0, s, q, ("MD", res[2]), ("ST", orientation), ("AS", res[0]), ("Yf", res[3]), ("Zf", res[4]), ("Yc", res[5]), ("Zc", res[6]), ("NS", res[7]), ("NC", res[8])]
-                mapped.append([res[0], m1])
+                # [is_rev, rname, pos, mq, cigar, score, md, ori, yf, zf, yc, zc, ns, nc, rid]
+                mapped.append([is_rev, h[0], h[1], score_to_mapq(res[0]), h[7], res[0], res[2], orientation, res[3], res[4], res[5], res[6], res[7], res[8], rid])
         if mapped:
-            random.shuffle(mapped); mapped = sorted(mapped, key=lambda x: x[0], reverse=True)
+            mapped.sort(key=lambda x: x[5], reverse=True)
             return (ref_idx, mapped)
     return (None, [])
 
 
-def run_mapping_pe(name, seq1, seq2, qua1, qua2, idx, conv_data, rc_s1, rc_s2, max_mismatches, min_alignment_length, min_mapping_ratio):
-    q1_l, q2_l = len(seq1), len(seq2)
-    rc_q1 = rc_q2 = None
-    c1_r1, c1_r2, c2_r1, c2_r2 = conv_data
+def run_mapping_pe(seq1, seq2, qua1, qua2, idx, conv_data, rc_s1, rc_s2, max_mismatches, min_alignment_length, min_mapping_ratio):
+    q1_l, q2_l = len(seq1), len(seq2); c1_r1, c1_r2, c2_r1, c2_r2 = conv_data
     all_res = []
     for ref_idx in range(len(_ALIGNERS_MK)):
         if not _check_reference_length(_ALIGNERS_MK[ref_idx]): continue
@@ -151,49 +158,40 @@ def run_mapping_pe(name, seq1, seq2, qua1, qua2, idx, conv_data, rc_s1, rc_s2, m
         oris = [1, 2] if _ORIENTATION_FILTER is None else [_ORIENTATION_FILTER]
         for orientation in oris:
             is_o1 = orientation == 1
-            if is_o1: s1_c, s2_c = (c1_r1[idx], c1_r2[idx])
-            else: s1_c, s2_c = (c2_r1[idx], c2_r2[idx])
+            s1_c, s2_c = (c1_r1[idx], c1_r2[idx]) if is_o1 else (c2_r1[idx], c2_r2[idx])
             hits = _ALIGNERS_MK[ref_idx].align(s1_c, s2_c, min_mapq=1)
             for h1, h2, is_p, isize in hits:
                 res1 = res2 = None
+                rid1 = rid2 = -1
                 if h1 and (h1[2]-h1[1]) >= min_alignment_length:
-                    ref1 = _ALIGNERS_ORIG[ref_idx].seq(h1[0], h1[1], h1[2]+100)
                     r1_rev = (h1[3]==-1 if _FORWARD_LIBRARY else h1[3]==1) if is_o1 else (h1[3]==1 if _FORWARD_LIBRARY else h1[3]==-1)
-                    if r1_rev:
-                        if rc_q1 is None: rc_q1 = qua1[::-1]
-                        s1, q1, f1 = rc_s1, rc_q1, 16
-                    else: s1, q1, f1 = seq1, qua1, 0
-                    res1 = seqops.score_and_tag(h1[7], s1, ref1, (is_o1 if _FORWARD_LIBRARY else (not is_o1)) ^ r1_rev)
+                    s1_cur = rc_s1 if r1_rev else seq1
+                    rid1 = h1[10] if len(h1) > 10 else _RID_MAPS[ref_idx].get(h1[0], -1)
+                    if rid1 >= 0:
+                        ref1 = _get_ref_cached(_ALIGNERS_ORIG[ref_idx].index, rid1, h1[1], h1[2]+100)
+                        res1 = seqops.score_and_tag(h1[7], s1_cur, ref1, (is_o1 if _FORWARD_LIBRARY else (not is_o1)) ^ r1_rev)
                 if h2 and (h2[2]-h2[1]) >= min_alignment_length:
-                    ref2 = _ALIGNERS_ORIG[ref_idx].seq(h2[0], h2[1], h2[2]+100)
                     r2_rev = (h2[3]==1 if _FORWARD_LIBRARY else h2[3]==-1) if is_o1 else (h2[3]==-1 if _FORWARD_LIBRARY else h2[3]==1)
-                    if r2_rev:
-                        if rc_q2 is None: rc_q2 = qua2[::-1]
-                        s2, q2, f2 = rc_s2, rc_q2, 16
-                    else: s2, q2, f2 = seq2, qua2, 0
-                    res2 = seqops.score_and_tag(h2[7], s2, ref2, (not (is_o1 if _FORWARD_LIBRARY else (not is_o1))) ^ r2_rev)
+                    s2_cur = rc_s2 if r2_rev else seq2
+                    rid2 = h2[10] if len(h2) > 10 else _RID_MAPS[ref_idx].get(h2[0], -1)
+                    if rid2 >= 0:
+                        ref2 = _get_ref_cached(_ALIGNERS_ORIG[ref_idx].index, rid2, h2[1], h2[2]+100)
+                        res2 = seqops.score_and_tag(h2[7], s2_cur, ref2, (not (is_o1 if _FORWARD_LIBRARY else (not is_o1))) ^ r2_rev)
                 if res1 or res2:
                     if (res1 and res1[0] < -500) or (res2 and res2[0] < -500): continue
-                    if ( (res1[1] if res1 else 0) + (res2[1] if res2 else 0) ) > max_mismatches: continue
-                    if res1 and (h1[5] - h1[4]) < q1_l * min_mapping_ratio: continue
-                    if res2 and (h2[5] - h2[4]) < q2_l * min_mapping_ratio: continue
+                    if ((res1[1] if res1 else 0) + (res2[1] if res2 else 0)) > max_mismatches: continue
+                    if h1 and (h1[5] - h1[4]) < q1_l * min_mapping_ratio: continue
+                    if h2 and (h2[5] - h2[4]) < q2_l * min_mapping_ratio: continue
                     mq = score_to_mapq(min(res1[0] if res1 else 99, res2[0] if res2 else 99))
                     m1 = m2 = None
                     if res1:
-                        t1 = [("ST", orientation), ("MD", res1[2]), ("AS", res1[0]), ("Yf", res1[3]), ("Zf", res1[4]), ("Yc", res1[5]), ("Zc", res1[6]), ("NS", res1[7]), ("NC", res1[8])]
-                        r2_rev_bit = 32 if (h2 and h2[3]==-1) else 0
-                        ff1 = 1 | (2 if is_p else 0) | 64 | f1 | r2_rev_bit
-                        if h2: m1 = [name, ff1, h1[0], h1[1]+1, mq, h1[7], h2[0], h2[1]+1, (isize if h1[1]<=h2[1] else -isize), s1, q1] + t1
-                        else: m1 = [name, ff1 | 8, h1[0], h1[1]+1, mq, h1[7], "*", 0, 0, s1, q1] + t1
+                        # Standard SAM Flag components
+                        m1 = [r1_rev, h1[0], h1[1], mq, h1[7], h2[0] if h2 else "*", h2[1] if h2 else 0, (isize if h1[1]<=h2[1] else -isize) if h2 else 0, res1[0], res1[2], orientation, res1[3], res1[4], res1[5], res1[6], res1[7], res1[8], rid1, bool(is_p), bool(r2_rev if h2 else False), bool(not h2)]
                     if res2:
-                        t2 = [("ST", orientation), ("MD", res2[2]), ("AS", res2[0]), ("Yf", res2[3]), ("Zf", res2[4]), ("Yc", res2[5]), ("Zc", res2[6]), ("NS", res2[7]), ("NC", res2[8])]
-                        r1_rev_bit = 32 if (h1 and h1[3]==-1) else 0
-                        ff2 = 1 | (2 if is_p else 0) | 128 | f2 | r1_rev_bit
-                        if h1: m2 = [name, ff2, h2[0], h2[1]+1, mq, h2[7], h1[0], h1[1]+1, (isize if h2[1]<=h1[1] else -isize), s2, q2] + t2
-                        else: m2 = [name, ff2 | 8, h2[0], h2[1]+1, mq, h2[7], "*", 0, 0, s2, q2] + t2
+                        m2 = [r2_rev, h2[0], h2[1], mq, h2[7], h1[0] if h1 else "*", h1[1] if h1 else 0, (isize if h2[1]<=h1[1] else -isize) if h1 else 0, res2[0], res2[2], orientation, res2[3], res2[4], res2[5], res2[6], res2[7], res2[8], rid2, bool(is_p), bool(r1_rev if h1 else False), bool(not h1)]
                     mapped.append([(res1[0] if res1 else 0)+(res2[0] if res2 else 0), m1, m2])
         if mapped:
-            random.shuffle(mapped); mapped = sorted(mapped, key=lambda x: x[0], reverse=True)
+            mapped.sort(key=lambda x: x[0], reverse=True)
             if any(r[1] and r[2] for r in mapped): return (ref_idx, mapped)
             all_res.append((ref_idx, mapped))
         else: all_res.append((ref_idx, []))
@@ -202,16 +200,18 @@ def run_mapping_pe(name, seq1, seq2, qua1, qua2, idx, conv_data, rc_s1, rc_s2, m
     return (None, [])
 
 
-_ALIGNERS_ORIG = []; _ALIGNERS_MK = []; _ORIENTATION_FILTER = None; _FORWARD_LIBRARY = None
+_ALIGNERS_ORIG = []; _ALIGNERS_MK = []; _ORIENTATION_FILTER = None; _FORWARD_LIBRARY = None; _RID_MAPS = []
 
 def _init_worker(ref_indices, orientation_filter, forward_library):
-    global _ALIGNERS_ORIG, _ALIGNERS_MK, _ORIENTATION_FILTER, _FORWARD_LIBRARY
+    global _ALIGNERS_ORIG, _ALIGNERS_MK, _ORIENTATION_FILTER, _FORWARD_LIBRARY, _RID_MAPS
     _ORIENTATION_FILTER, _FORWARD_LIBRARY = orientation_filter, forward_library
-    _ALIGNERS_ORIG = []; _ALIGNERS_MK = []
+    _ALIGNERS_ORIG = []; _ALIGNERS_MK = []; _RID_MAPS = []
     for o_fa, mk_pre, _ in ref_indices:
         opts = {"min_seed_len": 14, "max_occ": 1000, "softclip_supplementary": True, "mark_secondary": True, "clip_penalties": (6,6), "unpaired_penalty": 24, "min_score": 20, "insert_model": (80,60,450)}
-        _ALIGNERS_ORIG.append(BwaAligner(os.path.splitext(o_fa)[0], **opts))
-        _ALIGNERS_MK.append(BwaAligner(mk_pre, **opts))
+        a_orig = BwaAligner(os.path.splitext(o_fa)[0], **opts)
+        a_mk = BwaAligner(mk_pre, **opts)
+        _ALIGNERS_ORIG.append(a_orig); _ALIGNERS_MK.append(a_mk)
+        _RID_MAPS.append({ffi.string(a_orig.index.bns.anns[i].name).decode(): i for i in range(a_orig.index.bns.n_seqs)})
 
 
 def _build_and_check_indices(ref_files, ref_indices, index_dirs, index_only):
@@ -230,39 +230,42 @@ def _build_and_check_indices(ref_files, ref_indices, index_dirs, index_only):
         return ref_indices
 
 
-def _process_and_map_reads(r1_file, r2_file, ref_indices, write_func, batch_size, threads, max_mismatches, min_alignment_length, min_mapping_ratio, orientation_filter, forward_library):
-    paired = r2_file is not None
-    it_reads = read_paired_fastx(r1_file, r2_file) if paired else fastx_read(r1_file)
-    batch = []
-    with ProcessPoolExecutor(max_workers=max(1, threads), mp_context=mp.get_context("spawn"), initializer=_init_worker, initargs=(ref_indices, orientation_filter, forward_library)) as ex:
-        futures = deque()
-        for reads in it_reads:
-            if paired:
-                if reads[0].name.split()[0].rstrip("/1").rstrip("/2") != reads[1].name.split()[0].rstrip("/1").rstrip("/2"):
-                    raise ValueError(f"Order mismatch: {reads[0].name} vs {reads[1].name}")
-                batch.append(((reads[0].name, reads[0].sequence, reads[0].quality), (reads[1].name, reads[1].sequence, reads[1].quality)))
-            else: batch.append((reads.name, reads.sequence, reads.quality))
-            if len(batch) >= batch_size:
-                futures.append(ex.submit(_map_batch_worker, list(batch), paired, max_mismatches, min_alignment_length, min_mapping_ratio))
-                batch.clear()
-            while futures and futures[0].done(): write_func(futures.popleft().result())
-        if batch: futures.append(ex.submit(_map_batch_worker, list(batch), paired, max_mismatches, min_alignment_length, min_mapping_ratio))
-        while futures: write_func(futures.popleft().result())
+def score_to_mapq(score): return max(0, min(60, score))
 
+def create_bam_record(header, map_data, name, seq, qual, is_secondary, global_rid_map, read_id):
+    a = pysam.AlignedSegment(header=header)
+    a.query_name = name
+    a.is_paired = True
+    a.is_read1 = (read_id == 1); a.is_read2 = (read_id == 2)
+    a.is_secondary = is_secondary
+    
+    a.reference_id = global_rid_map.get(map_data[1], -1)
+    a.reference_start, a.mapping_quality, a.cigarstring = map_data[2], map_data[3], map_data[4]
+    a.is_reverse = bool(map_data[0])
+    
+    if len(map_data) > 18: # PE
+        a.is_proper_pair = bool(map_data[18])
+        a.mate_is_reverse = bool(map_data[19])
+        a.mate_is_unmapped = bool(map_data[20])
+        a.next_reference_id = global_rid_map.get(map_data[5], -1)
+        a.next_reference_start = map_data[6] if not a.mate_is_unmapped else 0
+        a.template_length = map_data[7]
+    else: # SE
+        a.is_paired = False
+        
+    if a.is_reverse: a.query_sequence = reverse_complement(seq); a.query_qualities = pysam.qualitystring_to_array(qual[::-1])
+    else: a.query_sequence = seq; a.query_qualities = pysam.qualitystring_to_array(qual)
+    
+    off = 8 if len(map_data) > 18 else 5
+    a.set_tag("AS", int(map_data[off])); a.set_tag("MD", str(map_data[off+1])); a.set_tag("ST", int(map_data[off+2]))
+    for i, tag in enumerate(["Yf", "Zf", "Yc", "Zc", "NS", "NC"]): a.set_tag(tag, int(map_data[off+3+i]))
+    return a
 
-def _write_mapped_record(paired, item, read_info, target_bam, i):
-    if paired and len(item) == 3:
-        if item[1]: target_bam.write(create_bam_record(target_bam.header, item[1], i > 0))
-        if item[2]: target_bam.write(create_bam_record(target_bam.header, item[2], i > 0))
-    else:
-        target_bam.write(create_bam_record(target_bam.header, item[1], i > 0))
-
-
-def _write_unmapped_record(paired, read_info, bam_unmap):
-    if paired:
-        bam_unmap.write(create_unmapped_record(bam_unmap.header, read_info[0], read_info[1], read_info[2], 77))
-        bam_unmap.write(create_unmapped_record(bam_unmap.header, read_info[3], read_info[4], read_info[5], 141))
-    else: bam_unmap.write(create_unmapped_record(bam_unmap.header, read_info[0], read_info[1], read_info[2], 4))
+def create_unmapped_record(header, name, seq, qual, flag):
+    a = pysam.AlignedSegment(header=header)
+    a.query_name, a.flag, a.reference_id, a.reference_start, a.mapping_quality = name, flag, -1, -1, 0
+    a.query_sequence, a.query_qualities = seq, pysam.qualitystring_to_array(qual)
+    return a
 
 
 def _setup_output_bams(output_files, unmap_file, unified_header, ref_headers, stack):
@@ -276,26 +279,6 @@ def _setup_output_bams(output_files, unmap_file, unified_header, ref_headers, st
     return bam_outs, bam_unmap, default_bam
 
 
-def score_to_mapq(score): return max(0, min(60, score))
-
-def create_bam_record(header, map_data, is_secondary):
-    a = pysam.AlignedSegment(header=header)
-    a.query_name, a.flag = map_data[0], map_data[1] + (256 if is_secondary else 0)
-    a.reference_name, a.reference_start, a.mapping_quality, a.cigarstring = map_data[2], map_data[3]-1, map_data[4], map_data[5]
-    a.next_reference_name = map_data[6]
-    a.next_reference_start = map_data[7]-1 if map_data[7]>0 else 0
-    a.template_length, a.query_sequence, a.query_qualities = map_data[8], map_data[9], pysam.qualitystring_to_array(map_data[10])
-    for t, v in map_data[11:]: a.set_tag(t, v)
-    return a
-
-def create_unmapped_record(header, name, seq, qual, flag):
-    a = pysam.AlignedSegment(header=header)
-    a.query_name, a.flag, a.reference_id, a.reference_start, a.mapping_quality = name, flag, -1, -1, 0
-    a.cigarstring, a.next_reference_id, a.next_reference_start, a.template_length = None, -1, -1, 0
-    a.query_sequence, a.query_qualities = seq, pysam.qualitystring_to_array(qual)
-    return a
-
-
 def map_file(r1_file, r2_file, ref_files, output_files, unmap_file=None, forward_library=True, max_mismatches=10, threads=8, min_alignment_length=20, min_mapping_ratio=0.5, index_dir=None, index_only=False, batch_size=5000, orientation_filter=None):
     global _ORIENTATION_FILTER, _FORWARD_LIBRARY
     _ORIENTATION_FILTER, _FORWARD_LIBRARY = orientation_filter, forward_library
@@ -303,28 +286,53 @@ def map_file(r1_file, r2_file, ref_files, output_files, unmap_file=None, forward
     i_dirs = [index_dir] if index_dir and not isinstance(index_dir, (list,tuple)) else (index_dir or [os.path.dirname(os.path.abspath(f)) for f in ref_files])
     ref_indices = _build_and_check_indices(ref_files, ref_indices, i_dirs, index_only)
     if index_only: return
+    
     stack = ExitStack()
     with stack:
         ref_headers = []; all_sq = []; seen_sq = set()
         for o_fa, _, _ in ref_indices:
             with pysam.FastaFile(o_fa) as fa:
                 h = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": [{"LN": fa.get_reference_length(n), "SN": n} for n in fa.references]}
-                ref_headers.append(h)
-                for sq in h["SQ"]:
-                    if sq["SN"] not in seen_sq: all_sq.append(sq); seen_sq.add(sq["SN"])
+                ref_headers.append(h); [ (all_sq.append(sq), seen_sq.add(sq["SN"])) for sq in h["SQ"] if sq["SN"] not in seen_sq ]
         unified_h = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": all_sq}
+        global_rid_map = {sq["SN"]: i for i, sq in enumerate(all_sq)}; global_rid_map["*"] = -1
         bam_outs, bam_unmap, def_bam = _setup_output_bams(output_files, unmap_file, unified_h, ref_headers, stack)
+        
         p_tot = p_map = 0; s_time = time.time()
-        def wr(res):
-            nonlocal p_tot, p_map
-            for info, (ridx, m_res) in res:
-                p_tot += 1
-                if ridx is not None and m_res:
-                    p_map += 1; target = bam_outs[ridx] if bam_outs else def_bam
-                    for i, item in enumerate(m_res): _write_mapped_record(r2_file is not None, item, info, target, i)
-                else: _write_unmapped_record(r2_file is not None, info, bam_unmap)
-        with Progress(SpinnerColumn(), TextColumn("[bold blue]Map[/bold blue]"), TextColumn("{task.fields[mapped]} / {task.fields[total_reads]} reads"), TextColumn("({task.fields[elapsed]})"), transient=False) as prg:
-            task = prg.add_task("Mapping", total=None, mapped="0", total_reads="0", elapsed="0.00s")
-            def pw(res):
-                wr(res); prg.update(task, mapped=f"{p_map:,}", total_reads=f"{p_tot:,}", elapsed=format_duration(time.time()-s_time))
-            _process_and_map_reads(r1_file, r2_file, ref_indices, pw, batch_size, threads, max_mismatches, min_alignment_length, min_mapping_ratio, orientation_filter, forward_library)
+        with ProcessPoolExecutor(max_workers=max(1, threads), mp_context=mp.get_context("spawn"), initializer=_init_worker, initargs=(ref_indices, orientation_filter, forward_library)) as ex:
+            futures = deque(); batches = deque()
+            it_reads = read_paired_fastx(r1_file, r2_file) if r2_file else fastx_read(r1_file)
+            batch = []
+            with Progress(SpinnerColumn(), TextColumn("[bold blue]Map[/bold blue]"), TextColumn("{task.fields[mapped]} / {task.fields[total_reads]} reads"), TextColumn("({task.fields[elapsed]})"), transient=False) as prg:
+                task = prg.add_task("Mapping", total=None, mapped="0", total_reads="0", elapsed="0.00s")
+                def flush_done():
+                    nonlocal p_tot, p_map
+                    while futures and futures[0].done():
+                        res = futures.popleft().result(); orig_batch = batches.popleft()
+                        for i, (ridx, m_res) in enumerate(res):
+                            p_tot += 1; info = orig_batch[i]
+                            if ridx is not None and m_res:
+                                p_map += 1; target = bam_outs[ridx] if bam_outs else def_bam
+                                for j, item in enumerate(m_res):
+                                    if r2_file:
+                                        if item[1]: target.write(create_bam_record(target.header, item[1], info[0][0], info[0][1], info[0][2], j > 0, global_rid_map, 1))
+                                        if item[2]: target.write(create_bam_record(target.header, item[2], info[1][0], info[1][1], info[1][2], j > 0, global_rid_map, 2))
+                                    else: target.write(create_bam_record(target.header, item, info[0], info[1], info[2], j > 0, global_rid_map, 0))
+                            else:
+                                if r2_file:
+                                    bam_unmap.write(create_unmapped_record(bam_unmap.header, info[0][0], info[0][1], info[0][2], 77))
+                                    bam_unmap.write(create_unmapped_record(bam_unmap.header, info[1][0], info[1][1], info[1][2], 141))
+                                else: bam_unmap.write(create_unmapped_record(bam_unmap.header, info[0], info[1], info[2], 4))
+                        prg.update(task, mapped=f"{p_map:,}", total_reads=f"{p_tot:,}", elapsed=format_duration(time.time()-s_time))
+                for reads in it_reads:
+                    if r2_file:
+                        if reads[0].name.split()[0].rstrip("/1").rstrip("/2") != reads[1].name.split()[0].rstrip("/1").rstrip("/2"): raise ValueError(f"Order mismatch: {reads[0].name} vs {reads[1].name}")
+                        batch.append(((reads[0].name, reads[0].sequence, reads[0].quality), (reads[1].name, reads[1].sequence, reads[1].quality)))
+                    else: batch.append((reads.name, reads.sequence, reads.quality))
+                    if len(batch) >= batch_size:
+                        batches.append(list(batch)); futures.append(ex.submit(_map_batch_worker, batches[-1], r2_file is not None, max_mismatches, min_alignment_length, min_mapping_ratio))
+                        batch.clear(); flush_done()
+                if batch:
+                    batches.append(list(batch)); futures.append(ex.submit(_map_batch_worker, batches[-1], r2_file is not None, max_mismatches, min_alignment_length, min_mapping_ratio))
+                while futures: flush_done(); time.sleep(0.01)
+    print(f"\n✅ Mapping completed! Output saved to: {output_files}")
