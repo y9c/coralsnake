@@ -4,17 +4,17 @@ requires-python = ">=3.12"
 
 [[package]]
 name = "bwamem"
-version = "0.0.51"
+version = "0.0.52"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cffi" },
     { name = "setuptools" },
     { name = "wheel" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/12/a3/7d3ebbf120f69e1546f0ba4846e3af6ee79dd320ab372f1231796411ad17/bwamem-0.0.51.tar.gz", hash = "sha256:c98ad8beff1d8026d8b413c294f7d8bf54db20d0ac8c1462a7597e805c80746f", size = 1123883, upload-time = "2026-03-12T14:44:21.617Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a7/61/dd53d4e96764491b8c733131995516ec342ce8ae8340b40b10b3b31d73c4/bwamem-0.0.52.tar.gz", hash = "sha256:7e37ebe3e6e2d4556380b13e5d683adff4ab6d83d11f3a9839bee0182e01d9a9", size = 1123901, upload-time = "2026-03-12T15:31:14.336Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/96/6f/d5e8ad09f0a9d4d1dea238fa56b99a86ecdbf6e658548c26b25d0cb5c616/bwamem-0.0.51-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:879d6953f98b6895191c4b34110e14defb9ece874d6164ff4cdf77491bda50f3", size = 379852, upload-time = "2026-03-12T14:44:18.761Z" },
-    { url = "https://files.pythonhosted.org/packages/bd/79/b357fef9cdba5efad6a8ab72a86b2ac9d0c5ca25f176094f625c3469a343/bwamem-0.0.51-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ba4ddbfe8f2afc9d5c7789aac3938f8ebe898f3fb2edf4291e1d75fe121517f5", size = 379859, upload-time = "2026-03-12T14:44:20.416Z" },
+    { url = "https://files.pythonhosted.org/packages/da/c6/211e08d4e67fc76ecc3135a6a20a6abd4c6fd911cb109257ad99162276b6/bwamem-0.0.52-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:4173adf32b7f8c9fdc803436f3e707ff41bcdfc4b88e8b4359b13da63cc0aa47", size = 379876, upload-time = "2026-03-12T15:31:11.439Z" },
+    { url = "https://files.pythonhosted.org/packages/f2/4a/ee2e5cd37c0e17409b4118997f8530519b8d7d42eef1974172609b6e5447/bwamem-0.0.52-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d47b6a1340f825bda341d69946719f13510ae931a120efd46ee8f0adafe712ff", size = 379882, upload-time = "2026-03-12T15:31:12.675Z" },
 ]
 
 [[package]]
@@ -97,7 +97,7 @@ wheels = [
 
 [[package]]
 name = "coralsnake"
-version = "0.0.194"
+version = "0.0.195"
 source = { editable = "." }
 dependencies = [
     { name = "bwamem" },
@@ -119,7 +119,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bwamem", specifier = ">=0.0.51" },
+    { name = "bwamem", specifier = ">=0.0.52" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pyfamsa", specifier = ">=0.4" },
     { name = "pysam", specifier = ">=0.22" },
