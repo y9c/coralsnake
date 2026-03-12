@@ -1,18 +1,12 @@
-#!/usr/bin/env python3
-from distutils.core import setup, Extension
-
-# Define the C extension
-ext_modules = [
-    Extension(
-        "seqops",
-        ["seqops.c"],
-        include_dirs=[],
-        libraries=[],
-        library_dirs=[],
-    ),
-]
+from setuptools import setup, Extension
 
 setup(
     name="seqops",
-    ext_modules=ext_modules,
+    ext_modules=[
+        Extension(
+            "coralsnake.seqops",
+            ["coralsnake/seqops.c"],
+            libraries=["z"],
+        )
+    ],
 )
