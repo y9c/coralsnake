@@ -34,7 +34,6 @@ from .utils import (
 )
 
 
-@lru_cache(maxsize=100)
 def _get_ref_cached(idx_ptr, rid, start, end):
     res_ptr = libbwa.bwa_fetch_seq(idx_ptr, rid, start, end)
     if res_ptr == ffi.NULL:
@@ -603,14 +602,18 @@ def create_bam_record(
         a.query_sequence = seq
         a.query_qualities = pysam.qualitystring_to_array(qual)
 
-    tags = [
-        ("AS", int(map_data[off])),
-        ("MD", str(map_data[off + 1])),
-        ("ST", int(map_data[off + 2])),
+    # Combined tag setting for maximum performance
+    a.tags = [
+        ("AS", map_data[off]),
+        ("MD", map_data[off + 1]),
+        ("ST", map_data[off + 2]),
+        ("Yf", map_data[off + 3]),
+        ("Zf", map_data[off + 4]),
+        ("Yc", map_data[off + 5]),
+        ("Zc", map_data[off + 6]),
+        ("NS", map_data[off + 7]),
+        ("NC", map_data[off + 8]),
     ]
-    for i, tag in enumerate(["Yf", "Zf", "Yc", "Zc", "NS", "NC"]):
-        tags.append((tag, int(map_data[off + 3 + i])))
-    a.tags = tags
     return a
 
 
