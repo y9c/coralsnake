@@ -229,21 +229,31 @@ def run_mapping_se(
                 ):
                     continue
 
-                if orientation == 1:
-                    a2g_mut, a_match = res[3], res[4]
-                    c2t_mut, c_match = res[5], res[6]
-                else:
-                    a2g_mut, a_match = res[5], res[4]
-                    c2t_mut, c_match = res[3], res[6]
+                if max_a2g_ratio < 1.0 or max_c2t_ratio < 1.0:
+                    if orientation == 1:
+                        a2g_mut, a_match = res[3], res[4]
+                        c2t_mut, c_match = res[5], res[6]
+                    else:
+                        a2g_mut, a_match = res[5], res[4]
+                        c2t_mut, c_match = res[3], res[6]
 
-                a2g_ratio = (
-                    a2g_mut / (a2g_mut + a_match) if (a2g_mut + a_match) > 0 else 0.0
-                )
-                c2t_ratio = (
-                    c2t_mut / (c2t_mut + c_match) if (c2t_mut + c_match) > 0 else 0.0
-                )
-                if a2g_ratio > max_a2g_ratio or c2t_ratio > max_c2t_ratio:
-                    continue
+                    if max_a2g_ratio < 1.0:
+                        a2g_ratio = (
+                            a2g_mut / (a2g_mut + a_match)
+                            if (a2g_mut + a_match) > 0
+                            else 0.0
+                        )
+                        if a2g_ratio > max_a2g_ratio:
+                            continue
+
+                    if max_c2t_ratio < 1.0:
+                        c2t_ratio = (
+                            c2t_mut / (c2t_mut + c_match)
+                            if (c2t_mut + c_match) > 0
+                            else 0.0
+                        )
+                        if c2t_ratio > max_c2t_ratio:
+                            continue
 
                 # SE data: [is_rev, rname, pos, mq, cigar, score, md, ori, yf, zf, yc, zc, ns, nc, rid]
                 mapped.append(
@@ -365,30 +375,51 @@ def run_mapping_pe(
                     if h2 and (h2[5] - h2[4]) < q2_l * min_mapping_ratio:
                         continue
 
-                    if orientation == 1:
-                        a2g_mut = (res1[3] if res1 else 0) + (res2[3] if res2 else 0)
-                        a_match = (res1[4] if res1 else 0) + (res2[4] if res2 else 0)
-                        c2t_mut = (res1[5] if res1 else 0) + (res2[5] if res2 else 0)
-                        c_match = (res1[6] if res1 else 0) + (res2[6] if res2 else 0)
-                    else:
-                        a2g_mut = (res1[5] if res1 else 0) + (res2[5] if res2 else 0)
-                        a_match = (res1[4] if res1 else 0) + (res2[4] if res2 else 0)
-                        c2t_mut = (res1[3] if res1 else 0) + (res2[3] if res2 else 0)
-                        c_match = (res1[6] if res1 else 0) + (res2[6] if res2 else 0)
+                    if max_a2g_ratio < 1.0 or max_c2t_ratio < 1.0:
+                        if orientation == 1:
+                            a2g_mut = (res1[3] if res1 else 0) + (
+                                res2[3] if res2 else 0
+                            )
+                            a_match = (res1[4] if res1 else 0) + (
+                                res2[4] if res2 else 0
+                            )
+                            c2t_mut = (res1[5] if res1 else 0) + (
+                                res2[5] if res2 else 0
+                            )
+                            c_match = (res1[6] if res1 else 0) + (
+                                res2[6] if res2 else 0
+                            )
+                        else:
+                            a2g_mut = (res1[5] if res1 else 0) + (
+                                res2[5] if res2 else 0
+                            )
+                            a_match = (res1[4] if res1 else 0) + (
+                                res2[4] if res2 else 0
+                            )
+                            c2t_mut = (res1[3] if res1 else 0) + (
+                                res2[3] if res2 else 0
+                            )
+                            c_match = (res1[6] if res1 else 0) + (
+                                res2[6] if res2 else 0
+                            )
 
-                    a2g_ratio = (
-                        a2g_mut / (a2g_mut + a_match)
-                        if (a2g_mut + a_match) > 0
-                        else 0.0
-                    )
-                    c2t_ratio = (
-                        c2t_mut / (c2t_mut + c_match)
-                        if (c2t_mut + c_match) > 0
-                        else 0.0
-                    )
+                        if max_a2g_ratio < 1.0:
+                            a2g_ratio = (
+                                a2g_mut / (a2g_mut + a_match)
+                                if (a2g_mut + a_match) > 0
+                                else 0.0
+                            )
+                            if a2g_ratio > max_a2g_ratio:
+                                continue
 
-                    if a2g_ratio > max_a2g_ratio or c2t_ratio > max_c2t_ratio:
-                        continue
+                        if max_c2t_ratio < 1.0:
+                            c2t_ratio = (
+                                c2t_mut / (c2t_mut + c_match)
+                                if (c2t_mut + c_match) > 0
+                                else 0.0
+                            )
+                            if c2t_ratio > max_c2t_ratio:
+                                continue
 
                     mq = score_to_mapq(
                         min(res1[0] if res1 else 99, res2[0] if res2 else 99)
