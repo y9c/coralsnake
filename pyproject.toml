@@ -1,6 +1,6 @@
 [project]
 name = "coralsnake"
-version = "0.0.188"
+version = "0.0.189"
 description = "Transcriptome mapping in two colors"
 authors = [{ name = "Chang Ye", email = "yech1990@gmail.com" }]
 requires-python = ">=3.12"

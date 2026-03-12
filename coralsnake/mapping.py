@@ -102,7 +102,13 @@ def _build_indices_with_progress(
 
 
 def _map_batch_worker(
-    batch, paired, max_mismatches, min_alignment_length, min_mapping_ratio
+    batch,
+    paired,
+    max_mismatches,
+    min_alignment_length,
+    min_mapping_ratio,
+    max_a2g_ratio,
+    max_c2t_ratio,
 ):
     results = []
     if not paired:
@@ -126,6 +132,8 @@ def _map_batch_worker(
                 max_mismatches,
                 min_alignment_length,
                 min_mapping_ratio,
+                max_a2g_ratio,
+                max_c2t_ratio,
             )
             results.append((ref_idx, mapping_result))
     else:
@@ -165,6 +173,8 @@ def _map_batch_worker(
                 max_mismatches,
                 min_alignment_length,
                 min_mapping_ratio,
+                max_a2g_ratio,
+                max_c2t_ratio,
             )
             results.append((ref_idx, mapping_result))
     return results
@@ -178,7 +188,15 @@ def _check_reference_length(aligner, min_length=100):
 
 
 def run_mapping_se(
-    seq1, qua1, s1_c1, s1_c2, max_mismatches, min_alignment_length, min_mapping_ratio
+    seq1,
+    qua1,
+    s1_c1,
+    s1_c2,
+    max_mismatches,
+    min_alignment_length,
+    min_mapping_ratio,
+    max_a2g_ratio,
+    max_c2t_ratio,
 ):
     rc_seq1 = None
     for ref_idx in range(len(_ALIGNERS_MK)):
@@ -210,6 +228,23 @@ def run_mapping_se(
                     or (h[5] - h[4]) < len(seq1) * min_mapping_ratio
                 ):
                     continue
+
+                if orientation == 1:
+                    a2g_mut, a_match = res[3], res[4]
+                    c2t_mut, c_match = res[5], res[6]
+                else:
+                    a2g_mut, a_match = res[5], res[4]
+                    c2t_mut, c_match = res[3], res[6]
+
+                a2g_ratio = (
+                    a2g_mut / (a2g_mut + a_match) if (a2g_mut + a_match) > 0 else 0.0
+                )
+                c2t_ratio = (
+                    c2t_mut / (c2t_mut + c_match) if (c2t_mut + c_match) > 0 else 0.0
+                )
+                if a2g_ratio > max_a2g_ratio or c2t_ratio > max_c2t_ratio:
+                    continue
+
                 # SE data: [is_rev, rname, pos, mq, cigar, score, md, ori, yf, zf, yc, zc, ns, nc, rid]
                 mapped.append(
                     [
@@ -248,6 +283,8 @@ def run_mapping_pe(
     max_mismatches,
     min_alignment_length,
     min_mapping_ratio,
+    max_a2g_ratio,
+    max_c2t_ratio,
 ):
     q1_l, q2_l = len(seq1), len(seq2)
     c1_r1, c1_r2, c2_r1, c2_r2 = conv_data
@@ -327,6 +364,32 @@ def run_mapping_pe(
                         continue
                     if h2 and (h2[5] - h2[4]) < q2_l * min_mapping_ratio:
                         continue
+
+                    if orientation == 1:
+                        a2g_mut = (res1[3] if res1 else 0) + (res2[3] if res2 else 0)
+                        a_match = (res1[4] if res1 else 0) + (res2[4] if res2 else 0)
+                        c2t_mut = (res1[5] if res1 else 0) + (res2[5] if res2 else 0)
+                        c_match = (res1[6] if res1 else 0) + (res2[6] if res2 else 0)
+                    else:
+                        a2g_mut = (res1[5] if res1 else 0) + (res2[5] if res2 else 0)
+                        a_match = (res1[4] if res1 else 0) + (res2[4] if res2 else 0)
+                        c2t_mut = (res1[3] if res1 else 0) + (res2[3] if res2 else 0)
+                        c_match = (res1[6] if res1 else 0) + (res2[6] if res2 else 0)
+
+                    a2g_ratio = (
+                        a2g_mut / (a2g_mut + a_match)
+                        if (a2g_mut + a_match) > 0
+                        else 0.0
+                    )
+                    c2t_ratio = (
+                        c2t_mut / (c2t_mut + c_match)
+                        if (c2t_mut + c_match) > 0
+                        else 0.0
+                    )
+
+                    if a2g_ratio > max_a2g_ratio or c2t_ratio > max_c2t_ratio:
+                        continue
+
                     mq = score_to_mapq(
                         min(res1[0] if res1 else 99, res2[0] if res2 else 99)
                     )
@@ -600,6 +663,8 @@ def map_file(
     threads=8,
     min_alignment_length=20,
     min_mapping_ratio=0.5,
+    max_a2g_ratio=1.0,
+    max_c2t_ratio=1.0,
     index_dir=None,
     index_only=False,
     batch_size=2000,
@@ -788,6 +853,8 @@ def map_file(
                                 max_mismatches,
                                 min_alignment_length,
                                 min_mapping_ratio,
+                                max_a2g_ratio,
+                                max_c2t_ratio,
                             )
                         )
                         batch.clear()
@@ -804,6 +871,8 @@ def map_file(
                             max_mismatches,
                             min_alignment_length,
                             min_mapping_ratio,
+                            max_a2g_ratio,
+                            max_c2t_ratio,
                         )
                     )
                 while futures:

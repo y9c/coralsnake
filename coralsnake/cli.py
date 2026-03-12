@@ -306,6 +306,18 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     help="Minimum mapping length ratio (mapped length / query length) for filtering hits (default: 0.5)",
 )
 @click.option(
+    "--max-a2g-ratio",
+    type=float,
+    default=1.0,
+    help="Maximum proportion of A to G mutations over total A (default: 1.0)",
+)
+@click.option(
+    "--max-c2t-ratio",
+    type=float,
+    default=1.0,
+    help="Maximum proportion of C to T mutations over total C (default: 1.0)",
+)
+@click.option(
     "--index-dir",
     type=click.Path(),
     multiple=True,
@@ -371,6 +383,8 @@ def map(
     threads,
     min_alignment_length,
     min_mapping_ratio,
+    max_a2g_ratio,
+    max_c2t_ratio,
     index_dir,
     index_only,
     batch_size,
@@ -480,6 +494,8 @@ def map(
             threads,
             min_alignment_length,
             min_mapping_ratio,
+            max_a2g_ratio,
+            max_c2t_ratio,
             index_dir,
             index_only,
             batch_size,
