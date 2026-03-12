@@ -84,10 +84,12 @@ def _map_batch_worker(batch, paired, max_mismatches, min_alignment_length, min_m
     results = []
     if not paired:
         seqs = [item[1] for item in batch]
-        conv1 = seqops.batch_base_conversion(seqs, "AC", "GT") if _FORWARD_LIBRARY else seqops.batch_base_conversion(seqs, "GT", "AC")
-        conv2 = seqops.batch_base_conversion(seqs, "GT", "AC") if _FORWARD_LIBRARY else seqops.batch_base_conversion(seqs, "AC", "GT")
+        if _FORWARD_LIBRARY:
+            conv1, conv2 = seqops.batch_base_conversion(seqs, "AC", "GT"), seqops.batch_base_conversion(seqs, "GT", "AC")
+        else:
+            conv1, conv2 = seqops.batch_base_conversion(seqs, "GT", "AC"), seqops.batch_base_conversion(seqs, "AC", "GT")
         for i, (name1, seq1, qua1) in enumerate(batch):
-            ref_idx, mapping_result = run_mapping_se(name1, seq1, qua1, conv1[i], conv2[i], _FORWARD_LIBRARY, max_mismatches, min_alignment_length, min_mapping_ratio)
+            ref_idx, mapping_result = run_mapping_se(name1, seq1, qua1, conv1[i], conv2[i], max_mismatches, min_alignment_length, min_mapping_ratio)
             results.append(((name1, seq1, qua1), (ref_idx, mapping_result)))
     else:
         seqs1 = [item[0][1] for item in batch]; seqs2 = [item[1][1] for item in batch]
@@ -100,7 +102,7 @@ def _map_batch_worker(batch, paired, max_mismatches, min_alignment_length, min_m
             c2_r1, c2_r2 = seqops.batch_base_conversion(seqs1, "AC", "GT"), seqops.batch_base_conversion(rc_s2, "AC", "GT")
         conv_data = (c1_r1, c1_r2, c2_r1, c2_r2)
         for i, ((name1, seq1, qua1), (name2, seq2, qua2)) in enumerate(batch):
-            ref_idx, mapping_result = run_mapping_pe(name1, seq1, seq2, qua1, qua2, i, conv_data, rc_s1[i], rc_s2[i], _FORWARD_LIBRARY, max_mismatches, min_alignment_length, min_mapping_ratio)
+            ref_idx, mapping_result = run_mapping_pe(name1, seq1, seq2, qua1, qua2, i, conv_data, rc_s1[i], rc_s2[i], max_mismatches, min_alignment_length, min_mapping_ratio)
             results.append(((name1, seq1, qua1, name2, seq2, qua2), (ref_idx, mapping_result)))
     return results
 
@@ -111,7 +113,7 @@ def _check_reference_length(aligner, min_length=100):
     return False
 
 
-def run_mapping_se(name, seq1, qua1, s1_c1, s1_c2, forward_library, max_mismatches, min_alignment_length, min_mapping_ratio):
+def run_mapping_se(name, seq1, qua1, s1_c1, s1_c2, max_mismatches, min_alignment_length, min_mapping_ratio):
     rc_seq1 = rc_qua1 = None
     for ref_idx in range(len(_ALIGNERS_MK)):
         if not _check_reference_length(_ALIGNERS_MK[ref_idx]): continue
@@ -138,36 +140,38 @@ def run_mapping_se(name, seq1, qua1, s1_c1, s1_c2, forward_library, max_mismatch
     return (None, [])
 
 
-def run_mapping_pe(name, seq1, seq2, qua1, qua2, idx, conv_data, rc_s1, rc_s2, forward_library, max_mismatches, min_alignment_length, min_mapping_ratio):
-    q1_l, q2_l = len(seq1), len(seq2); rc_q1 = rc_q2 = None
-    c1_r1, c1_r2, c2_r1, c2_r2 = conv_data; all_res = []
+def run_mapping_pe(name, seq1, seq2, qua1, qua2, idx, conv_data, rc_s1, rc_s2, max_mismatches, min_alignment_length, min_mapping_ratio):
+    q1_l, q2_l = len(seq1), len(seq2)
+    rc_q1 = rc_q2 = None
+    c1_r1, c1_r2, c2_r1, c2_r2 = conv_data
+    all_res = []
     for ref_idx in range(len(_ALIGNERS_MK)):
         if not _check_reference_length(_ALIGNERS_MK[ref_idx]): continue
         mapped = []
         oris = [1, 2] if _ORIENTATION_FILTER is None else [_ORIENTATION_FILTER]
         for orientation in oris:
             is_o1 = orientation == 1
-            if is_o1: s1_c, s2_c = (c1_r1[idx], c1_r2[idx]) if forward_library else (c2_r1[idx], c2_r2[idx])
-            else: s1_c, s2_c = (c2_r1[idx], c2_r2[idx]) if forward_library else (c1_r1[idx], c1_r2[idx])
+            if is_o1: s1_c, s2_c = (c1_r1[idx], c1_r2[idx])
+            else: s1_c, s2_c = (c2_r1[idx], c2_r2[idx])
             hits = _ALIGNERS_MK[ref_idx].align(s1_c, s2_c, min_mapq=1)
             for h1, h2, is_p, isize in hits:
                 res1 = res2 = None
                 if h1 and (h1[2]-h1[1]) >= min_alignment_length:
                     ref1 = _ALIGNERS_ORIG[ref_idx].seq(h1[0], h1[1], h1[2]+100)
-                    r1_rev = (h1[3]==-1 if forward_library else h1[3]==1) if is_o1 else (h1[3]==1 if forward_library else h1[3]==-1)
+                    r1_rev = (h1[3]==-1 if _FORWARD_LIBRARY else h1[3]==1) if is_o1 else (h1[3]==1 if _FORWARD_LIBRARY else h1[3]==-1)
                     if r1_rev:
                         if rc_q1 is None: rc_q1 = qua1[::-1]
                         s1, q1, f1 = rc_s1, rc_q1, 16
                     else: s1, q1, f1 = seq1, qua1, 0
-                    res1 = seqops.score_and_tag(h1[7], s1, ref1, (is_o1 if forward_library else (not is_o1)) ^ r1_rev)
+                    res1 = seqops.score_and_tag(h1[7], s1, ref1, (is_o1 if _FORWARD_LIBRARY else (not is_o1)) ^ r1_rev)
                 if h2 and (h2[2]-h2[1]) >= min_alignment_length:
                     ref2 = _ALIGNERS_ORIG[ref_idx].seq(h2[0], h2[1], h2[2]+100)
-                    r2_rev = (h2[3]==1 if forward_library else h2[3]==-1) if is_o1 else (h2[3]==-1 if forward_library else h2[3]==1)
+                    r2_rev = (h2[3]==1 if _FORWARD_LIBRARY else h2[3]==-1) if is_o1 else (h2[3]==-1 if _FORWARD_LIBRARY else h2[3]==1)
                     if r2_rev:
                         if rc_q2 is None: rc_q2 = qua2[::-1]
                         s2, q2, f2 = rc_s2, rc_q2, 16
                     else: s2, q2, f2 = seq2, qua2, 0
-                    res2 = seqops.score_and_tag(h2[7], s2, ref2, (not (is_o1 if forward_library else (not is_o1))) ^ r2_rev)
+                    res2 = seqops.score_and_tag(h2[7], s2, ref2, (not (is_o1 if _FORWARD_LIBRARY else (not is_o1))) ^ r2_rev)
                 if res1 or res2:
                     if (res1 and res1[0] < -500) or (res2 and res2[0] < -500): continue
                     if ( (res1[1] if res1 else 0) + (res2[1] if res2 else 0) ) > max_mismatches: continue
@@ -176,13 +180,15 @@ def run_mapping_pe(name, seq1, seq2, qua1, qua2, idx, conv_data, rc_s1, rc_s2, f
                     mq = score_to_mapq(min(res1[0] if res1 else 99, res2[0] if res2 else 99))
                     m1 = m2 = None
                     if res1:
-                        ff1 = 1 | (2 if is_p else 0) | 64 | f1 | (32 if (h2 and h2[3]==-1) else 0)
                         t1 = [("ST", orientation), ("MD", res1[2]), ("AS", res1[0]), ("Yf", res1[3]), ("Zf", res1[4]), ("Yc", res1[5]), ("Zc", res1[6]), ("NS", res1[7]), ("NC", res1[8])]
+                        r2_rev_bit = 32 if (h2 and h2[3]==-1) else 0
+                        ff1 = 1 | (2 if is_p else 0) | 64 | f1 | r2_rev_bit
                         if h2: m1 = [name, ff1, h1[0], h1[1]+1, mq, h1[7], h2[0], h2[1]+1, (isize if h1[1]<=h2[1] else -isize), s1, q1] + t1
                         else: m1 = [name, ff1 | 8, h1[0], h1[1]+1, mq, h1[7], "*", 0, 0, s1, q1] + t1
                     if res2:
-                        ff2 = 1 | (2 if is_p else 0) | 128 | f2 | (32 if (h1 and h1[3]==-1) else 0)
                         t2 = [("ST", orientation), ("MD", res2[2]), ("AS", res2[0]), ("Yf", res2[3]), ("Zf", res2[4]), ("Yc", res2[5]), ("Zc", res2[6]), ("NS", res2[7]), ("NC", res2[8])]
+                        r1_rev_bit = 32 if (h1 and h1[3]==-1) else 0
+                        ff2 = 1 | (2 if is_p else 0) | 128 | f2 | r1_rev_bit
                         if h1: m2 = [name, ff2, h2[0], h2[1]+1, mq, h2[7], h1[0], h1[1]+1, (isize if h2[1]<=h1[1] else -isize), s2, q2] + t2
                         else: m2 = [name, ff2 | 8, h2[0], h2[1]+1, mq, h2[7], "*", 0, 0, s2, q2] + t2
                     mapped.append([(res1[0] if res1 else 0)+(res2[0] if res2 else 0), m1, m2])
