@@ -15,7 +15,12 @@ import sys
 import tempfile
 import time
 from collections import deque
-from concurrent.futures import ProcessPoolExecutor, as_completed, wait, FIRST_COMPLETED
+from concurrent.futures import (
+    FIRST_COMPLETED,
+    ProcessPoolExecutor,
+    as_completed,
+    wait,
+)
 from contextlib import ExitStack
 from functools import lru_cache
 
@@ -34,6 +39,7 @@ from .utils import (
 )
 
 
+@lru_cache(maxsize=1024)
 def _get_ref_cached(idx_ptr, rid, start, end):
     res_ptr = libbwa.bwa_fetch_seq(idx_ptr, rid, start, end)
     if res_ptr == ffi.NULL:
@@ -197,7 +203,6 @@ def run_mapping_se(
     max_a2g_ratio,
     max_c2t_ratio,
 ):
-    rc_seq1 = None
     for ref_idx in range(len(_ALIGNERS_MK)):
         if not _check_reference_length(_ALIGNERS_MK[ref_idx]):
             continue
@@ -250,11 +255,13 @@ def run_mapping_se(
                         if c2t_ratio > max_c2t_ratio:
                             continue
 
-                # SE data: [is_rev, rname, pos, mq, cigar, score, md, ori, yf, zf, yc, zc, ns, nc, rid]
+                # Resolve Global RID once in worker
+                global_rid = _GLOBAL_RID_MAPS[ref_idx].get(h[0], -1)
+                # SE Hit: [is_rev, global_rid, pos, mq, cigar, score, md, ori, yf, zf, yc, zc, ns, nc]
                 mapped.append(
                     [
                         is_rev,
-                        h[0],
+                        global_rid,
                         h[1],
                         score_to_mapq(res[0]),
                         h[7],
@@ -267,7 +274,6 @@ def run_mapping_se(
                         res[6],
                         res[7],
                         res[8],
-                        rid,
                     ]
                 )
         if mapped:
@@ -308,19 +314,6 @@ def run_mapping_pe(
             for h1, h2, is_p, isize in hits:
                 res1 = res2 = None
                 rid1 = rid2 = -1
-
-                # Strand logic strictly matching standard FR orientation
-                # If Library is Forward, O1 is forward, Read 1 maps Fwd, Read 2 maps Rev
-                # The BAM flag `is_reverse` should track the biological strand of the fragment.
-                if is_o1:
-                    r1_abs_rev = (h1[3] == -1) if h1 else False
-                    # Read 2 in O1 should map reverse if proper, so its true strand is reversed from its mapped strand
-                    r2_abs_rev = (h2[3] == 1) if h2 else False
-                else:
-                    # In O2, the original fragment was reverse.
-                    r1_abs_rev = (h1[3] == 1) if h1 else False
-                    r2_abs_rev = (h2[3] == -1) if h2 else False
-
                 if h1 and (h1[2] - h1[1]) >= min_alignment_length:
                     r1_rev = (
                         (h1[3] == -1 if _FORWARD_LIBRARY else h1[3] == 1)
@@ -397,15 +390,23 @@ def run_mapping_pe(
                     mq = score_to_mapq(
                         min(res1[0] if res1 else 99, res2[0] if res2 else 99)
                     )
-                    # PE data: [is_rev, rname, pos, mq, cigar, rnext, pnext, isize, score, md, ori, yf, zf, yc, zc, ns, nc, rid, is_p, mate_rev, mate_unmap]
+                    # Standard BAM Strands
+                    r1_abs_rev = (h1[3] == -1) if h1 else False
+                    r2_abs_rev = (h2[3] == -1) if h2 else False
+                    
+                    # Resolve Global RIDs in worker
+                    global_rid1 = _GLOBAL_RID_MAPS[ref_idx].get(h1[0], -1) if h1 else -1
+                    global_rid2 = _GLOBAL_RID_MAPS[ref_idx].get(h2[0], -1) if h2 else -1
+                    
+                    # PE Hit: [is_rev, global_rid, pos, mq, cigar, global_rnext, pnext, isize, score, md, ori, yf, zf, yc, zc, ns, nc, rid, is_p, mate_rev, mate_unmap]
                     m1 = (
                         [
                             r1_abs_rev,
-                            h1[0],
+                            global_rid1,
                             h1[1],
                             mq,
                             h1[7],
-                            h2[0] if h2 else "*",
+                            global_rid2,
                             h2[1] if h2 else 0,
                             (isize if h1[1] <= h2[1] else -isize) if h2 else 0,
                             res1[0],
@@ -428,11 +429,11 @@ def run_mapping_pe(
                     m2 = (
                         [
                             r2_abs_rev,
-                            h2[0],
+                            global_rid2,
                             h2[1],
                             mq,
                             h2[7],
-                            h1[0] if h1 else "*",
+                            global_rid1,
                             h1[1] if h1 else 0,
                             (isize if h2[1] <= h1[1] else -isize) if h1 else 0,
                             res2[0],
@@ -473,19 +474,22 @@ _ALIGNERS_MK = []
 _ORIENTATION_FILTER = None
 _FORWARD_LIBRARY = None
 _RID_MAPS = []
+_GLOBAL_RID_MAPS = []
 
 
-def _init_worker(ref_indices, orientation_filter, forward_library):
+def _init_worker(ref_indices, orientation_filter, forward_library, global_rid_maps):
     global \
         _ALIGNERS_ORIG, \
         _ALIGNERS_MK, \
         _ORIENTATION_FILTER, \
         _FORWARD_LIBRARY, \
-        _RID_MAPS
+        _RID_MAPS, \
+        _GLOBAL_RID_MAPS
     _ORIENTATION_FILTER, _FORWARD_LIBRARY = orientation_filter, forward_library
     _ALIGNERS_ORIG = []
     _ALIGNERS_MK = []
     _RID_MAPS = []
+    _GLOBAL_RID_MAPS = global_rid_maps
     for o_fa, mk_pre, _ in ref_indices:
         opts = {
             "min_seed_len": 14,
@@ -563,14 +567,12 @@ def score_to_mapq(score):
     return max(0, min(60, score))
 
 
-def create_bam_record(
-    header, map_data, name, seq, qual, is_secondary, global_rid_map, read_id
-):
+def create_bam_record(header, map_data, name, seq, qual, is_secondary, read_id):
     a = pysam.AlignedSegment(header=header)
     a.query_name = name
     a.is_secondary = is_secondary
-    # Fast local lookup
-    a.reference_id = global_rid_map.get(map_data[1], -1)
+    # Pre-resolved global RID from worker
+    a.reference_id = map_data[1]
     a.reference_start, a.mapping_quality, a.cigarstring = (
         map_data[2],
         map_data[3],
@@ -580,12 +582,14 @@ def create_bam_record(
 
     if len(map_data) > 15:  # PE Hit
         a.is_paired = True
-        a.is_read1 = read_id == 1
-        a.is_read2 = read_id == 2
+        a.is_read1 = (read_id == 1)
+        a.is_read2 = (read_id == 2)
         a.is_proper_pair = bool(map_data[18])
         a.mate_is_reverse = bool(map_data[19])
         a.mate_is_unmapped = bool(map_data[20])
-        a.next_reference_id = global_rid_map.get(map_data[5], -1)
+        # Pre-resolved global next RID
+        a.next_reference_id = map_data[5]
+        # If mate is unmapped, PNEXT must be 0
         a.next_reference_start = map_data[6] if not a.mate_is_unmapped else 0
         a.template_length = map_data[7]
         off = 8
@@ -595,10 +599,10 @@ def create_bam_record(
 
     if a.is_reverse:
         a.query_sequence = reverse_complement(seq)
-        a.query_qualities = pysam.qualitystring_to_array(qual[::-1])
+        a.qual = qual[::-1]
     else:
         a.query_sequence = seq
-        a.query_qualities = pysam.qualitystring_to_array(qual)
+        a.qual = qual
 
     # Combined tag setting for maximum performance
     a.tags = [
@@ -624,7 +628,8 @@ def create_unmapped_record(header, name, seq, qual, flag):
         -1,
         0,
     )
-    a.query_sequence, a.query_qualities = seq, pysam.qualitystring_to_array(qual)
+    a.query_sequence = seq
+    a.qual = qual
     return a
 
 
@@ -686,13 +691,17 @@ def map_file(
     ref_indices = []
     dir_counts = {}
     resolved_dirs = []
-    for i in range(len(ref_files)):
-        d = i_dirs[i] if len(i_dirs) == len(ref_files) else i_dirs[0]
+
+    # Source of truth for reference count is ref_files OR i_dirs if ref_files is empty
+    ref_list = ref_files if len(ref_files) > 0 else [None] * len(i_dirs)
+
+    for i in range(len(ref_list)):
+        d = i_dirs[i] if len(i_dirs) == len(ref_list) else i_dirs[0]
         resolved_dirs.append(d)
         dir_counts[d] = dir_counts.get(d, 0) + 1
 
     dir_offsets = {}
-    for i in range(len(ref_files)):
+    for i in range(len(ref_list)):
         d = resolved_dirs[i]
         if dir_counts[d] > 1:
             offset = dir_offsets.get(d, 0) + 1
@@ -702,7 +711,7 @@ def map_file(
             suffix = ""
         ref_indices.append((None, None, suffix))
 
-    ref_indices = _build_and_check_indices(ref_files, ref_indices, i_dirs, index_only)
+    ref_indices = _build_and_check_indices(ref_list, ref_indices, i_dirs, index_only)
     if index_only:
         return
     mp_ctx = (
@@ -731,8 +740,17 @@ def map_file(
         unified_h = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": all_sq}
         global_rid_map = {sq["SN"]: i for i, sq in enumerate(all_sq)}
         global_rid_map["*"] = -1
+        
+        # Prepare list of global maps for workers
+        # Each worker will have a list where each element is a local-to-global RID translator
+        worker_global_maps = []
+        for h in ref_headers:
+            translator = {sq["SN"]: global_rid_map[sq["SN"]] for sq in h["SQ"]}
+            translator["*"] = -1
+            worker_global_maps.append(translator)
+
         bam_outs, bam_unmap, def_bam = _setup_output_bams(
-            output_files, unmap_file, unified_h, ref_headers, stack, threads=2
+            output_files, unmap_file, unified_h, ref_headers, stack, threads=4
         )
         p_tot = p_map = 0
         s_time = time.time()
@@ -740,7 +758,7 @@ def map_file(
             max_workers=max(1, threads),
             mp_context=mp_ctx,
             initializer=_init_worker,
-            initargs=(ref_indices, orientation_filter, forward_library),
+            initargs=(ref_indices, orientation_filter, forward_library, worker_global_maps),
         ) as ex:
             futures = deque()
             batches = deque()
@@ -781,7 +799,6 @@ def map_file(
                                                     info[0][1],
                                                     info[0][2],
                                                     j > 0,
-                                                    global_rid_map,
                                                     1,
                                                 )
                                             )
@@ -794,7 +811,6 @@ def map_file(
                                                     info[1][1],
                                                     info[1][2],
                                                     j > 0,
-                                                    global_rid_map,
                                                     2,
                                                 )
                                             )
@@ -807,7 +823,6 @@ def map_file(
                                                 info[1],
                                                 info[2],
                                                 j > 0,
-                                                global_rid_map,
                                                 0,
                                             )
                                         )
@@ -815,30 +830,18 @@ def map_file(
                                 if r2_file:
                                     bam_unmap.write(
                                         create_unmapped_record(
-                                            bam_unmap.header,
-                                            info[0][0],
-                                            info[0][1],
-                                            info[0][2],
-                                            77,
+                                            bam_unmap.header, info[0][0], info[0][1], info[0][2], 77
                                         )
                                     )
                                     bam_unmap.write(
                                         create_unmapped_record(
-                                            bam_unmap.header,
-                                            info[1][0],
-                                            info[1][1],
-                                            info[1][2],
-                                            141,
+                                            bam_unmap.header, info[1][0], info[1][1], info[1][2], 141
                                         )
                                     )
                                 else:
                                     bam_unmap.write(
                                         create_unmapped_record(
-                                            bam_unmap.header,
-                                            info[0],
-                                            info[1],
-                                            info[2],
-                                            4,
+                                            bam_unmap.header, info[0], info[1], info[2], 4
                                         )
                                     )
                         prg.update(
@@ -850,9 +853,10 @@ def map_file(
 
                 for reads in it_reads:
                     if r2_file:
-                        if reads[0].name.split()[0].rstrip("/1").rstrip("/2") != reads[
-                            1
-                        ].name.split()[0].rstrip("/1").rstrip("/2"):
+                        if (
+                            reads[0].name.split()[0].rstrip("/1").rstrip("/2")
+                            != reads[1].name.split()[0].rstrip("/1").rstrip("/2")
+                        ):
                             raise ValueError(
                                 f"Order mismatch: {reads[0].name} vs {reads[1].name}"
                             )
@@ -880,7 +884,8 @@ def map_file(
                         )
                         batch.clear()
                         while len(futures) >= threads * 2:
-                            wait(futures, return_when=FIRST_COMPLETED)
+                            # Block until the oldest batch is ready to maintain order without spinning
+                            res = futures[0].result()
                             flush_done()
                 if batch:
                     batches.append(list(batch))
@@ -897,5 +902,5 @@ def map_file(
                         )
                     )
                 while futures:
-                    wait(futures, return_when=FIRST_COMPLETED)
+                    res = futures[0].result()
                     flush_done()

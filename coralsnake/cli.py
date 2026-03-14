@@ -334,8 +334,8 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
 @click.option(
     "--batch-size",
     type=int,
-    default=5000,
-    help="Number of reads per batch per worker (default: 5000)",
+    default=2000,
+    help="Number of reads per batch per worker (default: 2000)",
 )
 # Strand-specific mapping options (grouped)
 @click.option(
@@ -434,7 +434,7 @@ def map(
                 raise click.Abort()
 
         # Validate index-dir count matching
-        if index_dir and len(index_dir) > 1:
+        if index_dir and len(index_dir) > 1 and len(ref_files) > 0:
             if len(ref_files) != len(index_dir):
                 click.echo(
                     f"❌ Error: Number of reference files ({len(ref_files)}) must match "
