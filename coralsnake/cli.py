@@ -68,7 +68,7 @@ click.rich_click.OPTION_GROUPS = {
     "coralsnake map": [
         {
             "name": "Input/Output",
-            "options": ["-1", "-2", "-r", "-o", "-u"],
+            "options": ["-1", "-2", "-r", "-o", "-u", "--report"],
         },
         {
             "name": "Strand-Specific Mapping",
@@ -282,6 +282,12 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
     required=False,
 )
 @click.option(
+    "--report",
+    "report_file",
+    help="Output mapping summary report (HISAT2 style) to this file. Use '-' for stdout.",
+    required=False,
+)
+@click.option(
     "--max-mismatches",
     "-m",
     type=int,
@@ -381,6 +387,7 @@ def map(
     ref_files,
     output_files,
     unmap_file,
+    report_file,
     max_mismatches,
     threads,
     min_alignment_length,
@@ -486,6 +493,7 @@ def map(
             ref_files,
             output_files,
             unmap_file,
+            report_file,
             forward_library,
             max_mismatches,
             threads,
