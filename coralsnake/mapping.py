@@ -393,11 +393,11 @@ def run_mapping_pe(
                     # Standard BAM Strands
                     r1_abs_rev = (h1[3] == -1) if h1 else False
                     r2_abs_rev = (h2[3] == -1) if h2 else False
-                    
+
                     # Resolve Global RIDs in worker
                     global_rid1 = _GLOBAL_RID_MAPS[ref_idx].get(h1[0], -1) if h1 else -1
                     global_rid2 = _GLOBAL_RID_MAPS[ref_idx].get(h2[0], -1) if h2 else -1
-                    
+
                     # PE Hit: [is_rev, global_rid, pos, mq, cigar, global_rnext, pnext, isize, score, md, ori, yf, zf, yc, zc, ns, nc, rid, is_p, mate_rev, mate_unmap]
                     m1 = (
                         [
@@ -582,8 +582,8 @@ def create_bam_record(header, map_data, name, seq, qual, is_secondary, read_id):
 
     if len(map_data) > 15:  # PE Hit
         a.is_paired = True
-        a.is_read1 = (read_id == 1)
-        a.is_read2 = (read_id == 2)
+        a.is_read1 = read_id == 1
+        a.is_read2 = read_id == 2
         a.is_proper_pair = bool(map_data[18])
         a.mate_is_reverse = bool(map_data[19])
         a.mate_is_unmapped = bool(map_data[20])
@@ -740,7 +740,7 @@ def map_file(
         unified_h = {"HD": {"VN": "1.6", "SO": "unsorted"}, "SQ": all_sq}
         global_rid_map = {sq["SN"]: i for i, sq in enumerate(all_sq)}
         global_rid_map["*"] = -1
-        
+
         # Prepare list of global maps for workers
         # Each worker will have a list where each element is a local-to-global RID translator
         worker_global_maps = []
@@ -758,7 +758,12 @@ def map_file(
             max_workers=max(1, threads),
             mp_context=mp_ctx,
             initializer=_init_worker,
-            initargs=(ref_indices, orientation_filter, forward_library, worker_global_maps),
+            initargs=(
+                ref_indices,
+                orientation_filter,
+                forward_library,
+                worker_global_maps,
+            ),
         ) as ex:
             futures = deque()
             batches = deque()
@@ -830,18 +835,30 @@ def map_file(
                                 if r2_file:
                                     bam_unmap.write(
                                         create_unmapped_record(
-                                            bam_unmap.header, info[0][0], info[0][1], info[0][2], 77
+                                            bam_unmap.header,
+                                            info[0][0],
+                                            info[0][1],
+                                            info[0][2],
+                                            77,
                                         )
                                     )
                                     bam_unmap.write(
                                         create_unmapped_record(
-                                            bam_unmap.header, info[1][0], info[1][1], info[1][2], 141
+                                            bam_unmap.header,
+                                            info[1][0],
+                                            info[1][1],
+                                            info[1][2],
+                                            141,
                                         )
                                     )
                                 else:
                                     bam_unmap.write(
                                         create_unmapped_record(
-                                            bam_unmap.header, info[0], info[1], info[2], 4
+                                            bam_unmap.header,
+                                            info[0],
+                                            info[1],
+                                            info[2],
+                                            4,
                                         )
                                     )
                         prg.update(
@@ -853,10 +870,9 @@ def map_file(
 
                 for reads in it_reads:
                     if r2_file:
-                        if (
-                            reads[0].name.split()[0].rstrip("/1").rstrip("/2")
-                            != reads[1].name.split()[0].rstrip("/1").rstrip("/2")
-                        ):
+                        if reads[0].name.split()[0].rstrip("/1").rstrip("/2") != reads[
+                            1
+                        ].name.split()[0].rstrip("/1").rstrip("/2"):
                             raise ValueError(
                                 f"Order mismatch: {reads[0].name} vs {reads[1].name}"
                             )

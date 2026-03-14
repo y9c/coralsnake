@@ -504,7 +504,9 @@ def map(
 
     if index_only:
         if len(index_dir) > 1:
-            print(f"\n✅ Index building completed! Indices saved to: {', '.join(index_dir)}")
+            print(
+                f"\n✅ Index building completed! Indices saved to: {', '.join(index_dir)}"
+            )
         else:
             print(f"\n✅ Index building completed! Indices saved to: {index_dir[0]}")
     else:
