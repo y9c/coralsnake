@@ -454,22 +454,17 @@ def map(
 
             # Check for BWA indices in all specified index directories
             for d in index_dir:
-                idx_files_exist = False
+                # Check for standard 'ref' prefix
                 if os.path.exists(os.path.join(d, "ref.orig.bwt")) and os.path.exists(
                     os.path.join(d, "ref.mk.bwt")
                 ):
-                    idx_files_exist = True
-                elif os.path.exists(
-                    os.path.join(d, "ref1.orig.bwt")
-                ) and os.path.exists(os.path.join(d, "ref1.mk.bwt")):
-                    idx_files_exist = True
+                    continue
 
-                if not idx_files_exist:
-                    click.echo(
-                        f"❌ Error: --ref-file is required because BWA indices not found in --index-dir: {d}",
-                        err=True,
-                    )
-                    raise click.Abort()
+                click.echo(
+                    f"❌ Error: BWA indices ('ref.orig.bwt' and 'ref.mk.bwt') not found in --index-dir: {d}",
+                    err=True,
+                )
+                raise click.Abort()
 
     # Determine forward library flag
     forward_library = library_type == "forward"

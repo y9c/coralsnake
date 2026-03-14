@@ -507,9 +507,6 @@ def _init_worker(ref_indices, orientation_filter, forward_library):
                 for i in range(a_orig.index.bns.n_seqs)
             }
         )
-        import ctypes
-
-        ptr = int(ffi.cast("uintptr_t", a_orig.index))
 
 
 def _build_and_check_indices(ref_files, ref_indices, index_dirs, index_only):
@@ -572,6 +569,7 @@ def create_bam_record(
     a = pysam.AlignedSegment(header=header)
     a.query_name = name
     a.is_secondary = is_secondary
+    # Fast local lookup
     a.reference_id = global_rid_map.get(map_data[1], -1)
     a.reference_start, a.mapping_quality, a.cigarstring = (
         map_data[2],
@@ -680,15 +678,25 @@ def map_file(
 ):
     global _ORIENTATION_FILTER, _FORWARD_LIBRARY
     _ORIENTATION_FILTER, _FORWARD_LIBRARY = orientation_filter, forward_library
-    ref_indices = [
-        (None, None, str(i + 1) if len(ref_files) > 1 else "")
-        for i in range(len(ref_files))
-    ]
-    i_dirs = (
-        [index_dir]
-        if index_dir and not isinstance(index_dir, (list, tuple))
-        else (index_dir or [os.path.dirname(os.path.abspath(f)) for f in ref_files])
-    )
+    ref_indices = []
+    dir_counts = {}
+    resolved_dirs = []
+    for i in range(len(ref_files)):
+        d = i_dirs[i] if len(i_dirs) == len(ref_files) else i_dirs[0]
+        resolved_dirs.append(d)
+        dir_counts[d] = dir_counts.get(d, 0) + 1
+
+    dir_offsets = {}
+    for i in range(len(ref_files)):
+        d = resolved_dirs[i]
+        if dir_counts[d] > 1:
+            offset = dir_offsets.get(d, 0) + 1
+            dir_offsets[d] = offset
+            suffix = str(offset) if offset > 1 else ""
+        else:
+            suffix = ""
+        ref_indices.append((None, None, suffix))
+
     ref_indices = _build_and_check_indices(ref_files, ref_indices, i_dirs, index_only)
     if index_only:
         return
