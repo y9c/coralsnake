@@ -340,8 +340,8 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
 @click.option(
     "--batch-size",
     type=int,
-    default=2000,
-    help="Number of reads per batch per worker (default: 2000)",
+    default=5000,
+    help="Number of reads per batch per worker (default: 5000)",
 )
 # Strand-specific mapping options (grouped)
 @click.option(
