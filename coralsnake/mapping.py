@@ -316,6 +316,7 @@ def run_mapping_pe(
             for h1, h2, is_p, isize in hits:
                 res1 = res2 = None
                 rid1 = rid2 = -1
+                r1_rev = r2_rev = False
                 if h1 and (h1[2] - h1[1]) >= min_alignment_length:
                     r1_rev = (
                         (h1[3] == -1 if _FORWARD_LIBRARY else h1[3] == 1)
@@ -393,8 +394,8 @@ def run_mapping_pe(
                         min(res1[0] if res1 else 99, res2[0] if res2 else 99)
                     )
                     # Standard BAM Strands
-                    r1_abs_rev = (h1[3] == -1) if h1 else False
-                    r2_abs_rev = (h2[3] == -1) if h2 else False
+                    r1_abs_rev = r1_rev if h1 else False
+                    r2_abs_rev = r2_rev if h2 else False
 
                     # Resolve Global RIDs in worker
                     global_rid1 = _GLOBAL_RID_MAPS[ref_idx].get(h1[0], -1) if h1 else -1

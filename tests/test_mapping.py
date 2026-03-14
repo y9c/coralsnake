@@ -1,4 +1,4 @@
-"""Tests for coralsnake.mapping – scoring helpers and integration mapping."""
+"""Tests for coralsnake.mapping – integration mapping."""
 
 from pathlib import Path
 
@@ -10,10 +10,6 @@ mapping = pytest.importorskip(
 )
 
 score_to_mapq = mapping.score_to_mapq
-cal_md_and_tag = mapping.cal_md_and_tag
-calculate_directional_score = mapping.calculate_directional_score
-find_properly_paired_hits = mapping.find_properly_paired_hits
-filter_hits = mapping.filter_hits
 
 
 # ---------------------------------------------------------------------------
@@ -31,102 +27,6 @@ class TestScoreToMapq:
 
 
 # ---------------------------------------------------------------------------
-# cal_md_and_tag (delegates to C)
-# ---------------------------------------------------------------------------
-class TestCalMdAndTag:
-    def test_delegates(self):
-        md, *rest = cal_md_and_tag("4M", "ACGT", "ACGT", True)
-        assert md == "4"
-
-
-# ---------------------------------------------------------------------------
-# calculate_directional_score (delegates to C)
-# ---------------------------------------------------------------------------
-class TestCalculateDirectionalScore:
-    def test_delegates(self):
-        score, w, b = calculate_directional_score("4M", "ACGT", "ACGT", True)
-        assert score == 4
-
-
-# ---------------------------------------------------------------------------
-# find_properly_paired_hits
-# ---------------------------------------------------------------------------
-class TestFindProperlyPairedHits:
-    class FakeHit:
-        def __init__(self, ctg, r_st, r_en, strand, read_num):
-            self.ctg = ctg
-            self.r_st = r_st
-            self.r_en = r_en
-            self.strand = strand
-            self.read_num = read_num
-
-    def test_close_pair(self):
-        h1 = self.FakeHit("chr1", 100, 200, 1, 1)
-        h2 = self.FakeHit("chr1", 300, 400, 1, 2)
-        pairs = find_properly_paired_hits([h1, h2])
-        assert len(pairs) == 1
-        assert pairs[0] == (h1, h2)
-
-    def test_too_far(self):
-        h1 = self.FakeHit("chr1", 0, 100, 1, 1)
-        h2 = self.FakeHit("chr1", 5000, 5100, 1, 2)
-        pairs = find_properly_paired_hits([h1, h2])
-        assert len(pairs) == 0
-
-    def test_different_contigs(self):
-        h1 = self.FakeHit("chr1", 100, 200, 1, 1)
-        h2 = self.FakeHit("chr2", 100, 200, 1, 2)
-        pairs = find_properly_paired_hits([h1, h2])
-        assert len(pairs) == 0
-
-    def test_same_read_num_not_paired(self):
-        h1 = self.FakeHit("chr1", 100, 200, 1, 1)
-        h2 = self.FakeHit("chr1", 300, 400, 1, 1)
-        pairs = find_properly_paired_hits([h1, h2])
-        assert len(pairs) == 0
-
-    def test_symmetric_distance(self):
-        h1 = self.FakeHit("chr1", 500, 600, 1, 1)
-        h2 = self.FakeHit("chr1", 100, 200, 1, 2)
-        pairs = find_properly_paired_hits([h1, h2])
-        assert len(pairs) == 1
-
-
-# ---------------------------------------------------------------------------
-# filter_hits
-# ---------------------------------------------------------------------------
-class TestFilterHits:
-    class FakeHit:
-        def __init__(self, mapq, blen, mlen, read_num):
-            self.mapq = mapq
-            self.blen = blen
-            self.mlen = mlen
-            self.read_num = read_num
-
-    def test_passes(self):
-        h = self.FakeHit(mapq=10, blen=50, mlen=40, read_num=1)
-        result = filter_hits(
-            [h], "A" * 50, None, min_alignment_length=20, min_mapping_ratio=0.5
-        )
-        assert len(result) == 1
-
-    def test_low_mapq(self):
-        h = self.FakeHit(mapq=0, blen=50, mlen=40, read_num=1)
-        result = filter_hits([h], "A" * 50, None)
-        assert len(result) == 0
-
-    def test_short_alignment(self):
-        h = self.FakeHit(mapq=10, blen=10, mlen=10, read_num=1)
-        result = filter_hits([h], "A" * 50, None, min_alignment_length=20)
-        assert len(result) == 0
-
-    def test_low_ratio(self):
-        h = self.FakeHit(mapq=10, blen=50, mlen=10, read_num=1)
-        result = filter_hits([h], "A" * 50, None, min_mapping_ratio=0.5)
-        assert len(result) == 0
-
-
-# ---------------------------------------------------------------------------
 # Integration: map_file (requires bwamem at runtime)
 # ---------------------------------------------------------------------------
 class TestMapFileIntegration:
@@ -141,7 +41,7 @@ class TestMapFileIntegration:
             r1_file=str(data_dir / "test1.fq"),
             r2_file=str(data_dir / "test2.fq"),
             ref_files=[str(data_dir / "ref.fa")],
-            output_files=out,
+            output_files=[out],
             forward_library=True,
             max_mismatches=0,
             threads=2,
@@ -160,7 +60,7 @@ class TestMapFileIntegration:
             r1_file=str(data_dir / "test1.fq"),
             r2_file=str(data_dir / "test2.fq"),
             ref_files=[str(data_dir / "ref.fa")],
-            output_files=out,
+            output_files=[out],
             forward_library=False,
             max_mismatches=0,
             threads=2,
@@ -180,7 +80,7 @@ class TestMapFileIntegration:
             r1_file=str(data_dir / "test1.fq"),
             r2_file=None,
             ref_files=[str(data_dir / "ref.fa")],
-            output_files=out,
+            output_files=[out],
             unmap_file=unmap,
             forward_library=True,
             max_mismatches=0,
@@ -193,6 +93,57 @@ class TestMapFileIntegration:
         assert Path(out).exists()
         assert Path(unmap).exists()
 
+    def test_pe_flags_correctness(self, tmp_path):
+        """Verify that PE reads have correct flags when one is RCed."""
+        ref_fa = tmp_path / "repro_ref.fa"
+        ref_seq = "CGCTCCTTCGGTGCTCTTGGCTGGGTGTCCCGCGGGGCCCGGGGCGT"
+        with open(ref_fa, "w") as f:
+            f.write(f">ref\n{ref_seq}{'A' * 100}\n")
+        
+        r1_fq = tmp_path / "repro_R1.fq"
+        with open(r1_fq, "w") as f:
+            f.write(f"@read1\n{ref_seq}\n+\n{'I' * len(ref_seq)}\n")
+        
+        # R2 is the RC of R1
+        from coralsnake.utils import reverse_complement
+        r2_seq = reverse_complement(ref_seq)
+        r2_fq = tmp_path / "repro_R2.fq"
+        with open(r2_fq, "w") as f:
+            f.write(f"@read1\n{r2_seq}\n+\n{'I' * len(r2_seq)}\n")
+        
+        out_bam = tmp_path / "repro_out.bam"
+        idx_dir = tmp_path / "repro_idx"
+        
+        mapping.map_file(
+            r1_file=str(r1_fq),
+            r2_file=str(r2_fq),
+            ref_files=[str(ref_fa)],
+            output_files=[str(out_bam)],
+            index_dir=str(idx_dir),
+            forward_library=True,
+            min_alignment_length=10,
+            min_mapping_ratio=0.8,
+            threads=1
+        )
+        
+        with pysam.AlignmentFile(str(out_bam), "rb") as bam:
+            reads = list(bam)
+            assert len(reads) == 2
+            r1 = [r for r in reads if r.is_read1][0]
+            r2 = [r for r in reads if r.is_read2][0]
+            
+            # R1 should be forward (Flag 99 = 1+2+32+64)
+            # 0x1: paired, 0x2: proper pair, 0x20: mate reverse, 0x40: read1
+            assert not r1.is_reverse
+            assert r1.mate_is_reverse
+            assert r1.flag == 99
+            
+            # R2 should be reverse (Flag 147 = 1+2+16+128)
+            # 0x1: paired, 0x2: proper pair, 0x10: reverse, 0x80: read2
+            assert r2.is_reverse
+            assert not r2.mate_is_reverse
+            assert r2.flag == 147
+
     def test_index_only(self, tmp_path, data_dir):
         if not (data_dir / "ref.fa").exists():
             pytest.skip("ref.fa not present")
@@ -201,7 +152,7 @@ class TestMapFileIntegration:
             r1_file=None,
             r2_file=None,
             ref_files=[str(data_dir / "ref.fa")],
-            output_files=str(tmp_path / "dummy.bam"),
+            output_files=[str(tmp_path / "dummy.bam")],
             index_dir=str(idx),
             index_only=True,
         )

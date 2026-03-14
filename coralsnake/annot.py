@@ -11,7 +11,7 @@ import os
 import pickle
 
 import numpy as np
-from ruranges import overlaps
+from ruranges.numpy import overlaps
 from rich.progress import track
 from xopen import xopen
 
