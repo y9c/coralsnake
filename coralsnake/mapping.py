@@ -678,6 +678,11 @@ def map_file(
 ):
     global _ORIENTATION_FILTER, _FORWARD_LIBRARY
     _ORIENTATION_FILTER, _FORWARD_LIBRARY = orientation_filter, forward_library
+    i_dirs = (
+        [index_dir]
+        if index_dir and not isinstance(index_dir, (list, tuple))
+        else (index_dir or [os.path.dirname(os.path.abspath(f)) for f in ref_files])
+    )
     ref_indices = []
     dir_counts = {}
     resolved_dirs = []

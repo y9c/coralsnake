@@ -503,7 +503,10 @@ def map(
         raise click.Abort()
 
     if index_only:
-        print(f"\n✅ Index building completed! Indices saved to: {index_dir}")
+        if len(index_dir) > 1:
+            print(f"\n✅ Index building completed! Indices saved to: {', '.join(index_dir)}")
+        else:
+            print(f"\n✅ Index building completed! Indices saved to: {index_dir[0]}")
     else:
         if len(output_files) > 1:
             print(
