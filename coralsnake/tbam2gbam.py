@@ -197,7 +197,10 @@ def _init_worker(annotation_file, genome_header_dict, transcript_header_dict):
     for g_id in raw_annot:
         for t_id, tx in raw_annot[g_id].items():
             _WORKER_ANNOT[t_id] = tx
-
+        # Fallback: if gene has exactly one transcript, map gene_id to that transcript
+        if len(raw_annot[g_id]) == 1:
+            _WORKER_ANNOT[g_id] = next(iter(raw_annot[g_id].values()))
+            
     _WORKER_GENOME_HEADER = pysam.AlignmentHeader.from_dict(genome_header_dict)
     _WORKER_TRANSCRIPT_HEADER = pysam.AlignmentHeader.from_dict(transcript_header_dict)
 
@@ -251,6 +254,9 @@ def convert_bam(
                 for g_id in raw_annot:
                     for t_id, tx in raw_annot[g_id].items():
                         annot[t_id] = tx
+                    # Fallback: if gene has exactly one transcript, map gene_id to that transcript
+                    if len(raw_annot[g_id]) == 1:
+                        annot[g_id] = next(iter(raw_annot[g_id].values()))
                 for align in track(in_bam, description="Processing..."):
                     new_align = parse_alignment(align, annot, genome_header)
                     out_bam.write(new_align)
