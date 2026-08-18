@@ -143,8 +143,12 @@ def remap_to_genome(
                     if exon_index + 1 < len(transcript.exons_forwards):
                         next_exon = transcript.exons_forwards[exon_index + 1]
                         intron_length = next_exon.start - current_exon.end
-                        new_cigar.append((3, intron_length))
-                        genome_pos = next_exon.start
+                        if intron_length > 0:
+                            new_cigar.append((3, intron_length))
+                            genome_pos = next_exon.start
+                        else:
+                            # overlapping/adjacent exons: no intron to emit; don't rewind genome_pos
+                            genome_pos = max(genome_pos, next_exon.start)
                         exon_index += 1
                     else:
                         break

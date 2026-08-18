@@ -162,7 +162,11 @@ class TestRemapToGenome:
         return pysam.AlignmentHeader.from_dict(
             {
                 "HD": {"VN": "1.6"},
-                "SQ": [{"SN": "TX1", "LN": 300}, {"SN": "TX2", "LN": 300}],
+                "SQ": [
+                    {"SN": "TX1", "LN": 300},
+                    {"SN": "TX2", "LN": 300},
+                    {"SN": "TX3", "LN": 300},
+                ],
             }
         )
 
@@ -243,6 +247,34 @@ class TestRemapToGenome:
         assert ops[0] == (0, 5)  # 5M in first genomic exon
         assert ops[1] == (3, 950)  # 950N intron
         assert ops[2] == (0, 5)  # 5M in second genomic exon
+
+    def _overlapping_tx(self):
+        # exons overlap by 1 bp (2nd starts before 1st ends), as in some GTF
+        # bacterial/tRNA gene models -> previously produced a negative intron
+        return Transcript(
+            gene_id="G3",
+            transcript_id="TX3",
+            chrom="chr1",
+            strand="+",
+            exons={1: Span(1000, 1050), 2: Span(1049, 1100)},
+        )
+
+    def test_overlapping_exons_no_negative_intron(self):
+        a = self._make_align("TX3", 45, "10M")
+        r = remap_to_genome(a, self._genome_header(), self._overlapping_tx(), None)
+        ops = r.cigartuples
+        assert r.reference_start == 1045
+        # no N op and no negative length; the read spans both overlapping exons
+        assert all(op[1] >= 0 for op in ops)
+        assert all(op[0] != 3 for op in ops) or any(op[0] == 3 and op[1] > 0 for op in ops)
+
+    def test_overlapping_exons_forward_strand_cigar(self):
+        a = self._make_align("TX3", 45, "10M")
+        r = remap_to_genome(a, self._genome_header(), self._overlapping_tx(), None)
+        # 10M starting at 1045: first 5M within exon1 (ends 1050), then continue
+        # contiguously into exon2 (starts 1049) without an N op
+        ops = [op for op in r.cigartuples if op[0] == 0]
+        assert sum(op[1] for op in ops) == 10
 
 
 # ---------------------------------------------------------------------------
