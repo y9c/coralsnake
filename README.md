@@ -94,7 +94,7 @@ coralsnake logo -i motifs.tsv -o logo.svg
 ```
 
 ```python
-from coralsnake.logo import Mlogo
+from coralsnake import Mlogo
 
 m = Mlogo(motifs=["ACGT", "ACGG", "CCGT"], to2bit=True)
 m.plot(ax)  # requires matplotlib (plot extra)
