@@ -59,7 +59,15 @@ click.rich_click.COMMAND_GROUPS = {
     "coralsnake": [
         {
             "name": "Commands",
-            "commands": ["prepare", "map", "liftover", "annot", "group"],
+            "commands": [
+                "prepare",
+                "map",
+                "liftover",
+                "annot",
+                "group",
+                "metagene",
+                "logo",
+            ],
         },
     ]
 }
@@ -101,6 +109,33 @@ click.rich_click.OPTION_GROUPS = {
 
 click.rich_click.STYLE_OPTION = "bold green"
 # click.rich_click.STYLE_COMMAND = "bold blue"
+
+
+def _metagene_parse_ints(ctx, param, value):
+    """Parse a comma-separated string into a list of ints (metagene CLI)."""
+    if not value:
+        return []
+    try:
+        return [int(x.strip()) for x in value.split(",")]
+    except ValueError:
+        raise click.BadParameter("Must be comma-separated integers")
+
+
+def _metagene_parse_strings(ctx, param, value):
+    """Parse a comma-separated string into a list of strings (metagene CLI)."""
+    if not value:
+        return []
+    return [x.strip() for x in value.split(",")]
+
+
+def _metagene_parse_floats(ctx, param, value):
+    """Parse a comma-separated string into a list of floats (metagene CLI)."""
+    if not value:
+        return []
+    try:
+        return [float(x.strip()) for x in value.split(",")]
+    except ValueError:
+        raise click.BadParameter("Must be comma-separated numbers")
 
 
 @click.group(
@@ -658,6 +693,370 @@ def group(
         cluster_threshold,
         threads,
     )
+
+
+@cli.command(
+    help="Run metagene profiling analysis on genomic sites.",
+    no_args_is_help=True,
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+@click.option(
+    "--input",
+    "-i",
+    "input_file",
+    type=click.Path(exists=True),
+    help="Input file path (BED, TSV or CSV, etc.)",
+)
+@click.option(
+    "--output",
+    "-o",
+    "output_file",
+    type=click.Path(),
+    help="Output file path (TSV, CSV)",
+)
+@click.option(
+    "--output-score",
+    "-s",
+    "output_score",
+    type=click.Path(),
+    help="Output file for binned score statistics",
+)
+@click.option(
+    "--output-figure",
+    "-p",
+    "output_figure",
+    type=click.Path(),
+    help="Output file for metagene plot (requires 'coralsnake[plot]')",
+)
+@click.option(
+    "--reference",
+    "-r",
+    "reference",
+    type=str,
+    help="Built-in reference genome to use (e.g., GRCh38, GRCm39)",
+)
+@click.option(
+    "--gtf",
+    "-g",
+    "gtf",
+    type=click.Path(exists=True),
+    help="GTF/GFF file path for custom reference",
+)
+@click.option(
+    "--region",
+    type=click.Choice(["all", "5utr", "cds", "3utr"]),
+    default="all",
+    help="Region to analyze (default: all)",
+)
+@click.option(
+    "--bins",
+    "-b",
+    type=int,
+    default=100,
+    help="Number of bins for analysis (default: 100)",
+)
+@click.option(
+    "--with-header",
+    "-H",
+    is_flag=True,
+    help="Input file has header line",
+)
+@click.option(
+    "--separator",
+    "-S",
+    type=str,
+    default="\t",
+    help="Separator for input file (default: tab)",
+)
+@click.option(
+    "--meta-columns",
+    "-m",
+    "meta_columns",
+    type=str,
+    default="1,2,3,6",
+    callback=_metagene_parse_ints,
+    help="Input column indices (1-based) for genomic coordinates. The columns should contain Chromosome,Start,End,Strand or Chromosome,Site,Strand",
+)
+@click.option(
+    "--weight-columns",
+    "-w",
+    "weight_columns",
+    type=str,
+    default="",
+    callback=_metagene_parse_ints,
+    help="Input column indices (1-based) for weight/score values",
+)
+@click.option(
+    "--weight-names",
+    "-n",
+    "weight_names",
+    type=str,
+    default="",
+    callback=_metagene_parse_strings,
+    help="Names for weight columns",
+)
+@click.option(
+    "--score-transform",
+    "score_transform",
+    type=click.Choice(["none", "log2", "log10"]),
+    default="none",
+    help="Transform to apply to scores (default: none)",
+)
+@click.option(
+    "--normalize",
+    is_flag=True,
+    help="Normalize scores by transcript length",
+)
+@click.option(
+    "--list",
+    "list_references_flag",
+    is_flag=True,
+    help="List all available built-in references and exit",
+)
+@click.option(
+    "--download",
+    "download_ref",
+    type=str,
+    help="Download a specific reference (e.g., GRCh38) or 'all' for all references",
+)
+def metagene(
+    input_file,
+    output_file,
+    output_score,
+    output_figure,
+    reference,
+    gtf,
+    region,
+    bins,
+    with_header,
+    separator,
+    meta_columns,
+    weight_columns,
+    weight_names,
+    score_transform,
+    normalize,
+    list_references_flag,
+    download_ref,
+):
+    """Run metagene profiling analysis on genomic sites.
+
+    Computes the distribution of genomic sites relative to gene regions
+    (5'UTR, CDS, 3'UTR) and optionally produces publication-ready profiles.
+    This is the full `metagene` package migrated into a coralsnake subcommand,
+    built on the high-performance `polars` + `ruranges` stack.
+    """
+    from .metagene import (
+        load_gtf,
+        load_reference,
+        load_sites,
+        map_to_transcripts,
+        normalize_positions,
+        plot_profile,
+    )
+    from .metagene.config import BUILTIN_REFERENCES
+    from .metagene.download import download_references, list_references
+
+    # Handle list references option
+    if list_references_flag:
+        from rich.console import Console
+
+        list_references(Console())
+        return
+
+    # Handle download option
+    if download_ref:
+        try:
+            click.echo(f"Downloading {download_ref}...")
+            download_references(download_ref, silent=True)
+            click.echo(f"✓ Downloaded {download_ref}")
+        except Exception as e:
+            click.echo(f"✗ Failed to download {download_ref}: {e}", err=True)
+        return
+
+    # Validate required options for analysis
+    if not input_file:
+        raise click.ClickException(
+            "Input file is required for analysis (use -i/--input)"
+        )
+    if not output_file:
+        raise click.ClickException(
+            "Output file is required for analysis (use -o/--output)"
+        )
+
+    if reference and gtf:
+        raise click.ClickException("Cannot specify both --reference and --gtf options")
+    if not reference and not gtf:
+        raise click.ClickException("Must specify either --reference or --gtf option")
+
+    # Pre-load reference data
+    if reference:
+        if reference not in BUILTIN_REFERENCES:
+            raise click.ClickException(
+                f"Unknown built-in reference: {reference}. "
+                f"Available: {list(BUILTIN_REFERENCES.keys())}"
+            )
+        click.echo(f"Loading reference '{reference}'...")
+        exon_ref = load_reference(reference)
+        if exon_ref is None:
+            raise click.ClickException(f"Failed to load reference '{reference}'")
+        click.echo(f"✓ Reference '{reference}' ready")
+    else:
+        click.echo(f"Loading GTF file '{gtf}'...")
+        exon_ref = load_gtf(gtf)
+        click.echo("✓ GTF file loaded")
+
+    # Convert 1-based to 0-based indices for meta_columns
+    meta_col_index = [col - 1 for col in meta_columns]
+    weight_col_index = [col - 1 for col in weight_columns]
+
+    input_df = load_sites(
+        input_file,
+        with_header=with_header,
+        meta_col_index=meta_col_index,
+        separator=separator,
+    )
+    click.echo(f"Loaded {len(input_df)} input sites")
+
+    annotated_df = map_to_transcripts(input_df, exon_ref)
+    click.echo("✓ Annotated transcripts")
+
+    if output_score or output_figure:
+        gene_bins, gene_stats, gene_splits = normalize_positions(
+            annotated_df,
+            split_strategy="median",
+            bin_number=bins,
+            weight_col_index=weight_col_index,
+        )
+        click.echo(
+            f"Gene splits - 5'UTR: {gene_splits[0]:.3f}, "
+            f"CDS: {gene_splits[1]:.3f}, 3'UTR: {gene_splits[2]:.3f}"
+        )
+
+    # Save annotated data
+    if output_file:
+        annotated_df.write_csv(output_file, separator=separator)
+        click.echo(f"✓ Saved annotated intervals to: {output_file}")
+
+    # Save score statistics (if requested)
+    if output_score:
+        import polars as pl
+
+        gene_bins.insert_column(
+            0,
+            pl.when(pl.col("feature_midpoint") < gene_splits[0])
+            .then(pl.lit("5UTR"))
+            .when((pl.col("feature_midpoint") > gene_splits[0] + gene_splits[1]))
+            .then(pl.lit("3UTR"))
+            .otherwise(pl.lit("CDS"))
+            .alias("feature_type"),
+        ).write_csv(output_score, separator=separator)
+        click.echo(f"✓ Saved binned statistics to: {output_score}")
+
+    # Generate plot (optional matplotlib)
+    if output_figure:
+        plot_profile(gene_bins, gene_splits, output_figure)
+        click.echo(f"✓ Saved plot to: {output_figure}")
+
+
+@cli.command(
+    help="Plot a DNA/RNA sequence-logo (requires 'coralsnake[plot]').",
+    no_args_is_help=True,
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+@click.option(
+    "--motifs",
+    "-m",
+    "motifs",
+    type=str,
+    multiple=True,
+    help="Motif sequence(s). Repeatable, or comma-separated (e.g. -m ACGT -m ACGG)",
+)
+@click.option(
+    "--input",
+    "-i",
+    "input_file",
+    type=click.Path(exists=True),
+    help="Input file, one motif sequence per line (optionally 'seq<TAB>count' for weights)",
+)
+@click.option(
+    "--output",
+    "-o",
+    "output_file",
+    type=click.Path(),
+    required=True,
+    help="Output image file (e.g. logo.png, logo.svg)",
+)
+@click.option(
+    "--weights",
+    "-w",
+    "weights",
+    type=str,
+    default="",
+    callback=_metagene_parse_floats,
+    help="Comma-separated weights for the motifs (one per motif)",
+)
+@click.option("--t2u/--no-t2u", default=True, help="Convert T to U (default: T->U)")
+@click.option(
+    "--2bit/--no-2bit", "to2bit", default=True, help="Use 2-bit logo (default)"
+)
+@click.option("--normed", is_flag=True, default=False, help="Normalize letter heights")
+def logo(motifs, input_file, output_file, weights, t2u, to2bit, normed):
+    """Plot a sequence logo from a set of motif sequences.
+
+    Uses the Mlogo engine migrated from the standalone `motiflogo` package.
+    matplotlib is optional; it must be installed via ``pip install coralsnake[plot]``.
+    """
+    from .logo import Mlogo
+    from .logo import _require_plotting
+
+    # This raises a helpful error if matplotlib (optional 'plot' extra) is missing
+    _require_plotting()
+    import matplotlib.pyplot as plt
+
+    motifs_list = []
+    motif_weights = []
+    if input_file:
+        with open(input_file) as f:
+            for raw in f:
+                raw = raw.strip()
+                if not raw or raw.startswith("#"):
+                    continue
+                parts = raw.split("\t")
+                motifs_list.append(parts[0])
+                if len(parts) > 1:
+                    try:
+                        motif_weights.append(float(parts[1]))
+                    except ValueError:
+                        motif_weights.append(1.0)
+    for m in motifs:
+        motifs_list.extend([x.strip() for x in m.split(",") if x.strip()])
+
+    if len(motifs_list) == 0:
+        raise click.ClickException("No motifs provided (use -m/--motifs or -i/--input)")
+
+    if weights:
+        if len(weights) != len(motifs_list):
+            raise click.ClickException(
+                f"--weights has {len(weights)} values but {len(motifs_list)} motifs given"
+            )
+        motif_weights = list(weights)
+    elif not input_file:
+        motif_weights = []
+
+    mlogo = Mlogo(
+        motifs=motifs_list,
+        weights=motif_weights,
+        t2u=t2u,
+        to2bit=to2bit,
+        normed=normed,
+    )
+
+    fig = plt.figure(figsize=(0.75 * len(mlogo.scores), 2.5))
+    ax = fig.gca()
+    mlogo.plot(ax=ax)
+    plt.savefig(output_file, dpi=300, bbox_inches="tight")
+    plt.close()
+    click.echo(f"✓ Saved motif logo to: {output_file}")
 
 
 if __name__ == "__main__":

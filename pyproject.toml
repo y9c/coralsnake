@@ -1,23 +1,30 @@
 [project]
 name = "coralsnake"
-version = "0.0.210"
+version = "0.0.211"
 description = "Transcriptome mapping in two colors"
 authors = [{ name = "Chang Ye", email = "yech1990@gmail.com" }]
 requires-python = ">=3.12"
 readme = "README.md"
 license = { text = "GPL-3.0-only" }
-keywords = ["transcriptome", "mapping"]
+keywords = ["transcriptome", "mapping", "metagene", "genomics"]
 # Runtime dependencies only (build tools belong under [build-system])
 dependencies = [
   "bwamem>=0.0.52",
   "ruranges>=0.0.14",
   "numpy>=1.26",
+  "polars>=1.30.0",
   "pyfamsa>=0.4",
   "pysam>=0.22",
   "rich>=13.0.0",
   "rich-click>=1.8.3",
   "scipy>=1.14",
   "xopen>=1.9.0",
+]
+
+[project.optional-dependencies]
+# Heavy visualization stack (matplotlib) - optional, keep the base install light
+plot = [
+  "matplotlib>=3.8,<4",
 ]
 
 [project.urls]
@@ -41,7 +48,7 @@ requires = ["setuptools>=75.3.2,<77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["coralsnake"]
+packages = ["coralsnake", "coralsnake.metagene"]
 
 
 # force release
