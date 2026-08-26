@@ -1,9 +1,5 @@
 """Tests for coralsnake.genegroup – rename helpers and reassignment logic."""
 
-import re
-
-import pytest
-
 from coralsnake.genegroup import rename_snRNA, rename_snoRNA
 
 

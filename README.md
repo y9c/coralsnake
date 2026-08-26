@@ -70,7 +70,7 @@ The metagene functions are also importable directly from coralsnake:
 ```python
 from coralsnake.metagene import (
     load_sites, load_reference, load_gtf,
-    map_to_transcripts, normalize_positions, plot_profile,
+    map_to_transcripts, map_to_local, normalize_positions, plot_profile,
 )
 
 sites = load_sites("sites.tsv.gz", with_header=True, meta_col_index=[0, 1, 2])
@@ -80,7 +80,24 @@ gene_bins, gene_stats, gene_splits = normalize_positions(
     annotated, split_strategy="median", bin_number=100
 )
 plot_profile(gene_bins, gene_splits, "metagene_plot.png")
+
+# Map global coordinates to local transcript coordinates (strand-aware):
+local = map_to_local(sites, ref, ref_id_col="transcript_id")
 ```
+
+## Performance
+
+The metagene core is built on the vectorized `polars` + `ruranges` stack, and
+uses Rust-backed `ruranges` primitives instead of slow per-group Python applies:
+
+- `map_to_transcripts` picks the best transcript per gene with a vectorized
+  sort + `group_by().first()` (was `group_by().map_groups()` python apply) —
+  **~20× faster** on realistic inputs.
+- `map_to_local` uses `ruranges.numpy.group_cumsum` for strand-aware cumulative
+  transcript offsets (was a hand-rolled `map_groups` apply) — **~7× faster**.
+- `Mlogo` (sequence logo) builds its score matrix with vectorized `numpy`
+  (`bincount` + codepoint lookup) — **~1.5× faster** and fixes a `0·log2(0)`
+  NaN edge case.
 
 ## Logo subcommand
 

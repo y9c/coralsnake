@@ -9,7 +9,51 @@ inspired by pyranges1's map_to_local but using Rust-based ruranges operations.
 
 import numpy as np
 import polars as pl
-from ruranges.numpy import overlaps
+from ruranges.numpy import group_cumsum, overlaps
+
+
+def _strand_aware_cumsum(reference: pl.DataFrame, ref_id_col: str) -> pl.DataFrame:
+    """Attach strand-aware cumulative exon offsets to a reference.
+
+    Uses ruranges' vectorized ``group_cumsum`` (Rust) instead of a slow
+    per-group Python apply. Returns the reference with ``_cumsum_start`` and
+    ``_cumsum_end`` columns giving the 5'->3' running transcript offsets.
+
+    Note: ruranges' ``negative_strand`` encodes *plus* strand as True.
+    """
+    starts = reference["Start"].cast(pl.Int64).to_numpy()
+    ends = reference["End"].cast(pl.Int64).to_numpy()
+    strands = reference["Strand"].to_numpy()
+
+    # Build a stable numeric group id per ref_id_col value.
+    uniq = reference[ref_id_col].unique().to_list()
+    group_of = {v: i for i, v in enumerate(uniq)}
+    groups = np.fromiter(
+        (group_of[v] for v in reference[ref_id_col].to_list()),
+        dtype=np.uint32,
+        count=len(reference),
+    )
+    # ruranges convention: minus strand -> False, plus strand -> True.
+    negative_strand = np.array(strands == "+", dtype=bool)
+
+    idx, cumsum_start, cumsum_end = group_cumsum(
+        starts=starts,
+        ends=ends,
+        negative_strand=negative_strand,
+        groups=groups,
+        sort=False,
+    )
+
+    # Scatter the traversal-ordered cumsum back onto original row positions.
+    full_start = np.zeros(len(starts), dtype=np.int64)
+    full_end = np.zeros(len(starts), dtype=np.int64)
+    full_start[idx] = cumsum_start
+    full_end[idx] = cumsum_end
+
+    return reference.with_columns(
+        pl.Series("_cumsum_start", full_start, dtype=pl.Int64),
+        pl.Series("_cumsum_end", full_end, dtype=pl.Int64),
+    )
 
 
 def map_to_local(
@@ -76,53 +120,13 @@ def map_to_local(
     else:
         match_by = []
 
-    # Calculate cumulative positions
-    # For each reference ID, calculate cumulative lengths in 5'->3' order
-    # Plus strand: left to right (ascending Start)
-    # Minus strand: right to left (descending Start)
+    # Calculate cumulative positions using ruranges' vectorized, strand-aware
+    # group_cumsum (replaces the hand-rolled group_by().map_groups apply).
+    # negative_strand encodes 'True -> plus strand' per ruranges convention.
+    ref_cum = _strand_aware_cumsum(reference, ref_id_col)
+    ref_indexed = ref_cum.with_row_index("_ref_idx")
 
-    ref_sorted_for_cumsum = reference.sort([ref_id_col, "Start"])
-
-    def calculate_cumsum_positions(group_df: pl.DataFrame) -> pl.DataFrame:
-        """Calculate cumulative positions for a group of exons"""
-        # Sort by coordinate position
-        if group_df["Strand"][0] == "+":
-            # Plus strand: sort ascending by Start (5' to 3' is left to right)
-            sorted_df = group_df.sort("Start")
-        else:
-            # Minus strand: sort descending by Start (5' to 3' is right to left)
-            sorted_df = group_df.sort("Start", descending=True)
-
-        # Calculate lengths
-        lengths = (sorted_df["End"] - sorted_df["Start"]).to_numpy()
-
-        # Calculate cumulative starts and ends
-        cumsum_start = np.zeros(len(lengths), dtype=np.int64)
-        cumsum_end = np.zeros(len(lengths), dtype=np.int64)
-
-        cumsum_start[0] = 0
-        cumsum_end[0] = lengths[0]
-        for i in range(1, len(lengths)):
-            cumsum_start[i] = cumsum_end[i - 1]
-            cumsum_end[i] = cumsum_start[i] + lengths[i]
-
-        # Add cumsum columns
-        result_df = sorted_df.with_columns(
-            [
-                pl.Series("_cumsum_start", cumsum_start, dtype=pl.Int64),
-                pl.Series("_cumsum_end", cumsum_end, dtype=pl.Int64),
-            ]
-        )
-
-        return result_df
-
-    ref_with_cumsum = ref_sorted_for_cumsum.group_by(
-        ref_id_col, maintain_order=True
-    ).map_groups(calculate_cumsum_positions)
-
-    # Add row indices for joining
     query_indexed = query.with_row_index("_query_idx")
-    ref_indexed = ref_with_cumsum.with_row_index("_ref_idx")
 
     # Prepare arrays for overlap detection
     query_starts = query_indexed["Start"].cast(pl.Int64).to_numpy()

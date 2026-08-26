@@ -198,45 +198,106 @@ class Mlogo:
                 raise ValueError("The input score is not valid")
 
     def _motif_to_score(self):
-        motif_list = list(self.motifs)
+        motifs_list = list(self.motifs)
         weights = self.weights
         t2u = self.t2u
         to2bit = self.to2bit
         normed = self.normed
-        motif_len_all = list(set(len(m) for m in motif_list))
-        motif_num = len(motif_list)
-        if len(motif_len_all) == 1:
-            motif_len = motif_len_all[0]
-        else:
+
+        motif_lens = {len(m) for m in motifs_list}
+        if len(motif_lens) != 1:
             raise ValueError("The motifs are not the same in length")
+        motif_len = motif_lens.pop()
+        motif_num = len(motifs_list)
+
+        if motif_len == 0 or motif_num == 0:
+            return []
 
         if t2u:
-            motif_list = [m.replace("T", "U") for m in motif_list]
+            motifs_list = [m.replace("T", "U") for m in motifs_list]
 
+        symbols, codes, weights_arr, first_index = self._encode(motifs_list, weights)
+        nsym = len(symbols)
+
+        # Vectorized per-column weighted counts via a single np.bincount
+        # (far faster than np.add.at for large N). key = position*nsym + symbol.
+        key = (codes + np.arange(motif_len)[None, :] * nsym).ravel()
+        flat_w = np.broadcast_to(weights_arr[:, None], (motif_num, motif_len)).ravel()
+        counts = np.bincount(key, weights=flat_w, minlength=motif_len * nsym).reshape(
+            motif_len, nsym
+        )
+
+        # Per-column present symbols = those appearing in >=1 motif (weight may be 0).
+        present_by_col = first_index < motif_num
+
+        # Build per-column (base, score) lists with stable ordering:
+        # primary = count descending; tie = first motif index that carried the base.
         mm = []
         for i in range(motif_len):
-            m = defaultdict(float)
-            for j in range(motif_num):
-                m[motif_list[j][i]] += weights[j]
-            mm.append(sorted(m.items(), key=lambda x: x[1], reverse=True))
+            present = np.flatnonzero(present_by_col[i])
+            order = np.lexsort((first_index[i][present], -counts[i][present]))
+            mm.append([(symbols[k], float(counts[i][k])) for k in present[order]])
 
         if to2bit:
-            mmm = []
-            for m in mm:
-                ss = (
-                    2 + sum(i / motif_num * np.log2(i / motif_num) for _, i in m)
-                ) / motif_num
-                mmm.append([(b, i * ss) for b, i in m])
-            return mmm
+            # Information (2-bit) correction per column, vectorized.
+            p = counts / motif_num
+            with np.errstate(divide="ignore", invalid="ignore"):
+                entropy = np.where(p > 0, p * np.log2(p), 0.0)
+            info = (2.0 + entropy.sum(axis=1)) / motif_num
+            return [[(b, float(v) * s) for b, v in col] for col, s in zip(mm, info)]
 
         if normed:
-            total = sum(weights)
-            mmm = []
-            for m in mm:
-                mmm.append([(b, i / total) for b, i in m])
-            return mmm
+            total = float(np.sum(weights_arr))
+            if total == 0.0:
+                # Original motiflogo would ZeroDivisionError here; return zeros
+                # gracefully instead (all weights equal after min-shift).
+                return [[(b, 0.0) for b, _ in col] for col in mm]
+            return [[(b, v / total) for b, v in col] for col in mm]
 
         return mm
+
+    @staticmethod
+    def _encode(motifs: list[str], weights: list[float]):
+        """Vectorize a list of motifs into (symbols, codes, weights, first_index).
+
+        Returns
+        -------
+        symbols : list[str]
+            Distinct bases, in sorted order (reproducible).
+        codes : np.ndarray[int64], shape (N, L)
+            Symbol code per motif/position (0..len(symbols)-1).
+        weights : np.ndarray[float64], shape (N,)
+            Per-motif weights.
+        first_index : np.ndarray[int64], shape (L, len(symbols))
+            First motif index that carries each symbol at each position, or
+            ``N`` (sentinel) when a symbol is absent at that column.
+        """
+        n = len(motifs)
+        motif_len = len(motifs[0])
+
+        # Concatenate all motif strings and reinterpret as a byte buffer so the
+        # (N, L) code matrix is produced by one vectorized gather (no list-of-
+        # lists and no 2D np.unique).
+        buf = "".join(motifs).encode("ascii", errors="ignore")
+        raw = np.frombuffer(buf, dtype=np.uint8)  # shape (n * L,)
+        uniq = np.unique(raw)
+        symbols = [chr(int(x)) for x in uniq]
+        table = np.zeros(256, dtype=np.int64)
+        table[uniq] = np.arange(len(uniq))
+        codes = table[raw].reshape(n, motif_len)
+
+        weights_arr = np.asarray(weights, dtype=np.float64)
+        if weights_arr.ndim == 0:
+            weights_arr = np.full(n, float(weights_arr))
+
+        # First motif index that carries each symbol at each column.
+        first_index = np.full((motif_len, len(symbols)), n, dtype=np.int64)
+        for c in range(len(symbols)):
+            rows, cols = np.nonzero(codes == c)
+            if rows.size:
+                np.minimum.at(first_index[:, c], cols, rows)
+
+        return symbols, codes, weights_arr, first_index
 
     def plot(
         self,

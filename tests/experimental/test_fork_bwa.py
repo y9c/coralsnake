@@ -1,4 +1,3 @@
-import os
 import multiprocessing as mp
 from bwamem import BwaAligner
 import time

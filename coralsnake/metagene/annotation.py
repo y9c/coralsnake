@@ -135,17 +135,21 @@ def map_to_transcripts(
         ]
     )
 
-    # Use Polars groupby.apply to pick best transcript per gene
-    def pick_best_transcript(df: pl.DataFrame) -> pl.DataFrame:
-        min_level = df["transcript_level"].min()
-        best = df.filter(pl.col("transcript_level") == min_level)
-        max_length = best["transcript_length"].max()
-        best = best.filter(pl.col("transcript_length") == max_length)
-        best_transcript_id = best["transcript_id"][0]
-        # If multiple, pick the first
-        return best.filter(pl.col("transcript_id") == best_transcript_id)
-
-    annot = annot.group_by("gene_id").map_groups(pick_best_transcript)
+    # Pick the best transcript per gene fully vectorized (replaces the old
+    # group_by().map_groups(python apply), which was the pipeline bottleneck).
+    # Priority: min transcript_level -> max transcript_length -> first transcript_id.
+    annot = annot.sort(
+        ["gene_id", "transcript_level", "transcript_length", "transcript_id"],
+        descending=[False, False, True, False],
+    )
+    # The top row of each gene (in the priority order above) is the best
+    # transcript. Keep every site that belongs to that transcript.
+    best_tx = (
+        annot.group_by("gene_id", maintain_order=True)
+        .first()
+        .select(["gene_id", "transcript_id"])
+    )
+    annot = annot.join(best_tx, on=["gene_id", "transcript_id"])
 
     annotation_cols = [
         "gene_id",

@@ -5,23 +5,16 @@
 # Created: 2024-06-08 20:32
 
 
-import atexit
 import multiprocessing as mp
 import os
 import queue
-import random
-import re
 import shutil
 import sys
-import tempfile
 import threading
 import time
 from collections import deque
 from concurrent.futures import (
-    FIRST_COMPLETED,
     ProcessPoolExecutor,
-    as_completed,
-    wait,
 )
 from contextlib import ExitStack
 from functools import lru_cache
@@ -35,8 +28,6 @@ from . import seqops
 from .utils import (
     convert_file_realtime,
     format_duration,
-    km_conversion,
-    mk_conversion,
     reverse_complement,
 )
 
@@ -563,7 +554,7 @@ def _build_and_check_indices(ref_files, ref_indices, index_dirs, index_only):
         transient=False,
     ) as progress:
         task = progress.add_task(
-            f"Indices...", total=None, status="Checking", progress="0%"
+            "Indices...", total=None, status="Checking", progress="0%"
         )
         for i in range(len(ref_indices)):
             ref_suffix = ref_indices[i][2]
@@ -792,7 +783,7 @@ def map_file(
         bam_outs, bam_unmap, def_bam = _setup_output_bams(
             output_files, unmap_file, unified_h, ref_headers, stack, threads=4
         )
-        p_tot = p_map = 0
+        p_tot = 0
         s_time = time.time()
 
         # Use a background writer thread so BAM I/O never stalls worker submission

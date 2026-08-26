@@ -9,7 +9,7 @@
 
 import bisect
 import multiprocessing as mp
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
 from functools import lru_cache
 
 import pysam

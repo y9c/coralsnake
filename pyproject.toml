@@ -29,6 +29,8 @@ plot = [
 
 [project.urls]
 Repository = "https://github.com/y9c/coralsnake"
+Changelog = "https://github.com/y9c/coralsnake/blob/main/CHANGELOG.md"
+Documentation = "https://coralsnake.yech.science/"
 
 [project.scripts]
 coralsnake = "coralsnake.cli:cli"
