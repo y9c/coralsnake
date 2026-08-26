@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.212] - 2026-08-26
+
+### Added
+- **`coralsnake variant`** command group: migration of the standalone `variant`
+  package, with the old buggy dependencies removed:
+  - `variant motif` — strand-aware motif fetch (pyfaidx → **pysam.FastaFile**).
+  - `variant coordinate` — chromosome-name mapping (urllib3 → **stdlib urllib**).
+  - `variant effect` — variant effect classification as a pure-Python
+    classifier built on coralsnake's GTF/CDS machinery (pyensembl+varcode
+    removed).
+- `coralsnake/variant` subpackage (Site/Annot dataclasses, IUPAC/CODON_TABLE,
+  effect ordering).
+- Tests: `test_variant` (10 tests) covering constants, motif, coordinate,
+  effect.
+
+### Changed
+- Version → 0.0.212; setuptools packages include `coralsnake.variant`.
+- Docs: added `docs/variant.md`, updated architecture/DESIGN/README/CLI/API
+  docs to reflect the migrated variant subcommands.
+
 ## [0.0.211] - 2026-08-26
 
 ### Added

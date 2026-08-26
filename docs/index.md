@@ -37,6 +37,13 @@ pip install "coralsnake[plot]"
 | `group`    | Group genes and build a consensus sequence.                       |
 | `metagene` | Metagene profiling across 5'UTR/CDS/3'UTR.                        |
 | `logo`     | Plot a DNA/RNA sequence logo.                                     |
+| `variant`  | Variant analysis: motif fetch / coordinate map / effect annotate. |
 
-See the [CLI reference]({% link cli.md %}) for full usage or jump straight to
-[metagene]({% link metagene.md %}) and [logo]({% link logo.md %}).
+## Documentation
+
+- [Architecture & Design](architecture.md) — how the package is organized.
+- [CLI Reference](cli.md) — full usage of every subcommand.
+- [Python API](api.md) — import the functions directly.
+- [Metagene](metagene.md) — metagene profiling details.
+- [Logo](logo.md) — sequence-logo plotting details.
+- [Variant](variant.md) — genomic variant analysis subcommand group.

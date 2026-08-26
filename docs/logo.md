@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Logo
-nav_order: 4
+nav_order: 6
 ---
 
 # Logo

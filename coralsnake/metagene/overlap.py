@@ -33,22 +33,23 @@ def calculate_bin_statistics(
         Polars DataFrame with bin statistics
     """
     data = np.asarray(data)
+    weights = np.asarray(weights, dtype=np.float64)
 
     # Generate the bin edges
     bins = np.linspace(bin_range[0], bin_range[1], num_bins + 1)
 
-    # Initialize arrays for sums and counts
-    bin_sums = np.zeros(num_bins)
-    bin_counts = np.zeros(num_bins)
+    # Calculate which bin each data point falls into (0-based; values outside
+    # [bin_range[0], bin_range[1]] must be excluded, matching the original).
+    bin_indices = np.digitize(data, bins, right=False) - 1
+    in_range = (bin_indices >= 0) & (bin_indices < num_bins)
+    kept = bin_indices[in_range]
+    kept_weights = weights[in_range]
 
-    # Calculate which bin each data point falls into
-    bin_indices = np.digitize(data, bins) - 1
-
-    # Update the bin_sums and bin_counts arrays
-    for w, b in zip(weights, bin_indices):
-        if 0 <= b < num_bins:
-            bin_sums[b] += w
-            bin_counts[b] += 1
+    # Vectorized sums and counts (np.bincount is far faster than a Python loop).
+    bin_sums = np.bincount(kept, weights=kept_weights, minlength=num_bins)
+    bin_counts = np.bincount(kept, minlength=num_bins)
+    bin_sums = bin_sums[:num_bins].astype(np.float64)
+    bin_counts = bin_counts[:num_bins].astype(np.float64)
 
     # Calculate the mean for each bin
     bin_means = np.divide(

@@ -39,6 +39,7 @@ pip install "coralsnake[plot]"
 | `group`      | Group genes and build a consensus sequence.                        |
 | `metagene`   | Metagene profiling: distribution of sites across 5'UTR/CDS/3'UTR.  |
 | `logo`       | Plot a DNA/RNA sequence logo (requires `coralsnake[plot]`).        |
+| `variant`    | Genomic variant analysis (motif/coordinate/effect).                |
 
 ## Metagene subcommand
 
@@ -116,3 +117,35 @@ from coralsnake import Mlogo
 m = Mlogo(motifs=["ACGT", "ACGG", "CCGT"], to2bit=True)
 m.plot(ax)  # requires matplotlib (plot extra)
 ```
+
+## Variant subcommand
+
+`coralsnake variant` is a migration of the standalone `variant` package — it
+removes the old `pyfaidx` / `urllib3` / `pyensembl`+`varcode` dependencies and
+uses coralsnake's `pysam` + `ruranges` stack instead. Naming and output format
+are unchanged.
+
+```bash
+# Motif fetch (strand-aware, padded with N)
+coralsnake variant motif -i sites.tsv -o motifs.tsv -f genome.fa -n 2,3 -w
+
+# Chromosome-name mapping (UCSC ↔ Ensembl)
+coralsnake variant coordinate -i sites.tsv -o mapped.tsv -M U2E
+
+# Variant effect annotation (pure Python classifier on coralsnake GTF)
+coralsnake variant effect -i variants.tsv -o effects.tsv \
+                          --reference-gtf annotation.gtf \
+                          --reference-transcript transcripts.fa -s -a
+```
+
+```python
+from coralsnake.variant import Annot, Site, reverse_base
+from coralsnake.variant.motif import get_motif
+from coralsnake.variant.coordinate import run_coordinate
+from coralsnake.variant.effect import run_effect
+```
+
+## Documentation
+
+- [Architecture & Design](DESIGN.md) — package layout and design decisions.
+- Full docs site: <https://coralsnake.yech.science/> (see `docs/`).

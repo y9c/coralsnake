@@ -67,6 +67,7 @@ click.rich_click.COMMAND_GROUPS = {
                 "group",
                 "metagene",
                 "logo",
+                "variant",
             ],
         },
     ]
@@ -1057,6 +1058,202 @@ def logo(motifs, input_file, output_file, weights, t2u, to2bit, normed):
     plt.savefig(output_file, dpi=300, bbox_inches="tight")
     plt.close()
     click.echo(f"✓ Saved motif logo to: {output_file}")
+
+
+@cli.group(
+    help="Genomic variant analysis (migrated from the `variant` package).",
+    invoke_without_command=False,
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+def variant():
+    """Genomic variant analysis toolkit (was the standalone `variant` package).
+
+    Provides `motif`, `coordinate` and `effect` subcommands with the same
+    naming / output format, but built on coralsnake's pysam + ruranges stack
+    (the old pyfaidx / urllib3 / pyensembl + varcode dependencies are gone).
+    """
+
+
+@variant.command(
+    help="Fetch a genomic motif around the given sites.",
+    no_args_is_help=True,
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+@click.option("--input", "-i", "input_file", default="-", help="Input position file.")
+@click.option("--output", "-o", "output_file", default="-", help="Output file.")
+@click.option(
+    "--fasta",
+    "-f",
+    "fasta",
+    type=click.Path(exists=True),
+    required=True,
+    help="Reference fasta file.",
+)
+@click.option(
+    "--npad",
+    "-n",
+    "npad",
+    default="10",
+    help="Number of padding bases to call motif. Use comma for different left/right pads (eg. 2,3).",
+)
+@click.option("--with-header", "-H", is_flag=True, help="Input file has a header line.")
+@click.option(
+    "--columns",
+    "-c",
+    "columns",
+    default="1,2,3",
+    show_default=True,
+    help="Sets columns for site info. (Chrom,Pos,Strand)",
+)
+@click.option("--to-upper", "-u", is_flag=True, help="Convert motif to upper case.")
+@click.option("--wrap-site", "-w", is_flag=True, help="Wrap motif site.")
+def motif(
+    input_file, output_file, fasta, npad, with_header, columns, to_upper, wrap_site
+):
+    """Fetch genomic motif."""
+    from .variant.motif import run_motif
+
+    if "," in npad:
+        lpad, rpad = npad.split(",")
+    else:
+        lpad, rpad = npad, npad
+    if not lpad.isdigit() or not rpad.isdigit():
+        click.echo(f"Error: npad should be positive integer, not {npad}", err=True)
+        raise click.Abort()
+    run_motif(
+        input_file,
+        output_file,
+        fasta,
+        int(lpad),
+        int(rpad),
+        with_header,
+        columns,
+        to_upper,
+        wrap_site,
+    )
+
+
+@variant.command(
+    help="Map chromosome names between reference coordinate systems.",
+    no_args_is_help=True,
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+@click.option("--input", "-i", "input_file", default="-", help="Input position file.")
+@click.option("--output", "-o", "output_file", default="-", help="Output file.")
+@click.option(
+    "--reference-mapping",
+    "-m",
+    "reference_mapping",
+    help="Mapping file (chrom in input \t chrom in reference db).",
+)
+@click.option(
+    "--buildin-mapping",
+    "-M",
+    "buildin_mapping",
+    help="Built-in mapping: U2E, E2U, U2E-hg38, E2U-hg38, U2E-mm39, E2U-mm39.",
+)
+@click.option(
+    "--columns", "-c", "columns", default="1", help="Columns for site info (Chrom)."
+)
+@click.option("--with-header", "-H", is_flag=True, help="Input file has a header line.")
+@click.option("--keep-original", "-k", is_flag=True, help="Keep original chrom name.")
+def coordinate(
+    input_file,
+    output_file,
+    reference_mapping,
+    buildin_mapping,
+    columns,
+    with_header,
+    keep_original,
+):
+    """Fetch genomic motif."""
+    from .variant.coordinate import run_coordinate
+
+    run_coordinate(
+        input_file,
+        output_file,
+        reference_mapping,
+        buildin_mapping,
+        columns,
+        with_header,
+        keep_original,
+    )
+
+
+@variant.command(
+    help="Annotate genomic variant effects.",
+    no_args_is_help=True,
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+@click.option("--input", "-i", "input_file", default="-", help="Input position file.")
+@click.option(
+    "--output", "-o", "output_file", default="-", help="Output annotation file."
+)
+@click.option(
+    "--reference-gtf",
+    "reference_gtf",
+    type=click.Path(exists=True),
+    help="Custom reference GTF file.",
+)
+@click.option(
+    "--reference-transcript",
+    "reference_transcript",
+    multiple=True,
+    help="Custom reference transcript FASTA file(s).",
+)
+@click.option(
+    "--reference-protein",
+    "reference_protein",
+    multiple=True,
+    help="Custom reference protein FASTA file(s).",
+)
+@click.option(
+    "--release", "-e", "release", type=int, default=None, help="Ensembl release."
+)
+@click.option("--strandness", "-s", is_flag=True, help="Use strand information.")
+@click.option("--pU-mode", "-u", "pU_mode", is_flag=True, help="Prioritise RNA genes.")
+@click.option(
+    "--npad", "-n", "npad", default=10, type=int, help="Padding bases for motif."
+)
+@click.option("--all-effects", "-a", is_flag=True, help="Output all effects.")
+@click.option("--with-header", "-H", is_flag=True, help="Input file has a header line.")
+@click.option(
+    "--columns",
+    "-c",
+    "columns",
+    default="1,2,3,4,5",
+    help="Columns for site info. (Chrom,Pos,Strand,Ref,Alt)",
+)
+def effect(
+    input_file,
+    output_file,
+    reference_gtf,
+    reference_transcript,
+    reference_protein,
+    release,
+    npad,
+    strandness,
+    all_effects,
+    pU_mode,
+    with_header,
+    columns,
+):
+    """Annotate genomic variant effect."""
+    from .variant.effect import run_effect
+
+    run_effect(
+        input_file,
+        output_file,
+        reference_gtf,
+        reference_transcript,
+        reference_protein,
+        npad,
+        strandness,
+        all_effects,
+        pU_mode,
+        with_header,
+        columns,
+    )
 
 
 if __name__ == "__main__":
