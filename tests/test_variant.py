@@ -86,6 +86,77 @@ class TestMotif:
         assert seq[:3] == "NNN"  # left-padded past the chromosome start
 
 
+class _MotifFixtures:
+    """Self-contained 12-mer chromosome for exact-boundary motif checks."""
+
+    SEQ = "ACGTACGTACGT"
+
+    @pytest.fixture
+    def short_fasta(self, tmp_path):
+        import pysam
+
+        p = tmp_path / "c.fa"
+        p.write_text(f">c\n{self.SEQ}\n")
+        fa = pysam.FastaFile(str(p))
+        yield fa, len(self.SEQ)
+        fa.close()
+
+
+class TestMotifBoundaries(_MotifFixtures):
+    """Regression: right/both-overhang padding lengths + site placement.
+
+    The old ``get_motif`` produced the wrong length (one base too short) and
+    misplaced the site for positions near the chromosome end. Verified against
+    an independent property check (length + every base vs the reference).
+    """
+
+    def _center(self, motif, strand, lpad, rpad):
+        return motif[lpad] if strand == "+" else motif[rpad]
+
+    def test_right_only_overhang_plus(self, short_fasta):
+        from coralsnake.motif import get_motif
+
+        fa, L = short_fasta
+        m = get_motif(fa, "c", L, L, "+", 3, 3)  # center = last base
+        assert len(m) == 7
+        assert m[3] == self.SEQ[-1]  # site at index lpad, = last base 'T'
+        assert m[4:] == "NNN"  # right overhang fully padded
+        assert m[:3] == self.SEQ[L - 4 : L - 1]  # 3 real left bases
+
+    def test_both_overhang_plus(self, short_fasta):
+        from coralsnake.motif import get_motif
+
+        fa, L = short_fasta
+        m = get_motif(fa, "c", 2, 2, "+", 3, 3)  # chrom only 2 long
+        assert len(m) == 7
+        assert m[3] == self.SEQ[1]  # site = base at index 1 ('C')
+        # left flank = N N + real base at index 0 ; right = NNN
+        assert m[0:2] == "NN" and m[2] == self.SEQ[0]
+        assert m[4:] == "NNN"
+
+    def test_right_overhang_negative_strand(self, short_fasta):
+        from coralsnake.motif import get_motif
+
+        fa, L = short_fasta
+        m = get_motif(fa, "c", L, L, "-", 3, 3)  # site = last base, minus
+        assert len(m) == 7
+        comp = {"A": "T", "C": "G", "G": "C", "T": "A"}
+        assert m[3] == comp[self.SEQ[-1]]  # site at index rpad, complemented
+        assert m[:3] == "NNN"  # 5' side fully out of range -> N
+        # 3' side = the 3 real bases to the site's left, reverse-complemented.
+        # (left of site == genomic indices L-4..L-2 == 'A','C','G' -> RC -> 'CGT')
+        assert m[4:] == "CGT"
+
+    def test_interior_unchanged_plus(self, short_fasta):
+        from coralsnake.motif import get_motif
+
+        fa, L = short_fasta
+        m = get_motif(fa, "c", L, 6, "+", 3, 3)
+        assert len(m) == 7
+        assert m[3] == self.SEQ[5]  # site = index 5 ('C')
+        assert m == self.SEQ[2:9]  # exact interior window
+
+
 class TestCoordinate:
     @pytest.fixture
     def chrom_map(self, tmp_path):

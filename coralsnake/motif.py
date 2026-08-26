@@ -29,27 +29,14 @@ def get_motif(fasta: pysam.FastaFile, chrom, chrom_len, pos, strand, lpad, rpad)
     # pos is 1-based, convert to 0-based
     pos = int(pos) - 1
 
-    # Determine the (0-based, half-open) window, padding overhangs with N.
-    if pos - lpad >= 0 and pos + rpad < chrom_len:
-        start = pos - lpad
-        end = pos + rpad + 1
-        lfill = 0
-        rfill = 0
-    elif pos - lpad < 0 and pos + rpad < chrom_len:
-        start = 0
-        end = pos + rpad + 1
-        lfill = lpad - pos
-        rfill = 0
-    elif pos - lpad >= 0 and pos + rpad >= chrom_len:
-        start = pos - lpad
-        end = chrom_len
-        lfill = 0
-        rfill = rpad - (chrom_len - pos)
-    else:
-        start = 0
-        end = chrom_len
-        lfill = lpad
-        rfill = rpad - (chrom_len - pos)
+    # Window centred on `pos` (0-based, half-open). Clamp to the chromosome and
+    # pad any out-of-bound flank with N so the motif is always lpad+1+rpad long:
+    #   left flank  = indices (pos - lpad) .. pos-1
+    #   right flank = indices (pos + 1) .. (pos + rpad)
+    start = max(0, pos - lpad)
+    end = min(chrom_len, pos + rpad + 1)
+    lfill = max(0, lpad - pos)            # leading bases that fall before 0
+    rfill = max(0, rpad - (chrom_len - pos - 1))  # trailing bases past the end
 
     seq = fasta.fetch(chrom, start, end)
     if strand == "+":

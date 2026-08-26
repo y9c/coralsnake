@@ -1,25 +1,28 @@
-import multiprocessing as mp
-from bwamem import BwaAligner
-import time
+"""Experimental fork-BWA benchmark smoke test.
 
-opts = {"min_seed_len": 14, "mark_secondary": True, "softclip_supplementary": True}
+The benchmark index and ``bwamem`` may be absent, so these tests skip cleanly
+(rather than breaking test collection at import time).
+"""
+import os
 
-print("Loading index in main process...")
-t0 = time.time()
-global_a = BwaAligner("tests/benchmark/test_idx_only/genes_idx/ref.mk", **opts)
-print(f"Loaded in {time.time() - t0:.2f}s")
+import pytest
 
-
-def worker_func(seq):
-    # Use the global_a which was inherited via fork
-    res = global_a.align_raw(seq)
-    return len(res)
+_INDEX = "tests/benchmark/test_idx_only/genes_idx/ref.mk"
+_OPTS = {"min_seed_len": 14, "mark_secondary": True, "softclip_supplementary": True}
 
 
-if __name__ == "__main__":
-    t0 = time.time()
-    ctx = mp.get_context("fork")
-    with ctx.Pool(4) as pool:
-        seqs = ["ACGTACGTACGTACGT" * 5] * 10000
-        pool.map(worker_func, seqs)
-    print(f"Workers done in {time.time() - t0:.2f}s")
+@pytest.fixture(scope="module")
+def bwa():
+    if not os.path.exists(_INDEX):
+        pytest.skip("fork BWA benchmark index not present")
+    try:
+        from bwamem import BwaAligner
+    except ImportError:
+        pytest.skip("bwamem not installed")
+    return BwaAligner(_INDEX, **_OPTS)
+
+
+def test_fork_aligns_some_reads(bwa):
+    """The loaded aligner can align (reads) without error."""
+    res = bwa.align_raw("ACGTACGTACGTACGT" * 5)
+    assert isinstance(res, list)

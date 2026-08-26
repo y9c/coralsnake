@@ -40,6 +40,18 @@ class TestMlogo:
         with pytest.raises(ValueError, match="not the same in length"):
             Mlogo(motifs=["ACGT", "ACG"])
 
+    def test_nan_weights_do_not_poison_scores(self):
+        import numpy as np
+
+        # A NaN weight used to produce NaN scores because the min-shift was
+        # recomputed from the ORIGINAL (NaN-containing) weights array.
+        m = Mlogo(
+            motifs=["ACGT", "ACGT"], weights=[1.0, np.nan], to2bit=False
+        ).scores
+        for col in m:
+            for _, s in col:
+                assert not np.isnan(s), f"NaN leaked into scores: {m}"
+
     def test_color_scheme(self):
         for base in ["A", "C", "G", "T", "U"]:
             assert base in COLOR_SCHEME

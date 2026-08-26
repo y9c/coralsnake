@@ -174,7 +174,10 @@ class Mlogo:
             _weights = np.ones(len(motifs))
         else:
             _weights = np.nan_to_num(weights, nan=0)
-            _weights = weights - np.min(_weights)
+            # Min-shift from the CLEANED array, otherwise any NaN in the original
+            # `weights` would propagate back in (NaN - min == NaN) and defeat
+            # the nan_to_num above.
+            _weights = _weights - np.min(_weights)
         weights = list(_weights)
         self.weights = weights
 

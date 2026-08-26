@@ -58,17 +58,20 @@ class OptionEatAll(click.Option):
 click.rich_click.COMMAND_GROUPS = {
     "coralsnake": [
         {
-            "name": "Commands",
-            "commands": [
-                "prepare",
-                "map",
-                "liftover",
-                "annot",
-                "group",
-                "metagene",
-                "logo",
-                "variant",
-            ],
+            "name": "Read Mapping",
+            "commands": ["prepare", "map", "liftover"],
+        },
+        {
+            "name": "Site & Variant Annotation",
+            "commands": ["annotate", "annot", "effect", "motif", "coordinate"],
+        },
+        {
+            "name": "Genomic Analysis",
+            "commands": ["metagene", "group"],
+        },
+        {
+            "name": "Visualization",
+            "commands": ["logo"],
         },
     ]
 }
@@ -137,18 +140,26 @@ def _metagene_parse_floats(ctx, param, value):
     return _parse_csv(ctx, param, value, float, "Must be comma-separated numbers")
 
 
-class CoralsnakeGroup(click.Group):
+class CoralsnakeGroup(click.RichGroup):
     """Click group that surfaces deliberate data/input errors cleanly.
 
-    Library functions raise ``ValueError``/``RuntimeError`` for bad input or
-    data (never ``sys.exit``). An uncaught one would otherwise print a raw
-    traceback; this converts them to a concise ``ClickException`` message while
-    letting genuine bugs (other exception types) raise normally.
+    Subclasses ``rich_click.RichGroup`` so the standard rich-click styled /
+    grouped help keeps working, while also converting library ``ValueError``
+    / ``RuntimeError`` (bad input or data) into a concise ``ClickException``
+    message instead of a raw traceback. Genuine bugs (other exception types)
+    still raise normally.
+
+    Note: ``click.exceptions.Exit`` and ``Abort`` are ``RuntimeError``
+    subclasses used for normal CLI control flow (e.g. ``--help`` -> ``ctx.exit()``,
+    ``--version`` -> ``Exit(0)``). Those must propagate untouched so the help /
+    version paths don't get rendered as bogus ``Error`` panels.
     """
 
     def invoke(self, ctx):
         try:
             return super().invoke(ctx)
+        except (click.exceptions.Exit, click.exceptions.Abort):
+            raise
         except (ValueError, RuntimeError) as e:
             raise click.ClickException(str(e)) from e
 
@@ -1177,6 +1188,75 @@ def coordinate(
             columns,
             with_header,
             keep_original,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
+
+
+@cli.command(
+    help=(
+        "Annotate sites or variants (region + gene/transcript position + effect). "
+        "Unifies 'annot' and 'effect'."
+    ),
+    no_args_is_help=True,
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+@click.option("--input", "-i", "input_file", default="-", help="Input position file.")
+@click.option(
+    "--output", "-o", "output_file", default="-", help="Output annotation file."
+)
+@click.option(
+    "--reference-gtf",
+    "-g",
+    "reference_gtf",
+    type=click.Path(exists=True),
+    help="Reference GTF file.",
+)
+@click.option(
+    "--reference-transcript",
+    "-f",
+    "reference_transcript",
+    multiple=True,
+    help="Reference genome FASTA (needed for motif / codon / amino-acid).",
+)
+@click.option("--strandness", "-s", is_flag=True, help="Use strand information.")
+@click.option(
+    "--npad", "-n", "npad", default=10, type=int, help="Padding bases for motif."
+)
+@click.option("--all-effects", "-a", is_flag=True, help="Output all overlapping effects.")
+@click.option("--with-header", "-H", is_flag=True, help="Input file has a header line.")
+@click.option(
+    "--columns",
+    "-c",
+    "columns",
+    default="1,2,3,4,5",
+    help="Columns for site info. (Chrom,Pos,Strand,Ref,Alt) Ref/Alt optional.",
+)
+def annotate(
+    input_file,
+    output_file,
+    reference_gtf,
+    reference_transcript,
+    npad,
+    strandness,
+    all_effects,
+    with_header,
+    columns,
+):
+    """Annotate genomic sites or variants (site + variant effect, unified)."""
+    from .annotate import run_annotate
+
+    try:
+        run_annotate(
+            input_file,
+            output_file,
+            reference_gtf,
+            reference_transcript,
+            npad,
+            strandness,
+            all_effects,
+            with_header,
+            columns,
         )
     except ValueError as e:
         raise click.ClickException(str(e))

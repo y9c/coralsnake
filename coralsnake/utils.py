@@ -200,14 +200,14 @@ class Transcript:
             line.append(self.gene_name if self.gene_name is not None else "")
         if with_biotype:
             line.append(self.transcript_biotype if self.transcript_biotype else "")
-        # transcript start and end
+        # transcript start and end: the genomic bounding box (1-based)
+        # [min_exon_start, max_exon_end], identical for both strands.
         if with_txpos:
-            _es = next(iter(self.exons.values()))
-            _ee = next(reversed(self.exons.values()))
-            if self.strand == "+":
-                line += [str(_es.start + 1), str(_ee.end)]
-            else:
-                line += [str(_es.end), str(_ee.start + 1)]
+            es = list(self.exons.values())
+            line += [
+                str(min(e.start for e in es) + 1),
+                str(max(e.end for e in es)),
+            ]
 
         return "\t".join(line)
 

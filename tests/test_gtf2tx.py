@@ -74,6 +74,40 @@ class TestRankTranscript:
 
 
 # ---------------------------------------------------------------------------
+# Transcript.to_tsv with_txpos
+# ---------------------------------------------------------------------------
+class TestToTsvTxPos:
+    def test_plus_bounding_box(self):
+        from coralsnake.utils import Transcript, Span
+
+        tx = Transcript(gene_id="G", transcript_id="T", chrom="c")
+        tx.add_exon("1", Span(10, 20))
+        tx.add_exon("2", Span(30, 55))
+        s = tx.to_tsv(with_txpos=True)
+        fields = s.split("\t")
+        # spans, start_codon/stop_codon skipped (with_codon=False) => last 2 = txpos
+        assert fields[-2:] == ["11", "55"]  # min start+1, max end
+
+    def test_minus_bounding_box_is_valid_span(self):
+        """Regression: gene on '-' strand used to emit start>end (inverted).
+
+        transcript_start/transcript_end are the genomic bounding box
+        [min_start, max_end], identical for both strands.
+        """
+        from coralsnake.utils import Transcript, Span
+
+        # two exons, 5'->3' = right to left; unsorted insertion order
+        tx = Transcript(gene_id="G", transcript_id="T", chrom="c", strand="-")
+        tx.add_exon("1", Span(151096, 151166))  # 5' exon (rightmost)
+        tx.add_exon("2", Span(147593, 151006))  # 3' exon (leftmost)
+        s = tx.to_tsv(with_txpos=True)
+        fields = s.split("\t")
+        start, end = int(fields[-2]), int(fields[-1])
+        assert start <= end
+        assert (start, end) == (147594, 151166)  # min start+1, max end
+
+
+# ---------------------------------------------------------------------------
 # sanitize_sequence_name
 # ---------------------------------------------------------------------------
 class TestSanitizeSequenceName:

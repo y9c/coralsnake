@@ -35,11 +35,19 @@ pip install "coralsnake[plot]"
 | `prepare`    | Extract primary transcript from a GTF/GFF file.                    |
 | `map`        | Map reads to a reference genome using BWA-MEM (two-color aware).   |
 | `liftover`   | Remap transcriptome-aligned reads back to genome coordinates.      |
-| `annot`      | Annotate a TSV of genomic sites with transcript positions.         |
+| `annotate`   | Unified site/variant annotation (region + gene/transcript/effect). |
+| `annot`      | Site labeling with transcript positions (legacy; see `annotate`).  |
+| `effect`     | Variant effect classification (legacy; see `annotate`).            |
 | `group`      | Group genes and build a consensus sequence.                        |
 | `metagene`   | Metagene profiling: distribution of sites across 5'UTR/CDS/3'UTR.  |
 | `logo`       | Plot a DNA/RNA sequence logo (requires `coralsnake[plot]`).        |
-| `variant`    | Genomic variant analysis (motif/coordinate/effect).                |
+| `variant`    | Variant utilities (`motif`, `coordinate`).                         |
+
+> **`annotate` is the merged successor of `annot` + `effect`.** One command, one
+> GTF-based engine, one output schema: it labels a site with its
+> gene/transcript/position and region, and (with a genome FASTA + ref/alt)
+> classifies the variant effect (codon/AA). `annot` and `effect` are retained
+> for backward compatibility.
 
 ## Metagene subcommand
 

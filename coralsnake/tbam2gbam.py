@@ -9,6 +9,7 @@
 
 import bisect
 import multiprocessing as mp
+import os
 from concurrent.futures import ProcessPoolExecutor
 from functools import lru_cache
 
@@ -314,12 +315,24 @@ def convert_bam(
             return
         LOGGER.info("Sorting output BAM file...")
         import shutil
-        import uuid
+        import tempfile
 
-        internal_sorted_bam = f".{str(uuid.uuid4())[:8]}_{output_bam}"
-        pysam.sort("-@", str(threads), "-o", internal_sorted_bam, output_bam)
-        shutil.move(internal_sorted_bam, output_bam)
-        pysam.index("-@", str(threads), output_bam)
+        # Sort to a temp file next to the target so it works whether output_bam
+        # is absolute or relative (a naive ".{uuid}_{output_bam}" prefix breaks
+        # whenever the output path contains a directory).
+        out_dir = os.path.dirname(os.path.abspath(output_bam))
+        fd, internal_sorted_bam = tempfile.mkstemp(
+            dir=out_dir, prefix=".coralsnake_sort_", suffix=".bam"
+        )
+        os.close(fd)
+        os.remove(internal_sorted_bam)  # let samtools create the temp output
+        try:
+            pysam.sort("-@", str(threads), "-o", internal_sorted_bam, output_bam)
+            shutil.move(internal_sorted_bam, output_bam)
+            pysam.index("-@", str(threads), output_bam)
+        finally:
+            if os.path.exists(internal_sorted_bam):
+                os.remove(internal_sorted_bam)
 
 
 if __name__ == "__main__":

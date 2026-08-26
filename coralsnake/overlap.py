@@ -111,6 +111,8 @@ def annotate_with_features(
 
     # Create group IDs for chromosomes (and optionally strand)
     if by_strand:
+        input_strands = df_input["Strand"].to_numpy()
+        feature_strands = df_feature["Strand"].to_numpy()
         input_labels = np.char.add(input_chroms.astype(str), input_strands.astype(str))
         feature_labels = np.char.add(
             feature_chroms.astype(str), feature_strands.astype(str)
@@ -257,7 +259,10 @@ def annotate_with_features(
 
     # Select output columns
     if not keep_all:
-        df = df.select(["Chromosome", "Start", "End", "Name", "d_norm", "Strand"])
+        out_cols = ["Chromosome", "Start", "End", "d_norm", "Strand"]
+        if annot_name:
+            out_cols.insert(3, "Name")
+        df = df.select(out_cols)
 
     # Store metadata in dataframe attributes (Polars doesn't support attrs, but we can return it separately)
     # For backward compatibility, we could store it as metadata in the schema, but simpler to just document it

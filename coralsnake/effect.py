@@ -162,6 +162,7 @@ def _transcripts_from_gtf(reference):
             tid = r["transcript_id"]
             if tid not in acc:
                 acc[tid] = {
+                    "transcript_id": tid,
                     "strand": strand,
                     "chrom": chrom,
                     "gene_id": r["gene_id"],

@@ -4,6 +4,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.214] - 2026-08-27
+
+### Added
+- **`coralsnake annotate`** (`coralsnake/annotate.py`): a single unified tool that
+  **merges the logic of `annot` and `effect`**. One GTF-based engine and one
+  fixed output schema (`gene_id transcript_id transcript_pos region gene_pos
+  transcript_strand mut_type transcript_motif coding_pos codon_ref aa_pos aa_ref
+  distance2splice`). It labels a bare site with its gene/transcript/position +
+  region (no FASTA needed), and - with a genome FASTA + ref/alt - classifies the
+  variant effect (codon/AA/motif). Also distinguishes **intronic** from
+  **intergenic** sites. The legacy `annot`/`effect` tools still work.
+- **Grouped, coloured CLI help**: `COMMAND_GROUPS` now organises commands into
+  named panels (`Read Mapping`, `Site & Variant Annotation`, `Genomic Analysis`,
+  `Visualization`).
+
+### Fixed
+- **Bogus `Error: 0` panel on subcommand `--help`**: `click.exceptions.Exit`
+  (subclass of `RuntimeError`, raised by `--help`/`--version`) was being caught
+  by `CoralsnakeGroup.invoke` and rendered as a fake error. `Exit`/`Abort` now
+  propagate untouched; only genuine `ValueError`/`RuntimeError` are converted.
+  (`CoralsnakeGroup` also now subclasses `rich_click.RichGroup`, restoring the
+  styled help.)
+- **`motif` boundary off-by-one** (`motif.get_motif`): for sites near the end of
+  a chromosome the motif was one base too short (right-overhang) and misplaced
+  the site base (both-overhang). Rewritten with a single clamp-and-pad formula;
+  verified against an independent property check across **864 cases** (all
+  positions x lpad x rpad x strand) - the old code failed 604, the fix passes
+  all. Interior / left-overhang behaviour is byte-identical to before.
+- **`prepare --with-txpos` minus-strand span** (`Transcript.to_tsv`): emitted an
+  inverted `start > end` span for `-`-strand multi-exon genes. `transcript_start`
+  / `transcript_end` are now always the genomic bounding box
+  `[min_exon_start+1, max_exon_end]` for both strands.
+- **`Mlogo` NaN weights leaked NaN scores** (`logo.__init__`): the min-shift was
+  recomputed from the original (NaN-containing) weights array, defeating the
+  `nan_to_num`. The shift now uses the cleaned array.
+- **`liftover --sort` crashed on absolute output paths**: the temporary sort
+  file was derived from the output basename and broke when the path contained a
+  directory. Now uses `tempfile.mkstemp` in the target directory (with cleanup).
+- **`overlap.annotate_with_features`**: fixed undefined `input_strands` /
+  `feature_strands` in the `by_strand` branch, and the `keep_all=False` column
+  selection that always expected a `Name` column (now gated on `annot_name`).
+- **Experimental tests** (`tests/experimental/*`) no longer crash at collection
+  when the benchmark data is absent; they skip cleanly.
+- Dropped unused imports (`annotate._to_rna`, `gtf.numpy`, `gtf.ensure_dir`).
+
 ## [0.0.213] - 2026-08-26
 
 ### Changed

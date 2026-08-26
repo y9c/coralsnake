@@ -51,12 +51,61 @@ coralsnake coordinate -i sites.tsv -o mapped.tsv -M U2E
 | `-k, --keep-original` | Append the rename instead of replacing.   |
 | `-H, --with-header` | Input has a header.                        |
 
+## `annotate`
+
+The unified site / variant annotation command. It **merges** the two legacy
+tools `annot` (label a site with its gene/transcript/position) and `effect`
+(classify a variant's functional effect) into a single GTF-based engine with
+one fixed output schema. Use `annotate` for anything that falls under "which
+gene/transcript is this, and what does it do?".
+
+The same command serves a bare site (only chrom,pos,strand given ->
+gene/transcript/position + region, no FASTA needed) **and** a full variant
+(chrom,pos,strand,ref,alt + a genome FASTA -> coding codon/AA + effect):
+
+```bash
+# site labeling (region + gene/transcript/position) - just a GTF
+coralsnake annotate -i sites.tsv -o out.tsv --reference-gtf annotation.gtf -c 1,2,3
+
+# variant effect - add a genome FASTA (+ ref/alt columns)
+coralsnake annotate -i variants.tsv -o effects.tsv \
+                    --reference-gtf annotation.gtf --reference-transcript genome.fa -s -a
+```
+
+| Option | Description                              |
+| ------ | ---------------------------------------- |
+| `-i, --input` | Input site/variant file.          |
+| `-o, --output` | Output annotation file.          |
+| `-g, --reference-gtf` | Reference GTF (**required**).     |
+| `-f, --reference-transcript` | Genome FASTA (needed for motif/codon/AA). |
+| `-s, --strandness` | Use strand information.          |
+| `-a, --all-effects` | Output all overlapping effects (not just the top). |
+| `-n, --npad` | Padding bases (default 10).       |
+| `-H, --with-header` | Input has a header.            |
+| `-c, --columns` | Chrom,Pos,Strand,Ref,Alt (default `1,2,3,4,5`; Ref/Alt optional). |
+
+### Output columns (single fixed schema)
+
+```
+gene_id  transcript_id  transcript_pos  region  gene_pos  transcript_strand
+mut_type  transcript_motif  coding_pos  codon_ref  aa_pos  aa_ref  distance2splice
+```
+
+`region` (Intergenic / Intronic / 5'UTR / CDS / 3'UTR / Noncoding) is always
+filled. The `mut_*`/coding columns are filled only when a genome FASTA and
+ref/alt were supplied; otherwise they are empty.
+
 ## `effect`
 
 Annotate the effect of each variant (chrom, pos[, strand, ref, alt]). It
 classifies the site into a region (5'UTR / CDS / 3'UTR / splice), computes
 transcript-relative coordinates, and (for coding positions) the codon +
 amino-acid context.
+
+> New code should prefer `annotate` (above), which subsumes `effect` and also
+> handles plain sites and intergenic/intronic regions. `effect` is retained
+> for backward compatibility (its output columns match the standalone
+> `variant` package).
 
 ```bash
 coralsnake effect -i variants.tsv -o effects.tsv \
@@ -92,6 +141,7 @@ The field order is identical to the standalone `variant` package.
 The commands are also importable functions.
 
 ```python
+from coralsnake.annotate import run_annotate, Annotation   # unified (new)
 from coralsnake.effect import Annot, Site, expand_base, reverse_base
 from coralsnake.motif import get_motif
 from coralsnake.coordinate import run_coordinate

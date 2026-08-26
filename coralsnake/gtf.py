@@ -8,11 +8,10 @@
 
 import os
 
-import numpy as np
 import polars as pl
 from ruranges.numpy import overlaps
 
-from .utils import ensure_dir, get_cache_dir, get_file_hash, interval_groups, setup_rich_logger
+from .utils import get_cache_dir, get_file_hash, interval_groups, setup_rich_logger
 
 # Rich logger (logs to stderr so piped stdout stays clean).
 logger = setup_rich_logger(__name__)
