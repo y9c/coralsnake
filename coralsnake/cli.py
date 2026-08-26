@@ -59,11 +59,11 @@ click.rich_click.COMMAND_GROUPS = {
     "coralsnake": [
         {
             "name": "Read Mapping",
-            "commands": ["prepare", "map", "liftover"],
+            "commands": ["prepare", "map", "liftover", "tbam2gbam", "gbam2tbam"],
         },
         {
             "name": "Site & Variant Annotation",
-            "commands": ["annotate", "annot", "effect", "motif", "coordinate"],
+            "commands": ["annotate", "motif", "coordinate"],
         },
         {
             "name": "Genomic Analysis",
@@ -72,6 +72,10 @@ click.rich_click.COMMAND_GROUPS = {
         {
             "name": "Visualization",
             "commands": ["logo"],
+        },
+        {
+            "name": "Deprecated (use `annotate`)",
+            "commands": ["annot", "effect"],
         },
     ]
 }
@@ -279,6 +283,12 @@ def prepare(
     )
 
 
+def _run_tbam2gbam(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
+    from .tbam2gbam import convert_bam
+
+    convert_bam(input_bam, output_bam, annotation_file, faidx_file, threads, sort)
+
+
 @cli.command(
     help="Remap transcriptome-aligned reads back to genome coordinates.",
     no_args_is_help=True,
@@ -295,9 +305,48 @@ def prepare(
 @click.option("--threads", "-t", "threads", help="Threads.", default=8)
 @click.option("--sort", "-s", "sort", help="Sort.", is_flag=True)
 def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
-    from .tbam2gbam import convert_bam
+    """Alias for `tbam2gbam` (transcriptome -> genome)."""
+    _run_tbam2gbam(input_bam, output_bam, annotation_file, faidx_file, threads, sort)
 
-    convert_bam(input_bam, output_bam, annotation_file, faidx_file, threads, sort)
+
+@cli.command(
+    help="Remap transcriptome-aligned reads back to genome coordinates.",
+    no_args_is_help=True,
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+@click.option("--input-bam", "-i", "input_bam", help="Input bam file.", required=True)
+@click.option(
+    "--output-bam", "-o", "output_bam", help="Output bam file.", required=True
+)
+@click.option(
+    "--annotation-file", "-a", "annotation_file", help="Annotation file.", required=True
+)
+@click.option("--faidx-file", "-f", "faidx_file", help="Faidx file.", required=True)
+@click.option("--threads", "-t", "threads", help="Threads.", default=8)
+@click.option("--sort", "-s", "sort", help="Sort.", is_flag=True)
+def tbam2gbam(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
+    """Remap transcriptome-aligned reads back to genome coordinates."""
+    _run_tbam2gbam(input_bam, output_bam, annotation_file, faidx_file, threads, sort)
+
+
+@cli.command(
+    help="Remap genome-aligned reads back to transcript coordinates.",
+    no_args_is_help=True,
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+@click.option("--input-bam", "-i", "input_bam", help="Input BAM (genome-aligned).", required=True)
+@click.option(
+    "--output-bam", "-o", "output_bam", help="Output BAM (transcript-aligned).", required=True
+)
+@click.option(
+    "--annotation-file", "-a", "annotation_file", help="Annotation file.", required=True
+)
+@click.option("--threads", "-t", "threads", help="Threads.", default=8)
+@click.option("--sort", "-s", "sort", help="Sort output BAM.", is_flag=True)
+def gbam2tbam(input_bam, output_bam, annotation_file, threads, sort):
+    from .gbam2tbam import convert_bam
+
+    convert_bam(input_bam, output_bam, annotation_file, threads, sort)
 
 
 @cli.command(
@@ -589,7 +638,7 @@ def map(
 
 
 @cli.command(
-    help="Annotate tsv file.",
+    help="Deprecated: annotate sites from a table. Use 'annotate --annotation' instead.",
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
@@ -1210,7 +1259,13 @@ def coordinate(
     "-g",
     "reference_gtf",
     type=click.Path(exists=True),
-    help="Reference GTF file.",
+    help="Reference GTF file (GTF mode).",
+)
+@click.option(
+    "--annotation",
+    "annotation_table",
+    type=click.Path(exists=True),
+    help="Precomputed annotation table from `prepare` (fast table mode).",
 )
 @click.option(
     "--reference-transcript",
@@ -1223,7 +1278,7 @@ def coordinate(
 @click.option(
     "--npad", "-n", "npad", default=10, type=int, help="Padding bases for motif."
 )
-@click.option("--all-effects", "-a", is_flag=True, help="Output all overlapping effects.")
+@click.option("--all-effects", "-a", "all_effects", is_flag=True, help="Output all overlapping effects.")
 @click.option("--with-header", "-H", is_flag=True, help="Input file has a header line.")
 @click.option(
     "--columns",
@@ -1236,6 +1291,7 @@ def annotate(
     input_file,
     output_file,
     reference_gtf,
+    annotation_table,
     reference_transcript,
     npad,
     strandness,
@@ -1257,13 +1313,14 @@ def annotate(
             all_effects,
             with_header,
             columns,
+            annotation_table,
         )
     except ValueError as e:
         raise click.ClickException(str(e))
 
 
 @cli.command(
-    help="Annotate genomic variant effects.",
+    help="Deprecated: annotate variant effects. Use 'annotate' (with a GTF + FASTA).",
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
 )

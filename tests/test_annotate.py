@@ -143,3 +143,31 @@ class TestAnnotateEndToEnd:
         row = dict(zip(header, lines[1].split("\t")))
         assert row["region"] == "Intergenic"
         assert row["mut_type"] == "Intergenic"
+
+    def test_table_mode(self, tmp_path):
+        """Precomputed-table mode (subsumes annot): gene/transcript/pos only."""
+        from coralsnake.annotate import run_annotate
+
+        table = tmp_path / "annot.tsv"
+        table.write_text(
+            "chrom\tstrand\tspans\tgene_id\ttranscript_id\n"
+            "chr1\t+\t10-20\tG1\tT1\n"
+        )
+        inp = tmp_path / "sites.tsv"
+        inp.write_text("chr1\t15\t+\t.\t.\n")
+        out = tmp_path / "out.tsv"
+        run_annotate(
+            str(inp),
+            str(out),
+            None,
+            annotation_table=str(table),
+            columns="1,2,3,4,5",
+        )
+        lines = out.read_text().rstrip("\n").split("\n")
+        header = lines[0].split("\t")
+        row = dict(zip(header, lines[1].split("\t")))
+        assert row["gene_id"] == "G1"
+        assert row["transcript_id"] == "T1"
+        assert row["transcript_pos"] == "5"
+        # region/effect columns empty in table mode
+        assert row["region"] == ""

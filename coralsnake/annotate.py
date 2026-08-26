@@ -228,6 +228,23 @@ def _pick_top(annotations):
 # ---------------------------------------------------------------------------
 _ANNOTATE_COLUMNS = ["chrom", "pos", "strand", "ref", "alt"]
 
+# Unified output columns (see Annotation.COLUMNS) - kept in sync.
+_UNIFIED_COLUMNS = [
+    "gene_id",
+    "transcript_id",
+    "transcript_pos",
+    "region",
+    "gene_pos",
+    "transcript_strand",
+    "mut_type",
+    "transcript_motif",
+    "coding_pos",
+    "codon_ref",
+    "aa_pos",
+    "aa_ref",
+    "distance2splice",
+]
+
 
 def run_annotate(
     input_file,
@@ -239,16 +256,38 @@ def run_annotate(
     all_effects=False,
     with_header=False,
     columns="1,2,3,4,5",
+    annotation_table=None,
 ):
-    """Annotate every input row (site or variant) with the unified schema."""
-    from xopen import xopen
+    """Annotate every input row with the unified schema.
 
-    if reference_gtf is None:
-        raise ValueError("`annotate` requires --reference-gtf (or a built-in reference).")
+    Two input modes are supported by the *same* engine:
+      * GTF mode  - ``reference_gtf`` (+ optional ``reference_transcript`` FASTA).
+        Yields region + gene/transcript position + (with ref/alt + FASTA) the
+        full variant effect.
+      * Table mode - ``annotation_table`` (a precomputed `prepare`-style table
+        with gene_id/transcript_id/chrom/strand/spans). A fast vectorised path
+        yielding gene/transcript/transcript_pos (the legacy `annot` behaviour);
+        region-dependent columns are left empty.
+    """
+    from xopen import xopen
 
     col_sep = "\t"
     columns_index = [int(x) - 1 for x in str(columns).split(",")]
     columns_index_mapper = dict(zip(_ANNOTATE_COLUMNS, columns_index))
+
+    if annotation_table is not None:
+        return _run_annotate_table(
+            input_file,
+            output_file,
+            annotation_table,
+            columns,
+            with_header,
+        )
+
+    if reference_gtf is None:
+        raise ValueError(
+            "`annotate` requires --reference-gtf (or --annotation / --reference-transcript)."
+        )
 
     transcripts_by_chrom = build_transcript_index(reference_gtf)
 
@@ -275,27 +314,7 @@ def run_annotate(
                         input_header[i] = n
                 body_lines = raw_lines
 
-            output_handle.write(
-                col_sep.join(
-                    input_header
-                    + [
-                        "gene_id",
-                        "transcript_id",
-                        "transcript_pos",
-                        "region",
-                        "gene_pos",
-                        "transcript_strand",
-                        "mut_type",
-                        "transcript_motif",
-                        "coding_pos",
-                        "codon_ref",
-                        "aa_pos",
-                        "aa_ref",
-                        "distance2splice",
-                    ]
-                )
-                + "\n"
-            )
+            output_handle.write(col_sep.join(input_header + _UNIFIED_COLUMNS) + "\n")
 
             for raw in body_lines:
                 if not raw.strip():
@@ -316,6 +335,40 @@ def run_annotate(
     finally:
         if fasta is not None:
             fasta.close()
+
+
+def _run_annotate_table(input_file, output_file, annot_file, columns, skip_header):
+    """Fast precomputed-table mode (subsumes the legacy ``annot`` command).
+
+    Uses the same vectorised table engine as ``coralsnake.annot`` but emits the
+    unified ``annotate`` schema (gene_id/transcript_id/transcript_pos filled;
+    region/effect columns empty).
+    """
+    from .annot import _annotate_batch, _read_sites, parse_annot_file
+
+    tree, info = parse_annot_file(annot_file, cache=True)
+    cols = [int(i) - 1 for i in str(columns).split(",")]
+    from xopen import xopen
+
+    with xopen(input_file, "rt") as fi, xopen(output_file, "wt") as fo:
+        lines, chroms, positions, strands = _read_sites(fi, cols, skip_header)
+        results = _annotate_batch(lines, chroms, positions, strands, tree, info)
+        write_header = True
+        for line, annot_list in zip(lines, results):
+            if write_header:
+                fo.write(line + "\tgene_id\ttranscript_id\ttranscript_pos\t"
+                         "region\tgene_pos\ttranscript_strand\tmut_type\t"
+                         "transcript_motif\tcoding_pos\tcodon_ref\taa_pos\taa_ref\t"
+                         "distance2splice\n")
+                write_header = False
+            if annot_list:
+                for gene_id, transcript_id, transcript_pos in annot_list:
+                    fo.write(
+                        f"{line}\t{gene_id}\t{transcript_id}\t{transcript_pos}"
+                        f"\t\t\t\t\t\t\t\t\t\n"
+                    )
+            else:
+                fo.write(f"{line}\t.\t.\t.\t\t\t\t\t\t\t\t\t\n")
 
 
 def _site_from_cols(input_cols, columns_index_mapper, strandness):

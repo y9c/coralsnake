@@ -4,18 +4,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.215] - 2026-08-27
+
+### Added
+- **`gbam2tbam`** (`coralsnake/gbam2tbam.py`, new CLI command): inverse of
+  `liftover`/`tbam2gbam` - remaps a genome-aligned BAM onto transcript
+  references. Clips reads to exons, maps to 5'->3' transcript coordinates,
+  joins spliced reads contiguously (adjacent exons), ref-skips skipped exonic
+  gaps, and flips strand flags for `-` transcripts. Reads with internal
+  insertions/deletions or M-blocks extending into introns are safely skipped
+  rather than emitting an invalid alignment.
+- **`tbam2gbam`** is now its own CLI command (alongside the `liftover` alias).
+- **`annotate --annotation <table>`**: fast precomputed-table mode (subsumes
+  `annot`). `annotate` is now the single annotation tool - GTF mode
+  (region + gene/transcript/pos + variant effect) and table mode share one
+  engine.
+- **CLI help**: `annot`/`effect` moved to a `Deprecated (use annotate)` panel;
+  `tbam2gbam`/`gbam2tbam` added to `Read Mapping`.
+
 ## [0.0.214] - 2026-08-27
 
 ### Added
-- **`coralsnake annotate`** (`coralsnake/annotate.py`): a single unified tool that
-  **merges the logic of `annot` and `effect`**. One GTF-based engine and one
-  fixed output schema (`gene_id transcript_id transcript_pos region gene_pos
-  transcript_strand mut_type transcript_motif coding_pos codon_ref aa_pos aa_ref
-  distance2splice`). It labels a bare site with its gene/transcript/position +
-  region (no FASTA needed), and - with a genome FASTA + ref/alt - classifies the
-  variant effect (codon/AA/motif). Also distinguishes **intronic** from
-  **intergenic** sites. The legacy `annot`/`effect` tools still work.
-- **Grouped, coloured CLI help**: `COMMAND_GROUPS` now organises commands into
+- **`coralsnake annotate`** (`coralsnake/annotate.py`): the **single annotation
+  tool** merging `annot` + `effect`. One fixed schema (`gene_id transcript_id
+  transcript_pos region gene_pos transcript_strand mut_type transcript_motif
+  coding_pos codon_ref aa_pos aa_ref distance2splice`) from one GTF-based
+  engine: labels a bare site with gene/transcript/position + region (no FASTA
+  needed) and - with a genome FASTA + ref/alt - the full variant effect; also
+  distinguishes **intronic** from **intergenic**. (`--annotation` table mode
+  was added in 0.0.215.)
+- **Grouped, coloured CLI help**: `COMMAND_GROUPS` organises commands into
   named panels (`Read Mapping`, `Site & Variant Annotation`, `Genomic Analysis`,
   `Visualization`).
 

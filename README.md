@@ -30,24 +30,40 @@ pip install "coralsnake[plot]"
 
 ## Commands
 
+| Route | Command | Description |
+| ----- | ------- | ----------- |
+| t -> g | `liftover` / `tbam2gbam` | Remap transcriptome-aligned reads to genome coordinates. |
+| g -> t | `gbam2tbam` | Remap genome-aligned reads back to transcript coordinates. |
+
+## Read mapping (both directions)
+
+`prepare` builds a transcript reference; `map` aligns reads to it. The two
+BAM-conversion commands round-trip between transcript and genome span:
+- `coralsnake tbam2gbam` (alias: `liftover`) – transcript BAM → genome BAM
+  (splices reads at exon boundaries, inserts introns).
+- `coralsnake gbam2tbam` – genome BAM → transcript BAM (clips to exons,
+  joins spliced reads contiguously on the transcript).
+
+## Command reference
 | Command      | Description                                                        |
 | ------------ | ------------------------------------------------------------------ |
 | `prepare`    | Extract primary transcript from a GTF/GFF file.                    |
 | `map`        | Map reads to a reference genome using BWA-MEM (two-color aware).   |
-| `liftover`   | Remap transcriptome-aligned reads back to genome coordinates.      |
+| `liftover` / `tbam2gbam` | Remap transcriptome-aligned reads to genome coords.   |
+| `gbam2tbam`  | Remap genome-aligned reads back to transcript coordinates.         |
 | `annotate`   | Unified site/variant annotation (region + gene/transcript/effect). |
-| `annot`      | Site labeling with transcript positions (legacy; see `annotate`).  |
-| `effect`     | Variant effect classification (legacy; see `annotate`).            |
+| `annot`      | Site labeling (legacy; use `annotate --annotation`).               |
+| `effect`     | Variant effect (legacy; use `annotate` with GTF+FASTA).            |
 | `group`      | Group genes and build a consensus sequence.                        |
 | `metagene`   | Metagene profiling: distribution of sites across 5'UTR/CDS/3'UTR.  |
 | `logo`       | Plot a DNA/RNA sequence logo (requires `coralsnake[plot]`).        |
 | `variant`    | Variant utilities (`motif`, `coordinate`).                         |
 
-> **`annotate` is the merged successor of `annot` + `effect`.** One command, one
-> GTF-based engine, one output schema: it labels a site with its
-> gene/transcript/position and region, and (with a genome FASTA + ref/alt)
-> classifies the variant effect (codon/AA). `annot` and `effect` are retained
-> for backward compatibility.
+> **`annotate` is the single annotation tool** (merged `annot` + `effect`). One
+> command, one schema. Two input modes share one engine:
+> - `--reference-gtf [--reference-transcript FASTA]` – region + gene/transcript/
+>   position + (with ref/alt + FASTA) the full variant effect.
+> - `--annotation <prepare-table>` – fast precomputed-table site labeling.
 
 ## Metagene subcommand
 
