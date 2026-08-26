@@ -7,10 +7,15 @@
 # Created: 2024-06-25 14:21
 
 import logging
+import os
 import textwrap
 from collections import defaultdict
+from pathlib import Path
 
 import pysam
+from rich.console import Console
+from rich.logging import RichHandler
+
 from . import seqops
 
 logging.basicConfig(
@@ -22,9 +27,51 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
+def require_plotting(backend: str | None = "Agg"):
+    """Import matplotlib lazily, raising a helpful error if it is missing.
+
+    matplotlib is an optional dependency (heavy); users should install it with
+    ``pip install 'coralsnake[plot]'``. ``backend`` (default ``"Agg"``) is
+    applied before pyplot is imported; pass ``None`` to leave the backend alone.
+    """
+    try:
+        import matplotlib
+    except ImportError as e:  # pragma: no cover
+        raise ImportError(
+            "Plotting requires the optional 'matplotlib' dependency.\n"
+            "Install it with:  pip install 'coralsnake[plot]'"
+        ) from e
+    if backend is not None:
+        matplotlib.use(backend)
+    return matplotlib
+
+
 def reverse_complement(seq: str) -> str:
     """Fast reverse complement using C implementation."""
     return seqops.reverse_complement(seq)
+
+
+def interval_groups(labels, labels2=None):
+    """Map categorical string labels to shared ``uint32`` group ids for ruranges.
+
+    ruranges' ``overlaps``/``groups=``/``groups2=`` arguments require a
+    ``uint32`` id per row, with equal labels sharing an id. This centralises that
+    (previously copy-pasted) conversion: labels and (optionally) labels2 are
+    numbered together so identical labels map to the same id. Fully vectorized
+    via ``np.unique(..., return_inverse=True)`` (same deterministic ordering the
+    callers previously used, but with vectorized conversion).
+    """
+    import numpy as np
+
+    a = np.asarray(labels, dtype=str)
+    if labels2 is None:
+        _, inv = np.unique(a, return_inverse=True)
+        return inv.astype(np.uint32)
+
+    b = np.asarray(labels2, dtype=str)
+    both = np.concatenate([a, b])
+    _, inv = np.unique(both, return_inverse=True)
+    return inv[: a.size].astype(np.uint32), inv[a.size :].astype(np.uint32)
 
 
 def mk_conversion(seq: str) -> str:
@@ -313,3 +360,187 @@ def format_duration(sec: float) -> str:
     minutes = int(rem // 60)
     seconds = int(round(rem % 60))
     return f"{hours}h {minutes}m {seconds}s"
+
+
+class NewlineRichHandler(RichHandler):
+    """Rich logging handler that adds newlines for better visual separation."""
+
+    def __init__(
+        self,
+        console=None,
+        rich_tracebacks=True,
+        markup=True,
+        show_time=True,
+        show_path=False,
+        show_level=True,
+        enable_link_path=False,
+        **kwargs,
+    ):
+        if console is None:
+            console = Console(stderr=True)
+        super().__init__(
+            console=console,
+            rich_tracebacks=rich_tracebacks,
+            markup=markup,
+            show_time=show_time,
+            show_path=show_path,
+            show_level=show_level,
+            enable_link_path=enable_link_path,
+            **kwargs,
+        )
+
+    def emit(self, record):
+        try:
+            message = self.format(record)
+            self.console.print("\n" + message)
+        except Exception:
+            self.handleError(record)
+
+
+def setup_rich_logger(
+    name: str = "coralsnake", level: int = logging.INFO, console: Console | None = None
+) -> logging.Logger:
+    """
+    Set up and configure a rich logger for the application.
+
+    Args:
+        name: Name of the logger (default: "coralsnake")
+        level: Logging level (default: INFO)
+        console: Rich console instance to use (optional)
+
+    Returns:
+        Configured logger instance with rich formatting
+    """
+    logger = logging.getLogger(name)
+    logger.handlers = []  # Remove any existing handlers
+    logger.addHandler(NewlineRichHandler(console=console))
+    logger.setLevel(level)
+    logger.propagate = False  # Prevent propagation to root logger
+    return logger
+
+
+def setup_logger(name: str = "coralsnake", level: int = logging.INFO) -> logging.Logger:
+    """
+    Set up and configure a logger for the application.
+
+    Args:
+        name: Name of the logger (default: "coralsnake")
+        level: Logging level (default: INFO)
+
+    Returns:
+        Configured logger instance
+    """
+    logger = logging.getLogger(name)
+
+    # Only add handlers if they haven't been added already
+    if not logger.handlers:
+        logger.setLevel(level)
+
+        # Create console handler with formatting
+        console_handler = logging.StreamHandler()
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+    logger.propagate = False  # Prevent double logging
+    return logger
+
+
+def get_cache_dir(app_name: str = "coralsnake") -> Path:
+    """
+    Get the cache directory path following XDG Base Directory Specification.
+
+    Args:
+        app_name: Name of the application (default: "coralsnake")
+
+    Returns:
+        Path object pointing to the cache directory
+    """
+    if "XDG_CACHE_HOME" in os.environ:
+        cache_home = Path(os.environ["XDG_CACHE_HOME"])
+    else:
+        cache_home = Path.home() / ".cache"
+
+    cache_dir = cache_home / app_name
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    return cache_dir
+
+
+def ensure_dir(path: str | Path) -> Path:
+    """
+    Ensure a directory exists, creating it if necessary.
+
+    Args:
+        path: Directory path to ensure exists
+
+    Returns:
+        Path object for the directory
+    """
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def get_file_hash(file_path: str | Path) -> str:
+    """
+    Calculate MD5 hash based on file path and first chunk of content.
+    This is much faster than hashing the entire file, especially for large GTF files.
+
+    Args:
+        file_path: Path to the file
+
+    Returns:
+        MD5 hash as a hexadecimal string
+    """
+    import hashlib
+
+    file_path = Path(file_path)
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    hash_md5 = hashlib.md5()
+
+    # Hash the absolute file path
+    hash_md5.update(str(file_path.resolve()).encode("utf-8"))
+
+    # Hash the first chunk (4096 * 8 = 32KB) of the file
+    chunk_size = 4096 * 8
+    with open(file_path, "rb") as f:
+        first_chunk = f.read(chunk_size)
+        hash_md5.update(first_chunk)
+
+    return hash_md5.hexdigest()
+
+
+def get_file_size(file_path: str | Path) -> int:
+    """
+    Get the size of a file in bytes.
+
+    Args:
+        file_path: Path to the file
+
+    Returns:
+        File size in bytes
+    """
+    return Path(file_path).stat().st_size
+
+
+def format_file_size(size_bytes: int) -> str:
+    """
+    Format file size in bytes to human-readable format.
+
+    Args:
+        size_bytes: Size in bytes
+
+    Returns:
+        Human-readable file size string
+    """
+    size = float(size_bytes)
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if size < 1024.0:
+            return f"{size:.1f} {unit}"
+        size /= 1024.0
+    return f"{size:.1f} PB"

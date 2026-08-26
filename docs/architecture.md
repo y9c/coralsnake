@@ -24,18 +24,19 @@ coralsnake/
 ├── gbam2tbam.py        # reverse direction (thin wrapper)
 ├── genegroup.py        # gene clustering & consensus
 ├── annot.py            # genomic-site → gene/transcript annotation
-├── utils.py            # core data structures (Span, Transcript) + helpers
+├── utils.py            # core data structures (Span, Transcript) + logging/plot/io helpers
 ├── logo.py             # DNA/RNA sequence-logo (numpy scoring, optional mpl)
-├── metagene/           # full metagene profiling subpackage
-│   ├── io.py           # site loading, reference loading
-│   ├── gtf.py          # GTF → exon/codon reference (cached)
-│   ├── annotation.py   # map_to_transcripts, normalize_positions
-│   ├── overlap.py      # feature overlap + bin statistics
-│   ├── map_to_local.py # global→local transcript coordinates
-│   ├── download.py     # builtin-reference downloader
-│   ├── config.py       # builtin reference registry
-│   ├── utils.py        # logging / cache / file helpers
-│   └── plotting.py     # metagene profile plot (optional matplotlib)
+├── motif.py            # genomic motif fetch (strand-aware)
+├── coordinate.py       # chrom-name mapping (UCSC↔Ensembl)
+├── effect.py           # variant-effect annotation + Annot/Site, genetic code
+├── annotation.py       # metagene: map_to_transcripts, normalize_positions
+├── map_to_local.py     # metagene: global→local transcript coordinates
+├── overlap.py          # metagene: feature overlap + bin statistics
+├── io.py               # metagene: site / reference loading
+├── gtf.py              # metagene: GTF → exon/codon reference (cached)
+├── download.py         # metagene: builtin-reference downloader
+├── config.py           # metagene: builtin reference registry
+├── plotting.py         # metagene: profile plot (optional matplotlib)
 └── __init__.py         # lazy top-level exports (Mlogo, __version__)
 ```
 
@@ -73,7 +74,7 @@ path**. Where a `group_by().map_groups()` (Python apply) appeared in the
 original code, it was replaced with a vectorized equivalent (sort + window
 functions, or a ruranges primitive).
 
-Example — best-transcript selection in `metagene/annotation.py`:
+Example — best-transcript selection in `annotation.py`:
 ```python
 # Before (slow): group_by().map_groups(python_apply)  → ~20x slower
 # After (fast):  sort by (level asc, length desc, txid asc) then group_by().first()
@@ -99,10 +100,11 @@ consistently:
 | `spliced_subsequence` | local slice | genome coords |
 | `remap_to_genome` | transcriptome-aligned BAM | genome BAM |
 
-## 4. The metagene subpackage
+## 4. The metagene profiling pipeline
 
-`metagene/` is a self-contained profiling pipeline exposed as both a subcommand
-and an importable Python API. Its data flow:
+The metagene profiling pipeline is a set of flat modules (`gtf.py`, `io.py`,
+`annotation.py`, `map_to_local.py`, `overlap.py`, `plotting.py`) exposed as the
+`coralsnake metagene` subcommand and an importable Python API. Its data flow:
 
 ```
 GTF ──load_gtf──▶ exon/codon reference (polars) ──┐
@@ -159,23 +161,23 @@ so the core analysis works without it. `coralsnake[plot]` adds it back.
 4. **Cache aggressively.** `load_gtf` writes a sidecar `.parquet` (and a pickle
    cache in `annot`) so repeated runs on the same reference are fast.
 
-## 7. The `variant` subcommands
+## 7. The `variant` commands (`motif`, `coordinate`, `effect`)
 
 The standalone [`variant`](https://github.com/y9c/variant) toolkit has been
-migrated into coralsnake as a `variant` command group, with its old buggy
-dependencies removed:
+fused into coralsnake as flat top-level modules (no `variant` subpackage), with
+its old buggy dependencies removed:
 
 | Command | Old dep (removed)   | New implementation |
 | ------- | ------------------- | ------------------ |
-| `variant motif` | pyfaidx | pysam.FastaFile |
-| `variant coordinate` | urllib3 | stdlib urllib |
-| `variant effect` | pyensembl + varcode | pure Python + coralsnake `metagene.load_gtf` machinery |
+| `motif` | pyfaidx | pysam.FastaFile |
+| `coordinate` | urllib3 | stdlib urllib |
+| `effect` | pyensembl + varcode | pure Python + coralsnake `metagene.load_gtf` machinery |
 
 Naming and output column order are kept identical to the standalone package.
 The `effect` classifier reuses coralsnake's GTF/CDS machinery (transcript
 offsets, start/stop codon positions) instead of re-implementing it, and replaces
-varcode's taxonomy with a conservative pure-Python classifier
-(`coralsnake/variant/effect_ordering.py`).
+varcode's taxonomy with a conservative pure-Python classifier living in the
+same module (`effect.py`, `get_top_effect`).
 
 ### 7.1 Duplicate-fusion policy
 Where the standalone package re-implemented things coralsnake already had, the

@@ -12,30 +12,18 @@
 
 import polars as pl
 
-from .utils import setup_logger
+from .utils import require_plotting, setup_logger
 
 # Set up logger
 logger = setup_logger(__name__)
 
 
 def _require_plotting():
-    """Import matplotlib lazily, raising a helpful error if it is missing.
+    """Set the non-interactive backend and import pyplot lazily."""
+    require_plotting(backend="Agg")
+    import matplotlib.pyplot as plt
 
-    matplotlib is intentionally an optional dependency (heavy). Users should
-    ``pip install coralsnake[plot]`` to enable visualization.
-    """
-    try:
-        import matplotlib
-
-        matplotlib.use("Agg")
-        import matplotlib.pyplot as plt
-
-        return plt
-    except ImportError as e:  # pragma: no cover
-        raise ImportError(
-            "Plotting requires the optional 'matplotlib' dependency.\n"
-            "Install it with:  pip install 'coralsnake[plot]'"
-        ) from e
+    return plt
 
 
 def plot_profile(

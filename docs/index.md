@@ -37,7 +37,9 @@ pip install "coralsnake[plot]"
 | `group`    | Group genes and build a consensus sequence.                       |
 | `metagene` | Metagene profiling across 5'UTR/CDS/3'UTR.                        |
 | `logo`     | Plot a DNA/RNA sequence logo.                                     |
-| `variant`  | Variant analysis: motif fetch / coordinate map / effect annotate. |
+| `motif`    | Fetch a genomic motif around variant sites.                       |
+| `coordinate` | Map chromosome names between coordinate systems.                |
+| `effect`   | Annotate genomic variant effects.                                 |
 
 ## Documentation
 

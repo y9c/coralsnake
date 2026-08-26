@@ -4,13 +4,13 @@
 # Copyright © 2023 Ye Chang yech1990@gmail.com
 # Distributed under terms of the GNU license.
 #
-# Migrated from the standalone `variant` package (`variant coordinate`).
-# urllib3 is replaced with the stdlib urllib; gzip I/O reused from coralsnake.
+# Chromosome-name coordinate mapping, fused into coralsnake from the
+# standalone `variant` package (`variant coordinate`). urllib3 is replaced by
+# the stdlib urllib; gzip/stdin-stdout I/O uses xopen.
 
 import os
-import sys
 
-from ..utils import get_logger
+from .utils import get_logger
 
 LOGGER = get_logger(__name__)
 
@@ -27,18 +27,18 @@ def download_file(url, path):
             f.write(chunk)
 
 
+# Reference name sets for the built-in chromAlias mappers.
+_ALIAS_NAMES = ["ucsc", "assembly", "ensembl", "genbank", "refseq"]
+
+
 def get_mapper(reference, mapper_type, cache=None):
     """Build a chrom-name mapper from a UCSC chromAlias.txt (cached).
 
     ``mapper_type`` is ``U2E`` (UCSC→Ensembl) or ``E2U`` (Ensembl→UCSC).
     """
-    if reference == "hg38":
-        names = ["ucsc", "assembly", "ensembl", "genbank", "refseq"]
-    elif reference == "mm39":
-        names = ["ucsc", "assembly", "ensembl", "genbank", "refseq"]
-    else:
-        LOGGER.error(f"Invalid reference: {reference}!")
-        sys.exit(1)
+    if reference not in ("hg38", "mm39"):
+        raise ValueError(f"Invalid reference: {reference}!")
+
     chrom_mapper = {}
 
     if cache is None:
@@ -54,20 +54,34 @@ def get_mapper(reference, mapper_type, cache=None):
         )
         download_file(url, reference_path)
 
-    def open_file(path):
-        return open(path, "r")
-
-    with open_file(reference_path) as mapper_file:
+    with open(reference_path, "r") as mapper_file:
         for line in mapper_file:
             if line.startswith("#"):
                 continue
             cols = line.strip("\n").split("\t")
-            mapper = dict(zip(names, cols))
+            mapper = dict(zip(_ALIAS_NAMES, cols))
             if mapper_type == "U2E":
                 chrom_mapper[mapper.get("ucsc", "")] = mapper.get("ensembl", "")
             elif mapper_type == "E2U":
                 chrom_mapper[mapper.get("ensembl", "")] = mapper.get("ucsc", "")
     return chrom_mapper
+
+
+def _builtin_mapper(buildin_mapping):
+    """Return a built-in chrom-name mapper for a preset string."""
+    if buildin_mapping in ("U2E", "E2U"):
+        if buildin_mapping == "U2E":
+            return dict(
+                [("chr" + str(i), str(i)) for i in range(1, 100)]
+                + [("chrX", "X"), ("chrY", "Y"), ("chrM", "MT")]
+            )
+        return dict(
+            [(str(i), "chr" + str(i)) for i in range(1, 100)]
+            + [("X", "chrX"), ("Y", "chrY"), ("MT", "chrM")]
+        )
+    if buildin_mapping in ("U2E-hg38", "E2U-hg38", "U2E-mm39", "E2U-mm39"):
+        return get_mapper(buildin_mapping.split("-")[1], buildin_mapping.split("-")[0])
+    raise ValueError(f"Invalid buildin_mapping: {buildin_mapping}!")
 
 
 def run_coordinate(
@@ -79,15 +93,16 @@ def run_coordinate(
     with_header,
     keep_original,
 ):
+    """Rename the chrom column of every input row."""
+    from xopen import xopen
+
     col_sep = "\t"
     columns_index = [int(x) - 1 for x in str(columns).split(",")]
-    if len(columns_index) <= 3:
-        columns_index_mapper = dict(zip(["chrom", "pos", "strand"], columns_index))
-    else:
-        LOGGER.error("Invalid number of columns!")
-        sys.exit(1)
-
-    chrom_col = columns_index_mapper.get("chrom")
+    if len(columns_index) > 3:
+        raise ValueError("Invalid number of columns!")
+    if len(columns_index) < 1:
+        raise ValueError("Need at least one column (the chrom column)!")
+    chrom_col = columns_index[0]
 
     if reference_mapping:
         if buildin_mapping:
@@ -100,36 +115,12 @@ def run_coordinate(
                 (line.strip("\n").split("\t")[:2] for line in mapper_file)
             )
     elif buildin_mapping:
-        if buildin_mapping == "U2E":
-            chrom_mapper = dict(
-                [("chr" + str(i), str(i)) for i in range(1, 100)]
-                + [("chrX", "X"), ("chrY", "Y"), ("chrM", "MT")]
-            )
-        elif buildin_mapping == "E2U":
-            chrom_mapper = dict(
-                [(str(i), "chr" + str(i)) for i in range(1, 100)]
-                + [("X", "chrX"), ("Y", "chrY"), ("MT", "chrM")]
-            )
-        elif buildin_mapping in ["U2E-hg38", "E2U-hg38", "U2E-mm39", "E2U-mm39"]:
-            chrom_mapper = get_mapper(
-                buildin_mapping.split("-")[1], buildin_mapping.split("-")[0]
-            )
-        else:
-            LOGGER.error("Invalid buildin_mapping!")
-            sys.exit(1)
+        chrom_mapper = _builtin_mapper(buildin_mapping)
     else:
         LOGGER.warning("No mapping provided!")
         chrom_mapper = {}
 
-    import gzip
-
-    def open_in(path):
-        return gzip.open(path, "rt") if path.endswith(".gz") else open(path, "r")
-
-    def open_out(path):
-        return gzip.open(path, "wt") if path.endswith(".gz") else open(path, "w")
-
-    with open_in(input_file) as input_handle, open_out(output_file) as output_handle:
+    with xopen(input_file, "rt") as input_handle, xopen(output_file, "wt") as output_handle:
 
         def parse_line(input_cols):
             chrom = input_cols[chrom_col]
@@ -144,17 +135,21 @@ def run_coordinate(
                 )
             output_handle.write(col_sep.join(output_cols) + "\n")
 
-        # read first line and check column number
-        input_cols = input_handle.readline().strip("\n").split(col_sep)
-        if max(columns_index_mapper.values()) > len(input_cols) - 1:
-            LOGGER.error(f"Input file only have {len(input_cols)} columns!")
-            sys.exit(1)
-        input_handle.seek(0)
+        # Read the first line to decide header / row layout (no seek, so stdin works).
+        first = input_handle.readline()
+        if not first:
+            return  # empty input
+        if max(columns_index) > len(first.rstrip("\n").split(col_sep)) - 1:
+            raise ValueError(
+                f"Input file only has {len(first.rstrip().split(col_sep))} columns!"
+            )
 
         if with_header:
-            header_line = input_handle.readline()
+            header_line = first
             if keep_original:
                 header_line = header_line.strip("\n") + col_sep + "RenamedChrom" + "\n"
             output_handle.write(header_line)
+        else:
+            parse_line(first.rstrip("\n").split(col_sep))
         for line in input_handle:
             parse_line(line.strip("\n").split(col_sep))

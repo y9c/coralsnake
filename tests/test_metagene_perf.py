@@ -15,11 +15,12 @@ import polars as pl
 import pytest
 
 pytest.importorskip(
-    "coralsnake.metagene", reason="metagene deps not available", exc_type=ImportError
+    "coralsnake.gtf", reason="metagene deps not available", exc_type=ImportError
 )
 
-from coralsnake.metagene import load_gtf, map_to_local, map_to_transcripts
-from coralsnake.metagene.map_to_local import _strand_aware_cumsum
+from coralsnake.annotation import map_to_transcripts  # noqa: E402
+from coralsnake.gtf import load_gtf  # noqa: E402
+from coralsnake.map_to_local import _strand_aware_cumsum, map_to_local  # noqa: E402
 
 DATA = "tests/data/R64-1-1.release57.gtf"
 

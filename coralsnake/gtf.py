@@ -6,25 +6,16 @@
 #
 # Created: 2023-03-08 20:46
 
-import logging
 import os
 
 import numpy as np
 import polars as pl
 from ruranges.numpy import overlaps
-from rich.console import Console
 
-from .utils import NewlineRichHandler, ensure_dir, get_cache_dir, get_file_hash
+from .utils import ensure_dir, get_cache_dir, get_file_hash, interval_groups, setup_rich_logger
 
-# Set up rich console
-console = Console()
-
-# Set up logger with rich console style
-logger = logging.getLogger(__name__)
-logger.handlers = []  # Remove any existing handlers
-logger.addHandler(NewlineRichHandler(console=console))
-logger.setLevel(logging.INFO)
-logger.propagate = False  # Prevent propagation to root logger
+# Rich logger (logs to stderr so piped stdout stays clean).
+logger = setup_rich_logger(__name__)
 
 
 def prepare_exon_ref(gtf_file: str) -> pl.DataFrame:
@@ -195,10 +186,7 @@ def prepare_exon_ref(gtf_file: str) -> pl.DataFrame:
     codon_chroms = pl_df_codons["Chromosome"].to_numpy()
 
     # Create group IDs for chromosomes using vectorized operations
-    unique_chroms = np.unique(np.concatenate([exon_chroms, codon_chroms]))
-    chrom_to_id = {chrom: i for i, chrom in enumerate(unique_chroms)}
-    exon_groups = np.vectorize(chrom_to_id.get)(exon_chroms).astype(np.uint32)
-    codon_groups = np.vectorize(chrom_to_id.get)(codon_chroms).astype(np.uint32)
+    exon_groups, codon_groups = interval_groups(exon_chroms, codon_chroms)
 
     # Find overlaps
     idx_exon, idx_codon = overlaps(
@@ -397,60 +385,3 @@ def load_gtf(gtf_file: str, use_cache: bool = True) -> pl.DataFrame:
             )
 
     return df_result
-
-
-if __name__ == "__main__":
-    # Example usage:
-    test_gtf_path = os.path.join(
-        os.path.dirname(__file__), "..", "test", "example.gtf.gz"
-    )  # Adjusted path
-
-    # Create a dummy test.gtf if it doesn't exist for testing purposes
-    if not os.path.exists(test_gtf_path):
-        logger.info(
-            f"[yellow]Test GTF file not found at {test_gtf_path}. Creating a dummy file for demonstration.[/yellow]"
-        )
-        dummy_gtf_content = """chr1\tunknown\texon\t1000\t2000\t.\t+\t.\tgene_id "test_gene"; transcript_id "test_transcript"; exon_number "1";
-chr1\tunknown\tstart_codon\t1200\t1202\t.\t+\t.\ttranscript_id "test_transcript";
-chr1\tunknown\tstop_codon\t1800\t1802\t.\t+\t.\ttranscript_id "test_transcript";
-"""
-        ensure_dir(os.path.dirname(test_gtf_path))
-
-        with open(test_gtf_path, "wt") as f:  # Save as gzipped file
-            f.write(dummy_gtf_content)
-        logger.info(f"[green]✓[/green] Dummy GTF file created at {test_gtf_path}")
-
-    logger.info(f"[cyan]Processing GTF file with caching: {test_gtf_path}[/cyan]")
-    df_result = load_gtf(test_gtf_path)
-    logger.info(
-        "[green]✓[/green] Processing complete. Resulting Polars DataFrame (first call):"
-    )
-    if df_result is not None and len(df_result) > 0:
-        logger.info(str(df_result.head()))
-    else:
-        logger.warning("[yellow]⚠[/yellow] No data or empty dataframe returned.")
-
-    logger.info(
-        f"[cyan]Processing GTF file with caching again (should use cache): {test_gtf_path}[/cyan]"
-    )
-    df_result_cached = load_gtf(test_gtf_path)
-    logger.info("[green]✓[/green] Resulting Polars DataFrame (second call):")
-    if df_result_cached is not None and len(df_result_cached) > 0:
-        logger.info(str(df_result_cached.head()))
-    else:
-        logger.warning(
-            "[yellow]⚠[/yellow] No data or empty dataframe returned on second call."
-        )
-
-    # Test with cache disabled
-    logger.info(
-        f"[cyan]Processing GTF file with cache disabled: {test_gtf_path}[/cyan]"
-    )
-    df_result_no_cache = load_gtf(test_gtf_path, use_cache=False)
-    logger.info("[green]✓[/green] Resulting Polars DataFrame (cache disabled):")
-    if df_result_no_cache is not None and len(df_result_no_cache) > 0:
-        logger.info(str(df_result_no_cache.head()))
-    else:
-        logger.warning(
-            "[yellow]⚠[/yellow] No data or empty dataframe returned with cache disabled."
-        )

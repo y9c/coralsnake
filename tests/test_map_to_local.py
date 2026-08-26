@@ -4,7 +4,7 @@
 Test cases for the migrated map_to_local function.
 
 Ported from the standalone `metagene` package into coralsnake
-(coralsnake.metagene.map_to_local). Uses the high-performance
+(coralsnake.map_to_local). Uses the high-performance
 ruranges + polars stack.
 """
 
@@ -12,10 +12,10 @@ import polars as pl
 import pytest
 
 pytest.importorskip(
-    "coralsnake.metagene", reason="metagene deps not available", exc_type=ImportError
+    "coralsnake.map_to_local", reason="metagene deps not available", exc_type=ImportError
 )
 
-from coralsnake.metagene import map_to_local  # noqa: E402
+from coralsnake.map_to_local import map_to_local  # noqa: E402
 
 
 class TestMapToLocal:

@@ -26,26 +26,19 @@ COLOR_SCHEME = {
 }
 
 
+from .utils import require_plotting
+
+
 def _require_plotting():
-    """Import matplotlib lazily, raising a helpful error if it is missing.
+    """Import the matplotlib submodules needed to draw a sequence logo."""
+    mpl = require_plotting(backend=None)
+    import matplotlib.transforms as mtransforms
+    from matplotlib.font_manager import FontProperties
+    from matplotlib.patches import PathPatch
+    from matplotlib.pyplot import gca
+    from matplotlib.text import TextPath
 
-    matplotlib is intentionally an optional dependency (heavy). Users should
-    ``pip install coralsnake[plot]`` to enable visualization.
-    """
-    try:
-        import matplotlib as mpl
-        import matplotlib.transforms as mtransforms
-        from matplotlib.font_manager import FontProperties
-        from matplotlib.patches import PathPatch
-        from matplotlib.pyplot import gca
-        from matplotlib.text import TextPath
-
-        return mpl, mtransforms, FontProperties, PathPatch, gca, TextPath
-    except ImportError as e:  # pragma: no cover
-        raise ImportError(
-            "Motif-logo plotting requires the optional 'matplotlib' dependency.\n"
-            "Install it with:  pip install 'coralsnake[plot]'"
-        ) from e
+    return mpl, mtransforms, FontProperties, PathPatch, gca, TextPath
 
 
 _PLOT_CTX = {}

@@ -29,7 +29,13 @@ developers extending it. (A web-friendly version lives in
 | `annot.py` | site → gene/transcript annotation | ruranges, polars-free I/O |
 | `utils.py` | `Span`, `Transcript`, helpers | pysam, numpy |
 | `logo.py` | sequence logo (numpy scoring) | numpy, (matplotlib opt.) |
-| `metagene/` | profiling pipeline | polars, ruranges, numpy |
+| `motif.py` | genomic motif fetch (strand-aware) | pysam |
+| `coordinate.py` | chrom-name mapping (UCSC↔Ensembl) | stdlib urllib |
+| `effect.py` | variant-effect annotation + `Annot`/`Site`, genetic code | polars, pysam |
+| `gtf.py` / `io.py` | metagene GTF parsing / site & reference I/O | polars, ruranges |
+| `annotation.py` / `map_to_local.py` | metagene profiling core | polars, ruranges |
+| `overlap.py` / `plotting.py` | metagene bin stats / plotting | polars, numpy |
+| `download.py` / `config.py` | built-in reference download & config | stdlib urllib |
 
 ## Core data structures (`utils.py`)
 
@@ -76,17 +82,21 @@ def _require_plotting():
 - Vectorized rewrites are validated by comparing output to the previous
   implementation (see `annotation.py` / `map_to_local.py` history).
 
-## Roadmap: absorbing `variant`
+## `variant` absorbed (fused into the package)
 
 The standalone [`variant`](https://github.com/y9c/variant) toolkit has been
-integrated with its old deps removed (see `coralsnake/variant/`):
+fused into coralsnake as flat top-level modules with its old deps removed:
 
-| Command | Old dep (removed) | Replacement |
-| ------- | ----------------- | ----------- |
-| motif   | pyfaidx | pysam.FastaFile |
-| coordinate | urllib3 | stdlib urllib |
-| effect  | pyensembl, varcode | pure Python + ruranges + coralsnake GTF |
+| Module / command | Old dep (removed) | Replacement |
+| ---------------- | ----------------- | ----------- |
+| `motif.py` / `motif` | pyfaidx | pysam.FastaFile |
+| `coordinate.py` / `coordinate` | urllib3 | stdlib urllib |
+| `effect.py` / `effect` | pyensembl, varcode | pure Python + coralsnake GTF |
 
-Target: same naming and output format, zero old dependencies. Where coralsnake
-already provided a primitive (reverse_complement, GTF→exon/codon indexing,
-gzip I/O), the migration fuses instead of duplicating.
+Naming and output format are unchanged; `effect.py` also carries the shared
+`Annot`/`Site` dataclasses and the genetic-code / IUPAC tables. The classifier
+reuses coralsnake's GTF/CDS machinery and, like the rest of the package,
+streams I/O through `xopen` (gzip + `-` stdin/stdout).
+
+Where coralsnake already provided a primitive (reverse_complement, GTF→exon/
+codon indexing, gzip I/O), the migration fuses instead of duplicating.

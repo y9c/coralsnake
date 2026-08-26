@@ -66,13 +66,14 @@ coralsnake metagene --download GRCh38
 
 ### Python API
 
-The metagene functions are also importable directly from coralsnake:
+The metagene functions are also importable directly from the flat modules:
 
 ```python
-from coralsnake.metagene import (
-    load_sites, load_reference, load_gtf,
-    map_to_transcripts, map_to_local, normalize_positions, plot_profile,
-)
+from coralsnake.io import load_sites, load_reference
+from coralsnake.gtf import load_gtf
+from coralsnake.annotation import map_to_transcripts, normalize_positions
+from coralsnake.map_to_local import map_to_local
+from coralsnake.plotting import plot_profile
 
 sites = load_sites("sites.tsv.gz", with_header=True, meta_col_index=[0, 1, 2])
 ref = load_reference("GRCh38")   # or load_gtf("custom.gtf.gz")
@@ -118,31 +119,32 @@ m = Mlogo(motifs=["ACGT", "ACGG", "CCGT"], to2bit=True)
 m.plot(ax)  # requires matplotlib (plot extra)
 ```
 
-## Variant subcommand
+## Variant analysis
 
-`coralsnake variant` is a migration of the standalone `variant` package — it
-removes the old `pyfaidx` / `urllib3` / `pyensembl`+`varcode` dependencies and
-uses coralsnake's `pysam` + `ruranges` stack instead. Naming and output format
+The `motif`, `coordinate` and `effect` commands are a migration of the
+standalone `variant` package — fused into the top-level CLI with the old
+`pyfaidx` / `urllib3` / `pyensembl`+`varcode` dependencies removed and
+coralsnake's `pysam` + `ruranges` stack used instead. Naming and output format
 are unchanged.
 
 ```bash
 # Motif fetch (strand-aware, padded with N)
-coralsnake variant motif -i sites.tsv -o motifs.tsv -f genome.fa -n 2,3 -w
+coralsnake motif -i sites.tsv -o motifs.tsv -f genome.fa -n 2,3 -w
 
 # Chromosome-name mapping (UCSC ↔ Ensembl)
-coralsnake variant coordinate -i sites.tsv -o mapped.tsv -M U2E
+coralsnake coordinate -i sites.tsv -o mapped.tsv -M U2E
 
 # Variant effect annotation (pure Python classifier on coralsnake GTF)
-coralsnake variant effect -i variants.tsv -o effects.tsv \
-                          --reference-gtf annotation.gtf \
-                          --reference-transcript transcripts.fa -s -a
+coralsnake effect -i variants.tsv -o effects.tsv \
+                  --reference-gtf annotation.gtf \
+                  --reference-transcript transcripts.fa -s -a
 ```
 
 ```python
-from coralsnake.variant import Annot, Site, reverse_base
-from coralsnake.variant.motif import get_motif
-from coralsnake.variant.coordinate import run_coordinate
-from coralsnake.variant.effect import run_effect
+from coralsnake.effect import Annot, Site, reverse_base
+from coralsnake.motif import get_motif
+from coralsnake.coordinate import run_coordinate
+from coralsnake.effect import run_effect
 ```
 
 ## Documentation

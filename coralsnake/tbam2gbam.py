@@ -192,19 +192,25 @@ _WORKER_GENOME_HEADER = None
 _WORKER_TRANSCRIPT_HEADER = None
 
 
+def _flatten_annotation(raw_annot):
+    """Flatten ``{gene_id: {transcript_id: Transcript}}`` into a flat
+    ``{transcript_id: Transcript}`` lookup, with a ``gene_id`` fallback for
+    single-transcript genes (matches per-liftover behavior everywhere).
+    """
+    flat = {}
+    for g_id in raw_annot:
+        for t_id, tx in raw_annot[g_id].items():
+            flat[t_id] = tx
+        # Fallback: if gene has exactly one transcript, map gene_id to it.
+        if len(raw_annot[g_id]) == 1:
+            flat[g_id] = next(iter(raw_annot[g_id].values()))
+    return flat
+
+
 def _init_worker(annotation_file, genome_header_dict, transcript_header_dict):
     """Initialize worker with shared annotation and headers."""
     global _WORKER_ANNOT, _WORKER_GENOME_HEADER, _WORKER_TRANSCRIPT_HEADER
-    raw_annot = load_annotation(annotation_file)
-    # Build flat mapping for transcript lookups
-    _WORKER_ANNOT = {}
-    for g_id in raw_annot:
-        for t_id, tx in raw_annot[g_id].items():
-            _WORKER_ANNOT[t_id] = tx
-        # Fallback: if gene has exactly one transcript, map gene_id to that transcript
-        if len(raw_annot[g_id]) == 1:
-            _WORKER_ANNOT[g_id] = next(iter(raw_annot[g_id].values()))
-            
+    _WORKER_ANNOT = _flatten_annotation(load_annotation(annotation_file))
     _WORKER_GENOME_HEADER = pysam.AlignmentHeader.from_dict(genome_header_dict)
     _WORKER_TRANSCRIPT_HEADER = pysam.AlignmentHeader.from_dict(transcript_header_dict)
 
@@ -253,14 +259,7 @@ def convert_bam(
         ) as out_bam:
             if threads <= 1:
                 LOGGER.info("Loading annotation for single-threaded processing...")
-                raw_annot = load_annotation(annotation_file)
-                annot = {}
-                for g_id in raw_annot:
-                    for t_id, tx in raw_annot[g_id].items():
-                        annot[t_id] = tx
-                    # Fallback: if gene has exactly one transcript, map gene_id to that transcript
-                    if len(raw_annot[g_id]) == 1:
-                        annot[g_id] = next(iter(raw_annot[g_id].values()))
+                annot = _flatten_annotation(load_annotation(annotation_file))
                 for align in track(in_bam, description="Processing..."):
                     new_align = parse_alignment(align, annot, genome_header)
                     out_bam.write(new_align)

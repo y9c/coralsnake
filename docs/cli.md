@@ -21,7 +21,9 @@ Usage: coralsnake [OPTIONS] COMMAND [ARGS]...
 | `group`    | Group genes and build consensus sequences.             |
 | `metagene` | Metagene profiling across 5'UTR/CDS/3'UTR.             |
 | `logo`     | Plot a DNA/RNA sequence-logo.                          |
-| `variant`  | Variant analysis: motif / coordinate / effect.         |
+| `motif`    | Fetch a genomic motif around variant sites.            |
+| `coordinate` | Map chromosome names between coordinate systems.    |
+| `effect`   | Annotate genomic variant effects.                      |
 
 Run `coralsnake <command> --help` for the full option list of any command.
 
@@ -149,32 +151,20 @@ coralsnake group -f genes.fa -g genes.gtf -o grouped.tsv \
 
 ---
 
-## `variant`
+## `motif`
 
-Genomic variant analysis, migrated from the standalone `variant` package.
-Three subcommands — `motif`, `coordinate` and `effect` — keep the original
-naming and output format but are built on coralsnake's `pysam` + `ruranges`
-stack (the old `pyfaidx` / `urllib3` / `pyensembl` + `varcode` dependencies
-are gone, see [Design](architecture.md)).
+Fetch a genomic motif (reference sequence) around each input site, strand-aware
+with `N`-padding at chromosome ends. Migrated from the standalone `variant`
+package; the old `pyfaidx` dependency is gone (uses `pysam.FastaFile`).
 
 ```
-usage: coralsnake variant COMMAND [OPTIONS]
-```
-
-### `variant motif`
-
-Fetch a genomic motif (reference sequence) around each input site, with
-strand-aware reverse-complementing and `N`-padding at chromosome ends.
-
-```
-coralsnake variant motif -i sites.tsv -o motifs.tsv -f genome.fa \
-                         -n 10 -c 1,2,3 -u -w
+coralsnake motif -i sites.tsv -o motifs.tsv -f genome.fa -n 10 -c 1,2,3 -u -w
 ```
 
 | Option | Description                                      |
 | ------ | ------------------------------------------------ |
-| `-i, --input` | Input position file (default `-`).   |
-| `-o, --output` | Output file (default `-`).          |
+| `-i, --input` | Input position file (default `-` = stdin).|
+| `-o, --output` | Output file (default `-` = stdout).     |
 | `-f, --fasta` | Reference FASTA (**required**).          |
 | `-n, --npad` | Padding bases (default `10`; use `2,3` for L,R). |
 | `-H, --with-header` | Input has a header line.            |
@@ -182,26 +172,30 @@ coralsnake variant motif -i sites.tsv -o motifs.tsv -f genome.fa \
 | `-u, --to-upper` | Emit motif in upper case.            |
 | `-w, --wrap-site` | Wrap the motif site in `[...]`.      |
 
-### `variant coordinate`
+---
+
+## `coordinate`
 
 Map chromosome names between coordinate systems (UCSC ↔ Ensembl). Accepts a
 custom 2-column mapping file or a built-in preset.
 
 ```
-coralsnake variant coordinate -i in.tsv -o out.tsv -M U2E -c 1 -k
+coralsnake coordinate -i in.tsv -o out.tsv -M U2E -c 1 -k
 ```
 
 | Option | Description                                      |
 | ------ | ------------------------------------------------ |
-| `-i, --input` | Input file (default `-`).              |
-| `-o, --output` | Output file (default `-`).           |
+| `-i, --input` | Input file (default `-` = stdin).       |
+| `-o, --output` | Output file (default `-` = stdout).    |
 | `-m, --reference-mapping` | 2-col mapping file `chrom<TAB>renamed`. |
 | `-M, --buildin-mapping` | `U2E`, `E2U`, `U2E-hg38`, `E2U-hg38`, `U2E-mm39`, `E2U-mm39`. |
 | `-c, --columns` | Chrom column (default `1`).            |
 | `-H, --with-header` | Input has a header line.            |
 | `-k, --keep-original` | Keep original chrom as an extra column. |
 
-### `variant effect`
+---
+
+## `effect`
 
 Annotate each variant with its predicted effect (5'UTR/CDS/3'UTR, splice
 sites, intronic, intergenic, …), the affected gene/transcript, codon and
@@ -209,18 +203,18 @@ amino-acid context. Uses a pure-Python classifier over coralsnake's GTF
 machinery — no `pyensembl`/`varcode`.
 
 ```
-coralsnake variant effect -i sites.tsv -o effects.tsv \
-                          -g annotation.gtf -f genome.fa -s -n 10 -a
+coralsnake effect -i sites.tsv -o effects.tsv \
+                  -g annotation.gtf \
+                  --reference-transcript genome.fa -s -n 10 -a
 ```
 
 | Option | Description                                      |
 | ------ | ------------------------------------------------ |
-| `-i, --input` | Input file (default `-`).              |
-| `-o, --output` | Output annotation file (default `-`). |
-| `--reference-gtf` | Reference GTF (**required**).        |
+| `-i, --input` | Input file (default `-` = stdin).       |
+| `-o, --output` | Output annotation file (default `-` = stdout). |
+| `-g, --reference-gtf` | Reference GTF (**required**).        |
 | `--reference-transcript` | Reference transcript FASTA(s).  |
 | `--reference-protein` | Reference protein FASTA(s).       |
-| `-e, --release` | Ensembl release (for built-ins).     |
 | `-s, --strandness` | Use strand information.             |
 | `-u, --pU-mode` | Prioritise RNA genes.                |
 | `-n, --npad` | Padding bases for motif (default 10).          |

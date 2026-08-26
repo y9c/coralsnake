@@ -7,6 +7,8 @@ import numpy as np
 import polars as pl
 from ruranges.numpy import overlaps
 
+from .utils import interval_groups
+
 
 def map_to_transcripts(
     input_sites: pl.DataFrame, exon_ref: pl.DataFrame
@@ -30,31 +32,9 @@ def map_to_transcripts(
     exon_strands = exon_ref["Strand"].to_numpy()
 
     # Create group IDs combining chromosome and strand for strand-aware overlaps
-    unique_chr_strand = np.unique(
-        np.concatenate(
-            [
-                np.char.add(input_chroms.astype(str), input_strands.astype(str)),
-                np.char.add(exon_chroms.astype(str), exon_strands.astype(str)),
-            ]
-        )
-    )
-    chr_strand_to_id = {cs: i for i, cs in enumerate(unique_chr_strand)}
-
-    input_groups = np.array(
-        [
-            chr_strand_to_id[c + s]
-            for c, s in zip(input_chroms.astype(str), input_strands.astype(str))
-        ],
-        dtype=np.uint32,
-    )
-
-    exon_groups = np.array(
-        [
-            chr_strand_to_id[c + s]
-            for c, s in zip(exon_chroms.astype(str), exon_strands.astype(str))
-        ],
-        dtype=np.uint32,
-    )
+    input_labels = np.char.add(input_chroms.astype(str), input_strands.astype(str))
+    exon_labels = np.char.add(exon_chroms.astype(str), exon_strands.astype(str))
+    input_groups, exon_groups = interval_groups(input_labels, exon_labels)
 
     # Find overlaps
     idx_exon, idx_input = overlaps(

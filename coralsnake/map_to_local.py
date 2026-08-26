@@ -11,6 +11,8 @@ import numpy as np
 import polars as pl
 from ruranges.numpy import group_cumsum, overlaps
 
+from .utils import interval_groups
+
 
 def _strand_aware_cumsum(reference: pl.DataFrame, ref_id_col: str) -> pl.DataFrame:
     """Attach strand-aware cumulative exon offsets to a reference.
@@ -139,11 +141,8 @@ def map_to_local(
     ref_chroms = ref_indexed["Chromosome"].to_numpy()
     # ref_strands not needed for overlap grouping
 
-    # Create group IDs - ignore strand for overlap detection (we'll handle strand later)
-    unique_chroms = np.unique(np.concatenate([query_chroms, ref_chroms]))
-    chrom_to_id = {chrom: i for i, chrom in enumerate(unique_chroms)}
-    query_groups = np.vectorize(chrom_to_id.get)(query_chroms).astype(np.uint32)
-    ref_groups = np.vectorize(chrom_to_id.get)(ref_chroms).astype(np.uint32)
+    # Create group IDs by chromosome (strand is handled after overlap).
+    query_groups, ref_groups = interval_groups(query_chroms, ref_chroms)
 
     # Find overlaps
     idx_query, idx_ref = overlaps(

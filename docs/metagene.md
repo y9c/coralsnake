@@ -48,10 +48,11 @@ coralsnake metagene --download GRCh38
 ## Python API
 
 ```python
-from coralsnake.metagene import (
-    load_sites, load_reference, load_gtf,
-    map_to_transcripts, map_to_local, normalize_positions, plot_profile,
-)
+from coralsnake.io import load_sites, load_reference
+from coralsnake.gtf import load_gtf
+from coralsnake.annotation import map_to_transcripts, normalize_positions
+from coralsnake.map_to_local import map_to_local
+from coralsnake.plotting import plot_profile
 
 sites = load_sites("sites.tsv.gz", with_header=True, meta_col_index=[0, 1, 2])
 ref = load_reference("GRCh38")          # or load_gtf("custom.gtf.gz")

@@ -1,6 +1,6 @@
 [project]
 name = "coralsnake"
-version = "0.0.212"
+version = "0.0.213"
 description = "Transcriptome mapping in two colors"
 authors = [{ name = "Chang Ye", email = "yech1990@gmail.com" }]
 requires-python = ">=3.12"
@@ -50,7 +50,7 @@ requires = ["setuptools>=75.3.2,<77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["coralsnake", "coralsnake.metagene", "coralsnake.variant"]
+packages = ["coralsnake"]
 
 
 # force release

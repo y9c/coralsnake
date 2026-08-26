@@ -48,32 +48,30 @@ run_annot(input_file, output_file, annot_file, cols="1,2,3",
 from coralsnake.genegroup import group_genes, run_msa, consensus_sequence
 ```
 
-## Metagene profiling (`coralsnake.metagene`)
+## Metagene profiling (flat modules)
 
-The full metagene pipeline is importable as a submodule.
+The full metagene pipeline is importable from the flat modules.
 
 ```python
-from coralsnake.metagene import (
-    load_sites,           # TSV/BED/CSV → polars DataFrame
-    load_reference,       # built-in reference genome → polars DataFrame
-    load_gtf,             # GTF → exon/codon reference (cached)
-    prepare_exon_ref,     # core GTF parser
-    map_to_transcripts,   # annotate sites → best transcript per gene
-    map_to_local,         # global → local (spliced) transcript coordinates
-    normalize_positions,  # bin positions + 5'UTR/CDS/3'UTR splits
-    normalize_positions,
-    annotate_with_features,
-    calculate_bin_statistics,
+from coralsnake.io import load_sites, load_reference  # TSV/BED/CSV → polars DataFrame
+from coralsnake.gtf import prepare_exon_ref, load_gtf  # GTF → exon/codon reference (cached)
+from coralsnake.annotation import (  # annotate sites → best transcript per gene
+    map_to_transcripts,
+    normalize_positions,       # bin positions + 5'UTR/CDS/3'UTR splits
     show_summary_stats,
-    plot_profile,         # needs coralsnake[plot]
 )
+from coralsnake.overlap import annotate_with_features, calculate_bin_statistics
+from coralsnake.map_to_local import map_to_local  # global → local (spliced) coordinates
+from coralsnake.plotting import plot_profile      # needs coralsnake[plot]
 ```
 
 Example:
 
 ```python
 import polars as pl
-from coralsnake.metagene import load_gtf, load_sites, map_to_transcripts, normalize_positions
+from coralsnake.io import load_sites
+from coralsnake.gtf import load_gtf
+from coralsnake.annotation import map_to_transcripts, normalize_positions
 
 ref = load_gtf("annotation.gtf.gz")
 sites = load_sites("sites.tsv.gz", with_header=True, meta_col_index=[0, 1, 2])
@@ -94,20 +92,20 @@ logo.plot(ax)   # requires coralsnake[plot]
 
 `Mlogo` computes the score matrix with pure numpy; plotting needs matplotlib.
 
-## Variant analysis (`coralsnake.variant`)
+## Variant analysis (`coralsnake.effect`, `.motif`, `.coordinate`)
 
-The migrated `variant` subcommands are importable functions.
+The fused variant subcommands are importable functions.
 
 ```python
-from coralsnake.variant.effect import run_effect
-from coralsnake.variant.motif import run_motif
-from coralsnake.variant.coordinate import run_coordinate
+from coralsnake.effect import run_effect
+from coralsnake.motif import run_motif
+from coralsnake.coordinate import run_coordinate
 ```
 
-Shared types/constants live in `coralsnake.variant`:
+Shared types/constants live in `coralsnake.effect`:
 
 ```python
-from coralsnake.variant import Annot, Site, IUPAC, CODON_TABLE, reverse_base
+from coralsnake.effect import Annot, Site, IUPAC, CODON_TABLE, reverse_base
 ```
 
 - `Site` / `Annot` — input/output row dataclasses. `Annot`'s field order

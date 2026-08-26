@@ -4,25 +4,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.213] - 2026-08-26
+
+### Changed
+- **Unified error handling**: library functions raise (`ValueError`/`RuntimeError`)
+  instead of `sys.exit`; the CLI (via a custom `CoralsnakeGroup`) surfaces these
+  as concise `click.ClickException` messages instead of tracebacks.
+- **ruranges group-ID helper**: `utils.interval_groups()` now centralises the
+  repeated string-label → `uint32` group mapping used by `annotation`,
+  `map_to_local`, `overlap` and `gtf` (fully vectorized via
+  `np.unique(return_inverse=True)`).
+- **`effect` classifier**: `_refine_cds_effect` now detects **synonymous**
+  (same-amino-acid) substitutions as `Silent`.
+- **`download`**: replaced raw `print()`/`input()` + ANSI `Colors` with the
+  rich `Console` (stderr) used elsewhere.
+- Removed dead code (`print_analysis_summary` + its module-level logger
+  side-effect, `gtf.py` demo `__main__`), de-duplicated the annotation-flattening
+  block in `tbam2gbam` into `_flatten_annotation`, and fixed the `liftover` help
+  text.
+- Version → 0.0.213.
+
 ## [0.0.212] - 2026-08-26
 
 ### Added
-- **`coralsnake variant`** command group: migration of the standalone `variant`
-  package, with the old buggy dependencies removed:
-  - `variant motif` — strand-aware motif fetch (pyfaidx → **pysam.FastaFile**).
-  - `variant coordinate` — chromosome-name mapping (urllib3 → **stdlib urllib**).
-  - `variant effect` — variant effect classification as a pure-Python
-    classifier built on coralsnake's GTF/CDS machinery (pyensembl+varcode
-    removed).
-- `coralsnake/variant` subpackage (Site/Annot dataclasses, IUPAC/CODON_TABLE,
-  effect ordering).
+- **`motif`, `coordinate`, `effect`** top-level commands: the standalone `variant`
+  package fused into coralsnake, with the old buggy dependencies removed:
+  - `motif` — strand-aware motif fetch (pyfaidx → **pysam.FastaFile**).
+  - `coordinate` — chromosome-name mapping (urllib3 → **stdlib urllib**).
+  - `effect` — variant effect classification as a pure-Python classifier built
+    on coralsnake's GTF/CDS machinery (pyensembl+varcode removed).
+- Flat modules `coralsnake/motif.py`, `coordinate.py`, `effect.py` (with
+  `Site`/`Annot`, IUPAC/CODON_TABLE and effect ordering in `effect.py`).
 - Tests: `test_variant` (10 tests) covering constants, motif, coordinate,
   effect.
 
 ### Changed
-- Version → 0.0.212; setuptools packages include `coralsnake.variant`.
+- Version → 0.0.212; the fused commands read/write gzip and `-` (stdin/stdout)
+  via `xopen`; progress logs go to stderr so piped stdout stays clean.
+- **Flattened the `metagene/` subpackage** into flat top-level modules
+  (`gtf.py`, `io.py`, `annotation.py`, `map_to_local.py`, `overlap.py`,
+  `plotting.py`, `download.py`, `config.py`); `metagene/utils.py` was merged
+  into `utils.py`. `coralsnake.metagene.X` → `coralsnake.X`.
+- Merged shared helpers: the three metagene CSV click converters → one
+  `_parse_csv`; `logo._require_plotting` + `plotting._require_plotting` →
+  `utils.require_plotting`; `gbam2tbam` annotation flattening de-duplicated.
+- Removed dead code (`gtf.py` demo `__main__`, unused `print_analysis_summary`
+  and its module-level logger side-effect); fixed the `liftover` help text.
 - Docs: added `docs/variant.md`, updated architecture/DESIGN/README/CLI/API
-  docs to reflect the migrated variant subcommands.
+  docs to reflect the fused top-level commands and the flattened layout.
 
 ## [0.0.211] - 2026-08-26
 

@@ -12,17 +12,13 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip(
-    "coralsnake.metagene", reason="metagene deps not available", exc_type=ImportError
+    "coralsnake.gtf", reason="metagene deps not available", exc_type=ImportError
 )
 
-from coralsnake.metagene import (  # noqa: E402
-    load_gtf,
-    load_sites,
-    map_to_local,
-    map_to_transcripts,
-    normalize_positions,
-    prepare_exon_ref,
-)
+from coralsnake.annotation import map_to_transcripts, normalize_positions  # noqa: E402
+from coralsnake.gtf import load_gtf, prepare_exon_ref  # noqa: E402
+from coralsnake.io import load_sites  # noqa: E402
+from coralsnake.map_to_local import map_to_local  # noqa: E402
 
 DATA = Path(__file__).resolve().parent / "data"
 GTF = DATA / "R64-1-1.release57.gtf"

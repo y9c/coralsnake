@@ -10,24 +10,16 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
+from rich.console import Console
+
 from .utils import setup_logger, get_cache_dir, get_file_size, format_file_size
 from .config import BUILTIN_REFERENCES, GITHUB_DOWNLOAD_BASE
 
 # Set up logger
 logger = setup_logger(__name__)
 
-
-# ANSI color codes
-class Colors:
-    HEADER = "\033[95m"
-    BLUE = "\033[94m"
-    CYAN = "\033[96m"
-    GREEN = "\033[92m"
-    YELLOW = "\033[93m"
-    RED = "\033[91m"
-    ENDC = "\033[0m"
-    BOLD = "\033[1m"
-    UNDERLINE = "\033[4m"
+# Rich console for user-facing output (stderr so piped stdout stays clean).
+console = Console(stderr=True)
 
 
 # Emojis for different statuses
@@ -192,20 +184,21 @@ def download_references(species: str, silent: bool = False) -> None:
                     # Silent mode - just download without prompting
                     pass
                 else:
-                    # Interactive mode - prompt user
-                    print(
-                        f"\n{Emojis.DNA} {Colors.CYAN}Reference: {species}{Colors.ENDC}"
+                    # Interactive mode - prompt user via rich console
+                    console.print(
+                        f"\n{Emojis.DNA} [bold cyan]Reference: {species}[/bold cyan]"
                     )
-                    print(
-                        f"{Emojis.INFO} {Colors.YELLOW}Description:{Colors.ENDC} {info['description']}"
+                    console.print(
+                        f"{Emojis.INFO} [yellow]Description:[/yellow] {info['description']}"
                     )
-                    print(
-                        f"{Emojis.DOWNLOAD} {Colors.YELLOW}Source:{Colors.ENDC} {info['source_file']}"
+                    console.print(
+                        f"{Emojis.DOWNLOAD} [yellow]Source:[/yellow] {info['source_file']}"
                     )
-                    response = input(
-                        f"{Emojis.DOWNLOAD} Reference file not found in cache. Download it? (Y/n): "
+                    response = console.input(
+                        f"{Emojis.DOWNLOAD} Reference file not found in cache. "
+                        "Download it? (Y/n): "
                     )
-                    if response.lower() in ["n", "no"]:
+                    if response.strip().lower() in ["n", "no"]:
                         logger.info(f"Skipping download for {species}.")
                         continue
 

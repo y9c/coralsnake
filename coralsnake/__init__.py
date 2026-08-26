@@ -6,13 +6,12 @@
 #
 # coralsnake - transcriptome mapping in two colors.
 
-__version__ = "0.0.212"
+__version__ = "0.0.213"
 
 
 def __getattr__(name):
     """Lazy top-level exports to keep import light.
 
-    - ``coralsnake.metagene`` is a subpackage (always available).
     - ``Mlogo`` comes from coralsnake.logo; its scoring engine is pure numpy,
       so importing it does NOT require the optional matplotlib extra.
     """

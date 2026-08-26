@@ -1,29 +1,25 @@
 ---
 layout: default
-title: Variant
+title: Variant Analysis
 nav_order: 7
 ---
 
-# Variant
+# Variant Analysis
 
-`coralsnake variant` is a migration of the standalone
-[`variant`](https://github.com/y9c/variant) toolkit. It groups three
-subcommands — `motif`, `coordinate` and `effect` — with the same naming and
-output format as the original, but built on coralsnake's `pysam` + `ruranges`
-stack (the old `pyfaidx` / `urllib3` / `pyensembl` + `varcode` dependencies are
-removed).
+Coralsnake provides three variant-analysis commands — `motif`, `coordinate`
+and `effect` — fused into the top-level CLI. They are a migration of the
+standalone [`variant`](https://github.com/y9c/variant) toolkit with the same
+naming and output format, but built on coralsnake's `pysam` + `ruranges` stack
+(the old `pyfaidx` / `urllib3` / `pyensembl` + `varcode` dependencies are gone).
 
-```bash
-coralsnake variant --help
-```
+All three commands read/write gzip and `-` (stdin/stdout) transparently.
 
-## `variant motif`
+## `motif`
 
 Fetch a genomic motif centred on each site (strand-aware, padded with `N`).
 
 ```bash
-coralsnake variant motif -i sites.tsv -o motifs.tsv \
-                         -f genome.fa -n 2,3 -w -H
+coralsnake motif -i sites.tsv -o motifs.tsv -f genome.fa -n 2,3 -w -H
 ```
 
 | Option | Description                                   |
@@ -37,14 +33,14 @@ coralsnake variant motif -i sites.tsv -o motifs.tsv \
 | `-H, --with-header` | Input has a header.                    |
 | `-c, --columns` | Chrom,Pos,Strand columns (default `1,2,3`). |
 
-## `variant coordinate`
+## `coordinate`
 
 Map chromosome names between reference coordinate systems (UCSC ↔ Ensembl,
 custom, or built-in).
 
 ```bash
-coralsnake variant coordinate -i sites.tsv -o mapped.tsv -m chrom_map.tsv -c 1
-coralsnake variant coordinate -i sites.tsv -o mapped.tsv -M U2E
+coralsnake coordinate -i sites.tsv -o mapped.tsv -m chrom_map.tsv -c 1
+coralsnake coordinate -i sites.tsv -o mapped.tsv -M U2E
 ```
 
 | Option | Description                                      |
@@ -55,25 +51,24 @@ coralsnake variant coordinate -i sites.tsv -o mapped.tsv -M U2E
 | `-k, --keep-original` | Append the rename instead of replacing.   |
 | `-H, --with-header` | Input has a header.                        |
 
-## `variant effect`
+## `effect`
 
 Annotate the effect of each variant (chrom, pos[, strand, ref, alt]). It
-classifies the site into a region (5'UTR / CDS / 3'UTR / intronic / splice),
-computes transcript-relative coordinates, and (for coding positions) the
-codon + amino-acid context.
+classifies the site into a region (5'UTR / CDS / 3'UTR / splice), computes
+transcript-relative coordinates, and (for coding positions) the codon +
+amino-acid context.
 
 ```bash
-coralsnake variant effect -i variants.tsv -o effects.tsv \
-                          --reference-gtf annotation.gtf \
-                          --reference-transcript transcripts.fa \
-                          -s -a
+coralsnake effect -i variants.tsv -o effects.tsv \
+                  --reference-gtf annotation.gtf \
+                  --reference-transcript transcripts.fa \
+                  -s -a
 ```
-
 | Option | Description                              |
 | ------ | ---------------------------------------- |
 | `-i, --input` | Input variant file.                |
 | `-o, --output` | Output annotation file.           |
-| `--reference-gtf` | Reference GTF (**required**).     |
+| `-g, --reference-gtf` | Reference GTF (**required**).     |
 | `--reference-transcript` | Transcript FASTA (repeatable). |
 | `-s, --strandness` | Use strand information.          |
 | `-a, --all-effects` | Output all effects (not just top). |
@@ -94,9 +89,11 @@ The field order is identical to the standalone `variant` package.
 
 ## Python API
 
+The commands are also importable functions.
+
 ```python
-from coralsnake.variant import Annot, Site, expand_base, reverse_base
-from coralsnake.variant.motif import get_motif
-from coralsnake.variant.coordinate import run_coordinate
-from coralsnake.variant.effect import build_transcript_index, run_effect
+from coralsnake.effect import Annot, Site, expand_base, reverse_base
+from coralsnake.motif import get_motif
+from coralsnake.coordinate import run_coordinate
+from coralsnake.effect import build_transcript_index, run_effect
 ```

@@ -112,34 +112,49 @@ click.rich_click.STYLE_OPTION = "bold green"
 # click.rich_click.STYLE_COMMAND = "bold blue"
 
 
-def _metagene_parse_ints(ctx, param, value):
-    """Parse a comma-separated string into a list of ints (metagene CLI)."""
+def _parse_csv(ctx, param, value, converter, error_msg):
+    """Parse a comma-separated CLI value into a list via ``converter``."""
     if not value:
         return []
     try:
-        return [int(x.strip()) for x in value.split(",")]
-    except ValueError:
-        raise click.BadParameter("Must be comma-separated integers")
+        return [converter(x.strip()) for x in value.split(",")]
+    except (ValueError, TypeError):
+        raise click.BadParameter(error_msg)
+
+
+def _metagene_parse_ints(ctx, param, value):
+    """Parse a comma-separated string into a list of ints (metagene CLI)."""
+    return _parse_csv(ctx, param, value, int, "Must be comma-separated integers")
 
 
 def _metagene_parse_strings(ctx, param, value):
     """Parse a comma-separated string into a list of strings (metagene CLI)."""
-    if not value:
-        return []
-    return [x.strip() for x in value.split(",")]
+    return _parse_csv(ctx, param, value, str, "Must be comma-separated values")
 
 
 def _metagene_parse_floats(ctx, param, value):
     """Parse a comma-separated string into a list of floats (metagene CLI)."""
-    if not value:
-        return []
-    try:
-        return [float(x.strip()) for x in value.split(",")]
-    except ValueError:
-        raise click.BadParameter("Must be comma-separated numbers")
+    return _parse_csv(ctx, param, value, float, "Must be comma-separated numbers")
+
+
+class CoralsnakeGroup(click.Group):
+    """Click group that surfaces deliberate data/input errors cleanly.
+
+    Library functions raise ``ValueError``/``RuntimeError`` for bad input or
+    data (never ``sys.exit``). An uncaught one would otherwise print a raw
+    traceback; this converts them to a concise ``ClickException`` message while
+    letting genuine bugs (other exception types) raise normally.
+    """
+
+    def invoke(self, ctx):
+        try:
+            return super().invoke(ctx)
+        except (ValueError, RuntimeError) as e:
+            raise click.ClickException(str(e)) from e
 
 
 @click.group(
+    cls=CoralsnakeGroup,
     invoke_without_command=False,
     help="Coralsnake (transcriptome mapping utils)",
     context_settings=dict(help_option_names=["-h", "--help"]),
@@ -254,7 +269,7 @@ def prepare(
 
 
 @cli.command(
-    help="Fetch genomic motif.",
+    help="Remap transcriptome-aligned reads back to genome coordinates.",
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
@@ -846,16 +861,12 @@ def metagene(
     This is the full `metagene` package migrated into a coralsnake subcommand,
     built on the high-performance `polars` + `ruranges` stack.
     """
-    from .metagene import (
-        load_gtf,
-        load_reference,
-        load_sites,
-        map_to_transcripts,
-        normalize_positions,
-        plot_profile,
-    )
-    from .metagene.config import BUILTIN_REFERENCES
-    from .metagene.download import download_references, list_references
+    from .annotation import map_to_transcripts, normalize_positions
+    from .config import BUILTIN_REFERENCES
+    from .download import download_references, list_references
+    from .gtf import load_gtf
+    from .io import load_reference, load_sites
+    from .plotting import plot_profile
 
     # Handle list references option
     if list_references_flag:
@@ -1060,21 +1071,7 @@ def logo(motifs, input_file, output_file, weights, t2u, to2bit, normed):
     click.echo(f"✓ Saved motif logo to: {output_file}")
 
 
-@cli.group(
-    help="Genomic variant analysis (migrated from the `variant` package).",
-    invoke_without_command=False,
-    context_settings=dict(help_option_names=["-h", "--help"]),
-)
-def variant():
-    """Genomic variant analysis toolkit (was the standalone `variant` package).
-
-    Provides `motif`, `coordinate` and `effect` subcommands with the same
-    naming / output format, but built on coralsnake's pysam + ruranges stack
-    (the old pyfaidx / urllib3 / pyensembl + varcode dependencies are gone).
-    """
-
-
-@variant.command(
+@cli.command(
     help="Fetch a genomic motif around the given sites.",
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
@@ -1110,30 +1107,32 @@ def variant():
 def motif(
     input_file, output_file, fasta, npad, with_header, columns, to_upper, wrap_site
 ):
-    """Fetch genomic motif."""
-    from .variant.motif import run_motif
+    """Fetch a genomic motif around each variant site (strand-aware)."""
+    from .motif import run_motif
 
     if "," in npad:
         lpad, rpad = npad.split(",")
     else:
         lpad, rpad = npad, npad
     if not lpad.isdigit() or not rpad.isdigit():
-        click.echo(f"Error: npad should be positive integer, not {npad}", err=True)
-        raise click.Abort()
-    run_motif(
-        input_file,
-        output_file,
-        fasta,
-        int(lpad),
-        int(rpad),
-        with_header,
-        columns,
-        to_upper,
-        wrap_site,
-    )
+        raise click.ClickException(f"--npad should be a positive integer, not {npad!r}")
+    try:
+        run_motif(
+            input_file,
+            output_file,
+            fasta,
+            int(lpad),
+            int(rpad),
+            with_header,
+            columns,
+            to_upper,
+            wrap_site,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
 
 
-@variant.command(
+@cli.command(
     help="Map chromosome names between reference coordinate systems.",
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
@@ -1166,21 +1165,24 @@ def coordinate(
     with_header,
     keep_original,
 ):
-    """Fetch genomic motif."""
-    from .variant.coordinate import run_coordinate
+    """Rename chromosome names between reference coordinate systems."""
+    from .coordinate import run_coordinate
 
-    run_coordinate(
-        input_file,
-        output_file,
-        reference_mapping,
-        buildin_mapping,
-        columns,
-        with_header,
-        keep_original,
-    )
+    try:
+        run_coordinate(
+            input_file,
+            output_file,
+            reference_mapping,
+            buildin_mapping,
+            columns,
+            with_header,
+            keep_original,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
 
 
-@variant.command(
+@cli.command(
     help="Annotate genomic variant effects.",
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
@@ -1191,24 +1193,22 @@ def coordinate(
 )
 @click.option(
     "--reference-gtf",
+    "-g",
     "reference_gtf",
     type=click.Path(exists=True),
-    help="Custom reference GTF file.",
+    help="Reference GTF file.",
 )
 @click.option(
     "--reference-transcript",
     "reference_transcript",
     multiple=True,
-    help="Custom reference transcript FASTA file(s).",
+    help="Reference transcript FASTA file(s).",
 )
 @click.option(
     "--reference-protein",
     "reference_protein",
     multiple=True,
-    help="Custom reference protein FASTA file(s).",
-)
-@click.option(
-    "--release", "-e", "release", type=int, default=None, help="Ensembl release."
+    help="Reference protein FASTA file(s).",
 )
 @click.option("--strandness", "-s", is_flag=True, help="Use strand information.")
 @click.option("--pU-mode", "-u", "pU_mode", is_flag=True, help="Prioritise RNA genes.")
@@ -1230,7 +1230,6 @@ def effect(
     reference_gtf,
     reference_transcript,
     reference_protein,
-    release,
     npad,
     strandness,
     all_effects,
@@ -1238,22 +1237,25 @@ def effect(
     with_header,
     columns,
 ):
-    """Annotate genomic variant effect."""
-    from .variant.effect import run_effect
+    """Annotate genomic variant effects."""
+    from .effect import run_effect
 
-    run_effect(
-        input_file,
-        output_file,
-        reference_gtf,
-        reference_transcript,
-        reference_protein,
-        npad,
-        strandness,
-        all_effects,
-        pU_mode,
-        with_header,
-        columns,
-    )
+    try:
+        run_effect(
+            input_file,
+            output_file,
+            reference_gtf,
+            reference_transcript,
+            reference_protein,
+            npad,
+            strandness,
+            all_effects,
+            pU_mode,
+            with_header,
+            columns,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
 
 
 if __name__ == "__main__":

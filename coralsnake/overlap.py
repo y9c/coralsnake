@@ -6,10 +6,11 @@
 #
 # Feature Overlap Module - Handles genomic overlap analysis with ruranges
 
-import sys
 import numpy as np
 import polars as pl
 from ruranges.numpy import overlaps
+
+from .utils import interval_groups
 
 
 def calculate_bin_statistics(
@@ -110,41 +111,13 @@ def annotate_with_features(
 
     # Create group IDs for chromosomes (and optionally strand)
     if by_strand:
-        input_strands = df_input["Strand"].to_numpy()
-        feature_strands = df_feature["Strand"].to_numpy()
-
-        unique_chr_strand = np.unique(
-            np.concatenate(
-                [
-                    np.char.add(input_chroms.astype(str), input_strands.astype(str)),
-                    np.char.add(
-                        feature_chroms.astype(str), feature_strands.astype(str)
-                    ),
-                ]
-            )
+        input_labels = np.char.add(input_chroms.astype(str), input_strands.astype(str))
+        feature_labels = np.char.add(
+            feature_chroms.astype(str), feature_strands.astype(str)
         )
-        chr_strand_to_id = {cs: i for i, cs in enumerate(unique_chr_strand)}
-
-        input_groups = np.array(
-            [
-                chr_strand_to_id[c + s]
-                for c, s in zip(input_chroms.astype(str), input_strands.astype(str))
-            ],
-            dtype=np.uint32,
-        )
-
-        feature_groups = np.array(
-            [
-                chr_strand_to_id[c + s]
-                for c, s in zip(feature_chroms.astype(str), feature_strands.astype(str))
-            ],
-            dtype=np.uint32,
-        )
+        input_groups, feature_groups = interval_groups(input_labels, feature_labels)
     else:
-        unique_chroms = np.unique(np.concatenate([input_chroms, feature_chroms]))
-        chrom_to_id = {chrom: i for i, chrom in enumerate(unique_chroms)}
-        input_groups = np.vectorize(chrom_to_id.get)(input_chroms).astype(np.uint32)
-        feature_groups = np.vectorize(chrom_to_id.get)(feature_chroms).astype(np.uint32)
+        input_groups, feature_groups = interval_groups(input_chroms, feature_chroms)
 
     # Find overlaps
     idx_input, idx_feature = overlaps(
@@ -234,8 +207,8 @@ def annotate_with_features(
         required_types = {"5UTR", "CDS", "3UTR"}
         if not required_types.issubset(type2ratio.keys()):
             missing_types = required_types - set(type2ratio.keys())
-            sys.exit(
-                f"Error: Given ranges do not overlap all 3 features: {missing_types}! "
+            raise ValueError(
+                f"Given ranges do not overlap all 3 features: {missing_types}! "
                 "Please use the type_ratios argument instead."
             )
 

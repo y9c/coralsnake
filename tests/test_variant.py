@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Tests for the migrated `variant` subcommands (coralsnake.variant)."""
+"""Tests for the fused variant commands (coralsnake.motif / .coordinate / .effect)."""
 
 from pathlib import Path
 
 import pytest
 
-from coralsnake.variant import Annot, Site, expand_base, reverse_base
+from coralsnake.effect import Annot, Site, expand_base, reverse_base
 
 DATA = Path(__file__).resolve().parent / "data"
 # R64-1-1.fa is bundled with the coralsnake tests (has contig "I" and "II").
@@ -56,7 +56,7 @@ class TestMotif:
 
     def test_plus_strand(self, fasta):
         chrom = fasta.references[0]
-        from coralsnake.variant.motif import get_motif
+        from coralsnake.motif import get_motif
 
         seq = get_motif(fasta, chrom, fasta.get_reference_length(chrom), 100, "+", 3, 3)
         assert len(seq) == 7
@@ -64,7 +64,7 @@ class TestMotif:
 
     def test_minus_strand_is_reverse(self, fasta):
         chrom = fasta.references[0]
-        from coralsnake.variant.motif import get_motif
+        from coralsnake.motif import get_motif
 
         plus = get_motif(
             fasta, chrom, fasta.get_reference_length(chrom), 100, "+", 3, 3
@@ -79,7 +79,7 @@ class TestMotif:
 
     def test_padding_out_of_bounds(self, fasta):
         chrom = fasta.references[0]
-        from coralsnake.variant.motif import get_motif
+        from coralsnake.motif import get_motif
 
         seq = get_motif(fasta, chrom, fasta.get_reference_length(chrom), 1, "+", 3, 3)
         assert len(seq) == 7
@@ -94,7 +94,7 @@ class TestCoordinate:
         return str(p)
 
     def test_custom_mapping(self, tmp_path, chrom_map):
-        from coralsnake.variant.coordinate import run_coordinate
+        from coralsnake.coordinate import run_coordinate
 
         inp = tmp_path / "in.tsv"
         inp.write_text("chr1\t100\t+\nchrM\t50\t-\n")
@@ -105,7 +105,7 @@ class TestCoordinate:
         assert lines[1] == "MT\t50\t-"
 
     def test_builtin_u2e(self, tmp_path):
-        from coralsnake.variant.coordinate import run_coordinate
+        from coralsnake.coordinate import run_coordinate
 
         inp = tmp_path / "in.tsv"
         inp.write_text("chr1\t100\nchrM\t50\n")
@@ -117,10 +117,30 @@ class TestCoordinate:
 
 
 class TestEffect:
+    def test_refine_cds_effect_position_aware(self):
+        # Mutation is applied at the exact base, not the first occurrence.
+        from coralsnake.effect import _refine_cds_effect
+
+        # codon 'AAA', mutate the 2nd base (idx 1) to G → 'AGA' (Arg)
+        assert _refine_cds_effect("AAA", "A", "G", 1) == "Substitution"
+        # mutate the 1st base (idx 0) to G → 'GAA' (Glu)
+        assert _refine_cds_effect("AAA", "A", "G", 0) == "Substitution"
+        # no change → silent
+        assert _refine_cds_effect("AAA", "A", "A", 0) == "Silent"
+        # synonymous (different codon, same amino acid) → silent
+        assert _refine_cds_effect("TTA", "A", "G", 2) == "Silent"  # TTA→TTG, both Leu
+        assert _refine_cds_effect("GGA", "A", "C", 2) == "Silent"  # GGA→GGC, both Gly
+        # introducing a DNA stop codon → premature stop (GAG→TAG)
+        assert _refine_cds_effect("GAG", "G", "T", 0) == "PrematureStop"
+        # net length change not a multiple of three → frameshift
+        assert _refine_cds_effect("ATG", "AT", "A", 0) == "FrameShift"
+        # net length change a multiple of three → in-frame indel
+        assert _refine_cds_effect("ATG", "A", "AAAA", 0) == "InFrameIndel"
+
     def test_runs_end_to_end(self, tmp_path):
         if not GTF.exists():
             pytest.skip("R64 GTF not present")
-        from coralsnake.variant.effect import run_effect
+        from coralsnake.effect import run_effect
 
         inp = tmp_path / "sites.tsv"
         inp.write_text("I\t74019\t+\tA\tG\n")
