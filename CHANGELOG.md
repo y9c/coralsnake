@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.216] - 2026-08-27
+
+### Changed
+- **`liftover` is now bidirectional**: `--direction t2g` (transcript -> genome,
+  default) or `g2t` (genome -> transcript). `tbam2gbam` and `gbam2tbam` remain
+  as clear single-direction convenience commands; the previous duplicate
+  `liftover`/`tbam2gbam` help text is now distinct.
+- **`annotate` true intronic detection**: a site lying inside a gene's
+  transcribed span (between its first and last exon) but not in an exon is now
+  classified **Intronic** (assigned to its gene) instead of **Intergenic**.
+  Previously intronic detection only fired for positions that were exonic in one
+  overlapping transcript yet intronic in another.
+- **Comprehensive synthetic-data test suite** (`tests/synthetic_data.py` +
+  `tests/test_synthetic_pipeline.py`, 14 integration tests): a small
+  hand-computable genome/GTF validates prepare (`--with-txpos`/`--with-codon`),
+  annotate (both strands, 5'UTR/CDS/3'UTR/Intronic/Intergenic/Noncoding,
+  variant effect with exact codons), motif boundary cases, gbam2tbam, liftover
+  direction selection, map_to_local, coordinate and logo - all against exact
+  expected values.
+
 ## [0.0.215] - 2026-08-27
 
 ### Added

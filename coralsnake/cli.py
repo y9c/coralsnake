@@ -283,16 +283,35 @@ def prepare(
     )
 
 
-def _run_tbam2gbam(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
-    from .tbam2gbam import convert_bam
+def _run_convert(direction, input_bam, output_bam, annotation_file, faidx_file, threads, sort):
+    """Dispatch a BAM coordinate conversion by direction.
 
-    convert_bam(input_bam, output_bam, annotation_file, faidx_file, threads, sort)
+    ``t2g`` = transcript -> genome; ``g2t`` = genome -> transcript.
+    """
+    if direction == "g2t":
+        from .gbam2tbam import convert_bam as g2t
+
+        g2t(input_bam, output_bam, annotation_file, threads, sort)
+    elif direction == "t2g":
+        from .tbam2gbam import convert_bam as t2g
+
+        t2g(input_bam, output_bam, annotation_file, faidx_file, threads, sort)
+    else:  # pragma: no cover
+        raise ValueError(f"Unknown direction: {direction!r}")
 
 
 @cli.command(
-    help="Remap transcriptome-aligned reads back to genome coordinates.",
+    help="Convert a BAM between genome and transcript coordinates (both directions).",
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
+)
+@click.option(
+    "--direction",
+    "-d",
+    "direction",
+    default="t2g",
+    type=click.Choice(["t2g", "g2t"]),
+    help="Conversion direction: 't2g' transcript->genome (default), or 'g2t' genome->transcript.",
 )
 @click.option("--input-bam", "-i", "input_bam", help="Input bam file.", required=True)
 @click.option(
@@ -301,16 +320,24 @@ def _run_tbam2gbam(input_bam, output_bam, annotation_file, faidx_file, threads, 
 @click.option(
     "--annotation-file", "-a", "annotation_file", help="Annotation file.", required=True
 )
-@click.option("--faidx-file", "-f", "faidx_file", help="Faidx file.", required=True)
+@click.option(
+    "--faidx-file", "-f", "faidx_file", help="Faidx file (required for 't2g')."
+)
 @click.option("--threads", "-t", "threads", help="Threads.", default=8)
 @click.option("--sort", "-s", "sort", help="Sort.", is_flag=True)
-def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
-    """Alias for `tbam2gbam` (transcriptome -> genome)."""
-    _run_tbam2gbam(input_bam, output_bam, annotation_file, faidx_file, threads, sort)
+def liftover(direction, input_bam, output_bam, annotation_file, faidx_file, threads, sort):
+    """Convert a BAM between genome and transcript coordinates (choose --direction).
+
+    ``--direction t2g`` (default) remaps transcriptome-aligned reads back to
+    genome coordinates; ``--direction g2t`` remaps genome-aligned reads back to
+    transcript coordinates. ``tbam2gbam`` and ``gbam2tbam`` are single-direction
+    aliases for convenience.
+    """
+    _run_convert(direction, input_bam, output_bam, annotation_file, faidx_file, threads, sort)
 
 
 @cli.command(
-    help="Remap transcriptome-aligned reads back to genome coordinates.",
+    help="t2g: remap transcriptome-aligned reads to genome coordinates (see 'liftover').",
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
@@ -325,12 +352,12 @@ def liftover(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
 @click.option("--threads", "-t", "threads", help="Threads.", default=8)
 @click.option("--sort", "-s", "sort", help="Sort.", is_flag=True)
 def tbam2gbam(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
-    """Remap transcriptome-aligned reads back to genome coordinates."""
-    _run_tbam2gbam(input_bam, output_bam, annotation_file, faidx_file, threads, sort)
+    """t2g: remap transcriptome-aligned reads back to genome coordinates."""
+    _run_convert("t2g", input_bam, output_bam, annotation_file, faidx_file, threads, sort)
 
 
 @cli.command(
-    help="Remap genome-aligned reads back to transcript coordinates.",
+    help="g2t: remap genome-aligned reads back to transcript coordinates (see 'liftover').",
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
@@ -344,9 +371,8 @@ def tbam2gbam(input_bam, output_bam, annotation_file, faidx_file, threads, sort)
 @click.option("--threads", "-t", "threads", help="Threads.", default=8)
 @click.option("--sort", "-s", "sort", help="Sort output BAM.", is_flag=True)
 def gbam2tbam(input_bam, output_bam, annotation_file, threads, sort):
-    from .gbam2tbam import convert_bam
-
-    convert_bam(input_bam, output_bam, annotation_file, threads, sort)
+    """g2t: remap genome-aligned reads back to transcript coordinates."""
+    _run_convert("g2t", input_bam, output_bam, annotation_file, None, threads, sort)
 
 
 @cli.command(

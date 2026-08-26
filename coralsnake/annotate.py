@@ -110,11 +110,28 @@ class Annotation:
         return list(cls.COLUMNS)
 
 
+def _transcript_span(transcript):
+    """Genomic (0-based half-open) span from first to last exon."""
+    return (
+        min(e["g_start"] for e in transcript["exons"]),
+        max(e["g_end"] for e in transcript["exons"]),
+    )
+
+
 def _find_overlapping(transcripts_by_chrom, chrom, pos):
-    """Return transcripts whose exonic span contains ``pos``."""
-    return [
-        tx for tx in transcripts_by_chrom.get(chrom, []) if _is_exonic(tx, pos)
-    ]
+    """Return transcripts whose exon OR gene-body span contains ``pos``.
+
+    Including the body span lets an intronic position (inside the gene but not
+    in any exon) be classified as Intronic rather than Intergenic.
+    """
+    hits = []
+    for tx in transcripts_by_chrom.get(chrom, []):
+        if not tx["exons"]:
+            continue
+        lo, hi = _transcript_span(tx)
+        if _is_exonic(tx, pos) or lo <= pos < hi:
+            hits.append(tx)
+    return hits
 
 
 def _is_exonic(transcript, g_pos):
