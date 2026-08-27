@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.220] - 2026-08-28
+
+### Added / fixed
+- **`gbam2tbam` now handles reference deletions (`D`)** (the last previously-
+  skipped case): exonic `D` bases are mapped to transcript positions and emitted
+  as `D` on the transcript. Added an exact `-`-strand orientation proof (a real
+  reverse-on-genome read, flag 0x10, comes out forward on the transcript, 0x00,
+  at the correct coords). Also added exact internal-soft-clip/insertion and
+  intron-dipping tests.
+- **Randomized property/fuzz tests** (`tests/test_properties.py`): seeded
+  invariants over thousands of cases for `motif` (length/center/content vs an
+  independent reference), `gbam2tbam.remap_read` (any produced read is
+  structurally valid: query length == M+I+S, in-bounds) on both strands, and
+  `_assemble_cigar` (length + reference-span invariants).
+- **Verified the built-in-reference download URLs resolve** (they point at the
+  `y9c/metagene` release assets, which serve the parquet files correctly - no
+  change needed).
+
 ## [0.0.219] - 2026-08-27
 
 ### Fixed / improved

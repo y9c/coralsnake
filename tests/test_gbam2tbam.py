@@ -119,10 +119,35 @@ class TestRemapRead:
         assert new.reference_start == 5
         assert new.cigartuples == [(4, 3), (0, 5)]
 
-    def test_internal_deletion_read_skipped(self):
+    def test_reference_deletion(self):
+        """A genomic deletion (D) inside an exon becomes a D on the transcript."""
         idx = _build_index({"g": {"t": _transcript("+", [(100, 130)])}})
+        # 4M [102,106) t2-5; 1D at g106 (t6); 4M [107,111) t7-10
+        read = self._read("chr1", 102, "ACGTACGT", [(0, 4), (2, 1), (0, 4)])
+        new = remap_read(read, idx["t"], _header())
+        assert new.reference_start == 2
+        assert new.cigartuples == [(0, 4), (2, 1), (0, 4)]
+
+    def test_minus_realistic_orientation(self):
+        """A real '-' transcript read (reverse on genome, flag=0x10) comes out
+        forward on the transcript (flag 0x00) at the correct transcript coords."""
+        idx = _build_index({"g": {"t": _transcript("-", [(120, 150)])}})
+        # exon [120,150), 5' at g149; read t[8,13) => genomic [137,142), reverse
+        read = self._read("chr1", 137, "ACGTA", [(0, 5)], flag=0x10)
+        new = remap_read(read, idx["t"], _header())
+        assert new is not None
+        assert new.flag == 0x00  # forward on the transcript
+        assert new.reference_start == 8
+        assert new.cigartuples == [(0, 5)]
+
+    def test_internal_deletion_read_skipped(self):
+        """A multi-base deletion is emitted as D on the transcript (not dropped)."""
+        idx = _build_index({"g": {"t": _transcript("+", [(100, 130)])}})
+        # 4M [102,106) t2-5; 2D [106,108) t6-7; 4M [108,112) t8-11
         read = self._read("chr1", 102, "ACGTACGT", [(0, 4), (2, 2), (0, 4)])
-        assert remap_read(read, idx["t"], _header()) is None
+        new = remap_read(read, idx["t"], _header())
+        assert new.reference_start == 2
+        assert new.cigartuples == [(0, 4), (2, 2), (0, 4)]
 
     def test_internal_softclip(self):
         """A soft-clip in the middle of an exon is preserved as an S on the transcript."""

@@ -225,13 +225,136 @@ def _assemble_cigar(qdisp):
     return [(op, n) for op, n in out], first_t, last_t + 1
 
 
+def _make_segment(align, meta, t_header, cigar, t_start, t_end):
+    """Build and validate the output transcript AlignedSegment."""
+    seq = align.query_sequence or ""
+    if sum(n for op, n in cigar if op in (0, 1, 4)) != len(seq):
+        return None
+    if t_start < 0 or t_end > meta["length"]:
+        return None
+
+    new = pysam.AlignedSegment(header=t_header)
+    new.query_name = align.query_name
+    new.query_sequence = align.query_sequence
+    new.query_qualities = align.query_qualities
+    # A '-' transcript is the reverse complement of the '+' genomic forward
+    # strand, so a read forward on the genome is reverse on the transcript
+    # (and vice-versa): flip the strand flag.
+    new.flag = flip_flag(align.flag) if meta["strand"] == "-" else align.flag
+    for key, value in align.get_tags():
+        if key in ("NM", "MD", "AS", "XS", "YS", "XA"):  # reference-position-dependent
+            continue
+        new.set_tag(key, value)
+    new.reference_start = t_start
+    new.cigartuples = cigar
+    new.mapping_quality = align.mapping_quality
+    return new
+
+
+def _remap_with_d(align, meta, t_header):
+    """Remap a read that contains reference deletions (``D``).
+
+    Uses reference-position assembly: every exonic M/D base is mapped to its
+    transcript position, then emitted in transcript order (with N gaps for
+    skipped exonic sequence and leading/trailing soft-clips). Reads with an
+    insertion, or an M/D base that dips into an intron, are conservatively
+    skipped. Returns an AlignedSegment or None.
+    """
+    cigar = align.cigartuples
+    if not cigar or any(op == 1 for op, _ in cigar):
+        return None
+    strand = meta["strand"]
+    exons = meta["exons"]
+    offs = meta["offs"]
+
+    def tpos(idx, g):
+        es, ee = exons[idx]
+        return offs[idx] + (g - es if strand == "+" else ee - 1 - g)
+
+    def containing(g):
+        for i, (es, ee) in enumerate(exons):
+            if es <= g < ee:
+                return i
+        return None
+
+    tuples = list(cigar)
+    i = 0
+    leading_s = 0
+    while i < len(tuples) and tuples[i][0] == 4:
+        leading_s += tuples[i][1]
+        i += 1
+    j = len(tuples)
+    trailing_s = 0
+    while j > i and tuples[j - 1][0] == 4:
+        trailing_s += tuples[j - 1][1]
+        j -= 1
+    middle = tuples[i:j]
+
+    events = []  # (transcript_pos, op) ; op in 'M'/'D' (reference-consuming)
+    g = align.reference_start
+    for op, length in middle:
+        if op in (0, 7, 8):  # M/=/X
+            for _ in range(length):
+                idx = containing(g)
+                if idx is None:
+                    return None
+                events.append((tpos(idx, g), "M"))
+                g += 1
+        elif op == 2:  # D
+            for _ in range(length):
+                idx = containing(g)
+                if idx is None:
+                    return None
+                events.append((tpos(idx, g), "D"))
+                g += 1
+        elif op == 3:  # N (intron)
+            g += length
+    if not events:
+        return None
+    events.sort()  # by transcript position -> increasing t for both strands
+
+    out = []
+    first_t = last_t = None
+    for t, op in events:
+        code = 0 if op == "M" else 2
+        if first_t is None:
+            out.append([code, 1])
+            first_t = t
+            last_t = t
+        elif t == last_t + 1:
+            if out and out[-1][0] == code:
+                out[-1][1] += 1
+            else:
+                out.append([code, 1])
+            last_t = t
+        elif t > last_t + 1:
+            out.append([3, t - last_t - 1])
+            out.append([code, 1])
+            last_t = t
+        else:
+            return None  # overlapping bases - bail
+    if leading_s:
+        out.insert(0, [4, leading_s])
+    if trailing_s:
+        out.append([4, trailing_s])
+    return _make_segment(
+        align, meta, t_header, [(o, n) for o, n in out], first_t, last_t + 1
+    )
+
+
 def remap_read(align, meta, t_header):
     """Remap one genome-aligned read onto a transcript reference (5'->3').
 
-    Handles M/=/X, N (intron), soft-clips, insertions, and M blocks that dip
-    into introns (those bases become soft-clips on the transcript). Returns a
-    new AlignedSegment, or None if the read cannot be cleanly mapped.
+    Handles M/=/X, N (intron), soft-clips, insertions, deletions, and M blocks
+    that dip into introns (those bases become soft-clips on the transcript).
+    Returns a new AlignedSegment, or None if the read cannot be cleanly mapped.
     """
+    cigar = align.cigartuples or []
+    if not cigar:
+        return None
+    if any(op == 2 for op, _ in cigar):
+        return _remap_with_d(align, meta, t_header)
+
     res = _per_query_disposition(align, meta)
     if res is None:
         return None
@@ -246,29 +369,7 @@ def remap_read(align, meta, t_header):
     if built is None:
         return None
     cigar, t_start, t_end = built
-
-    seq = align.query_sequence or ""
-    if sum(n for op, n in cigar if op in (0, 1, 4)) != len(seq):
-        return None
-    if t_start < 0 or t_end > meta["length"]:
-        return None
-
-    new = pysam.AlignedSegment(header=t_header)
-    new.query_name = align.query_name
-    new.query_sequence = align.query_sequence
-    new.query_qualities = align.query_qualities
-    # A '-' transcript is the reverse complement of the '+' genomic forward
-    # strand, so a read forward on the genome is reverse on the transcript
-    # (and vice-versa): flip the strand flag.
-    new.flag = flip_flag(align.flag) if strand == "-" else align.flag
-    for key, value in align.get_tags():
-        if key in ("NM", "MD", "AS", "XS", "YS", "XA"):  # reference-position-dependent
-            continue
-        new.set_tag(key, value)
-    new.reference_start = t_start
-    new.cigartuples = cigar
-    new.mapping_quality = align.mapping_quality
-    return new
+    return _make_segment(align, meta, t_header, cigar, t_start, t_end)
 
 
 def _overlaps(meta, align):
