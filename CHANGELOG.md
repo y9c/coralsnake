@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.217] - 2026-08-27
+
+### Performance
+- **`gbam2tbam` is now parallel**: `--threads > 1` uses a `ProcessPoolExecutor`
+  like `tbam2gbam` (previously the thread count only affected sorting, so the
+  conversion itself ran single-threaded). Also fixed a bug where genome-aligned
+  reads were deserialized inside workers against the *transcript* header
+  (which broke reference resolution and silently dropped reads); workers now
+  deserialize with the correct genome header.
+- **`annotate` streams input** instead of `readlines()`-ing the whole file
+  (much lower memory on large variant sets), and uses a sorted gene-body
+  interval index per chromosome so each site is looked up with `bisect` rather
+  than scanning every transcript on the chromosome.
+
 ## [0.0.216] - 2026-08-27
 
 ### Changed

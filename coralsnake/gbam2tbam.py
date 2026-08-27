@@ -251,20 +251,96 @@ def convert_bam(input_bam, output_bam, annotation_file, threads=8, sort=False):
         with pysam.AlignmentFile(
             output_bam, "wb" if output_bam.endswith(".bam") else "w", header=t_header
         ) as out_bam:
-            for align in track(in_bam, description="Processing..."):
-                if align.is_unmapped or align.reference_name is None:
-                    continue
-                tid = _pick_transcript(annot, align)
-                if tid is None:
-                    continue
-                new = remap_read(align, annot[tid], t_header)
-                if new is None:
-                    continue
-                new.reference_name = tid
-                out_bam.write(new)
+            if threads <= 1:
+                _convert_single(in_bam, out_bam, annot, t_header)
+            else:
+                _convert_parallel(in_bam, out_bam, annot, t_header, threads)
 
     if sort:
         _sort_out_bam(output_bam, threads)
+
+
+def _remap_one(align, annot, t_header):
+    """Remap a single read; return an AlignedSegment or None (skipped)."""
+    if align.is_unmapped or align.reference_name is None:
+        return None
+    tid = _pick_transcript(annot, align)
+    if tid is None:
+        return None
+    new = remap_read(align, annot[tid], t_header)
+    if new is None:
+        return None
+    new.reference_name = tid
+    return new
+
+
+def _convert_single(in_bam, out_bam, annot, t_header):
+    for align in track(in_bam, description="Processing..."):
+        new = _remap_one(align, annot, t_header)
+        if new is not None:
+            out_bam.write(new)
+
+
+# Worker globals for multiprocessing
+_WORKER_ANNOT = None
+_WORKER_THEADER = None
+_WORKER_GHEADER = None
+
+
+def _init_worker(annot_flattened, genome_header_dict, t_header_dict):
+    global _WORKER_ANNOT, _WORKER_THEADER, _WORKER_GHEADER
+    _WORKER_ANNOT = annot_flattened
+    _WORKER_THEADER = pysam.AlignmentHeader.from_dict(t_header_dict)
+    _WORKER_GHEADER = pysam.AlignmentHeader.from_dict(genome_header_dict)
+
+
+def _process_chunk(chunk_strings):
+    """Remap a chunk of serialised genome reads; return serialised transcript reads."""
+    out = []
+    # Input reads are GENOME-aligned -> deserialize with the genome header so
+    # their reference_name resolves (the transcript header only knows transcripts).
+    gh = _WORKER_GHEADER
+    th = _WORKER_THEADER
+    for s in chunk_strings:
+        align = pysam.AlignedSegment.fromstring(s, gh)
+        new = _remap_one(align, _WORKER_ANNOT, th)
+        if new is not None:
+            out.append(new.to_string())
+    return out
+
+
+def _convert_parallel(in_bam, out_bam, annot, t_header, threads):
+    import multiprocessing as mp
+    from concurrent.futures import ProcessPoolExecutor
+
+    t_dict = t_header.to_dict()
+    genome_dict = in_bam.header.to_dict()
+    chunk_size = 5000
+    max_queue = threads * 2
+    with ProcessPoolExecutor(
+        max_workers=threads,
+        mp_context=mp.get_context("spawn"),
+        initializer=_init_worker,
+        initargs=(annot, genome_dict, t_dict),
+    ) as executor:
+        futures = []
+        chunk = []
+        for align in track(in_bam, description="Processing..."):
+            chunk.append(align.to_string())
+            if len(chunk) >= chunk_size:
+                futures.append(executor.submit(_process_chunk, list(chunk)))
+                chunk = []
+                if len(futures) >= max_queue:
+                    _drain_one(futures, t_header, out_bam)
+        if chunk:
+            futures.append(executor.submit(_process_chunk, chunk))
+        while futures:
+            _drain_one(futures, t_header, out_bam)
+
+
+def _drain_one(futures, t_header, out_bam):
+    for s in futures.pop(0).result():
+        out_bam.write(pysam.AlignedSegment.fromstring(s, t_header))
 
 
 if __name__ == "__main__":

@@ -126,7 +126,11 @@ class TestRemapRead:
 
 
 class TestConvertEndToEnd:
-    def test_roundtrip_convert(self, tmp_path: Path):
+    @pytest.fixture(params=[1, 4])
+    def threads(self, request):
+        return request.param
+
+    def test_roundtrip_convert(self, tmp_path: Path, threads):
         from coralsnake.gbam2tbam import convert_bam
 
         annot = tmp_path / "annot.tsv"
@@ -151,7 +155,7 @@ class TestConvertEndToEnd:
             out.write(a)
 
         out_bam = tmp_path / "transcript.bam"
-        convert_bam(str(in_bam), str(out_bam), str(annot), threads=1)
+        convert_bam(str(in_bam), str(out_bam), str(annot), threads=threads)
         with pysam.AlignmentFile(str(out_bam), "rb") as r:
             reads = list(r)
         assert len(reads) == 1

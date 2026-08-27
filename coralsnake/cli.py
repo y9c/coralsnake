@@ -59,7 +59,7 @@ click.rich_click.COMMAND_GROUPS = {
     "coralsnake": [
         {
             "name": "Read Mapping",
-            "commands": ["prepare", "map", "liftover", "tbam2gbam", "gbam2tbam"],
+            "commands": ["prepare", "map", "liftover", "gbam2tbam"],
         },
         {
             "name": "Site & Variant Annotation",
@@ -330,30 +330,9 @@ def liftover(direction, input_bam, output_bam, annotation_file, faidx_file, thre
 
     ``--direction t2g`` (default) remaps transcriptome-aligned reads back to
     genome coordinates; ``--direction g2t`` remaps genome-aligned reads back to
-    transcript coordinates. ``tbam2gbam`` and ``gbam2tbam`` are single-direction
-    aliases for convenience.
+    transcript coordinates. ``gbam2tbam`` is a single-direction alias.
     """
     _run_convert(direction, input_bam, output_bam, annotation_file, faidx_file, threads, sort)
-
-
-@cli.command(
-    help="t2g: remap transcriptome-aligned reads to genome coordinates (see 'liftover').",
-    no_args_is_help=True,
-    context_settings=dict(help_option_names=["-h", "--help"]),
-)
-@click.option("--input-bam", "-i", "input_bam", help="Input bam file.", required=True)
-@click.option(
-    "--output-bam", "-o", "output_bam", help="Output bam file.", required=True
-)
-@click.option(
-    "--annotation-file", "-a", "annotation_file", help="Annotation file.", required=True
-)
-@click.option("--faidx-file", "-f", "faidx_file", help="Faidx file.", required=True)
-@click.option("--threads", "-t", "threads", help="Threads.", default=8)
-@click.option("--sort", "-s", "sort", help="Sort.", is_flag=True)
-def tbam2gbam(input_bam, output_bam, annotation_file, faidx_file, threads, sort):
-    """t2g: remap transcriptome-aligned reads back to genome coordinates."""
-    _run_convert("t2g", input_bam, output_bam, annotation_file, faidx_file, threads, sort)
 
 
 @cli.command(

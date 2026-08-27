@@ -138,22 +138,60 @@ def _is_exonic(transcript, g_pos):
     return any(ex["g_start"] <= g_pos < ex["g_end"] for ex in transcript["exons"])
 
 
+def build_span_index(transcripts_by_chrom):
+    """Per-chromosome sorted gene-body spans for fast interval lookup.
+
+    Returns ``{chrom: [(body_start, body_end, transcript), ...]}`` sorted by
+    body_start, so a site can be looked up with ``bisect`` instead of scanning
+    every transcript on the chromosome.
+    """
+    index = {}
+    for chrom, txs in transcripts_by_chrom.items():
+        spans = []
+        for tx in txs:
+            if not tx["exons"]:
+                continue
+            lo, hi = _transcript_span(tx)
+            spans.append((lo, hi, tx))
+        spans.sort(key=lambda x: x[0])  # by body_start
+        index[chrom] = spans
+    return index
+
+
+def _overlap_transcripts_fast(span_index, chrom, pos):
+    """Transcripts whose gene body (or an exon) contains ``pos``, via bisect."""
+    import bisect
+
+    spans = span_index.get(chrom)
+    if not spans:
+        return []
+    starts = [s[0] for s in spans]
+    n = bisect.bisect_right(starts, pos)  # first body_start > pos
+    hits = [tx for (lo, hi, tx) in spans[:n] if hi > pos]
+    return hits
+
+
 def _annotate_site(
     site,
     transcripts_by_chrom,
     fasta=None,
     pad=10,
     strandness=True,
+    span_index=None,
 ):
     """Classify one site into a list of :class:`Annotation` (one per overlap).
 
     ``fasta`` is optional; without it (or without ref/alt), the coding-effect
     columns (motif / codon / amino-acid) are left as ``None`` but the region
-    and gene/transcript position are always computed.
+    and gene/transcript position are always computed. ``span_index`` (from
+    ``build_span_index``) avoids a full per-site scan of every transcript.
     """
     chrom = str(site.chrom)
     pos = int(site.pos)
-    overlaps = _find_overlapping(transcripts_by_chrom, chrom, pos)
+    if span_index is not None:
+        overlaps = _overlap_transcripts_fast(span_index, chrom, pos)
+    else:
+        overlaps = _find_overlapping(transcripts_by_chrom, chrom, pos)
 
     if not overlaps:
         return [Annotation(region="Intergenic", mut_type="Intergenic")]
@@ -307,6 +345,7 @@ def run_annotate(
         )
 
     transcripts_by_chrom = build_transcript_index(reference_gtf)
+    span_index = build_span_index(transcripts_by_chrom)
 
     import pysam
 
@@ -314,41 +353,46 @@ def run_annotate(
         pysam.FastaFile(reference_transcript[0]) if reference_transcript else None
     )
 
+    def _emit(site, input_cols, output_handle):
+        annotations = _annotate_site(
+            site, transcripts_by_chrom, fasta, npad, strandness, span_index
+        )
+        if not all_effects:
+            top = _pick_top(annotations)
+            annotations = [top] if top is not None else annotations
+        for ann in annotations:
+            out_cols = ["" if v is None else str(v) for v in ann.to_list()]
+            output_handle.write(col_sep.join(input_cols + out_cols) + "\n")
+
+    def _build_header(first):
+        input_header = ["."] * len(first)
+        for n, i in columns_index_mapper.items():
+            if i < len(input_header):
+                input_header[i] = n
+        return input_header
+
     try:
-        with xopen(output_file, "wt") as output_handle:
-            with xopen(input_file, "rt") as input_handle:
-                raw_lines = input_handle.readlines()
-
+        with xopen(output_file, "wt") as output_handle, xopen(input_file, "rt") as input_handle:
+            first = input_handle.readline()
+            if not first:
+                return  # empty input: nothing to annotate
             if with_header:
-                header_line = raw_lines[0].rstrip("\n")
-                body_lines = raw_lines[1:]
-                input_header = header_line.split(col_sep)
+                input_header = first.rstrip("\n").split(col_sep)
             else:
-                first = raw_lines[0].rstrip("\n").split(col_sep)
-                input_header = ["."] * len(first)
-                for n, i in columns_index_mapper.items():
-                    if i < len(input_header):
-                        input_header[i] = n
-                body_lines = raw_lines
-
+                input_header = _build_header(first.rstrip("\n").split(col_sep))
             output_handle.write(col_sep.join(input_header + _UNIFIED_COLUMNS) + "\n")
 
-            for raw in body_lines:
+            if not with_header:
+                input_cols = first.rstrip("\n").split(col_sep)
+                site = _site_from_cols(input_cols, columns_index_mapper, strandness)
+                _emit(site, input_cols, output_handle)
+
+            for raw in input_handle:
                 if not raw.strip():
                     continue
                 input_cols = raw.rstrip("\n").split(col_sep)
                 site = _site_from_cols(input_cols, columns_index_mapper, strandness)
-                annotations = _annotate_site(
-                    site, transcripts_by_chrom, fasta, npad, strandness
-                )
-                if not all_effects:
-                    top = _pick_top(annotations)
-                    annotations = [top] if top is not None else annotations
-                for ann in annotations:
-                    out_cols = ["" if v is None else str(v) for v in ann.to_list()]
-                    output_handle.write(
-                        col_sep.join(input_cols + out_cols) + "\n"
-                    )
+                _emit(site, input_cols, output_handle)
     finally:
         if fasta is not None:
             fasta.close()
