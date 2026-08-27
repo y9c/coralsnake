@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.219] - 2026-08-27
+
+### Fixed / improved
+- **`gbam2tbam` read-completeness**: previously it silently dropped any read
+  whose CIGAR had a soft-clip/insertion in the middle, or whose M blocks ran
+  into an intron. It now walks the full CIGAR and converts these correctly:
+  internal soft-clips become `S`, insertions become `I`, and M bases that fall
+  in an intron are soft-clipped (so such reads are no longer lost). Works on
+  both strands; every output is validated (query length == M+I+S, in-bounds).
+  Reads containing a reference deletion (`D`) are still conservatively skipped
+  (rare, and not yet remapped). 5 new regression tests.
+
 ## [0.0.218] - 2026-08-27
 
 ### Fixed (found by a full code re-read)

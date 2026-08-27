@@ -6,7 +6,7 @@
 #
 # coralsnake - transcriptome mapping in two colors.
 
-__version__ = "0.0.218"
+__version__ = "0.0.219"
 
 
 def __getattr__(name):

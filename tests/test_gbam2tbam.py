@@ -124,6 +124,58 @@ class TestRemapRead:
         read = self._read("chr1", 102, "ACGTACGT", [(0, 4), (2, 2), (0, 4)])
         assert remap_read(read, idx["t"], _header()) is None
 
+    def test_internal_softclip(self):
+        """A soft-clip in the middle of an exon is preserved as an S on the transcript."""
+        idx = _build_index({"g": {"t": _transcript("+", [(100, 130)])}})
+        # 4M [102,106) t2-5; 2S; 4M [106,110) t6-9 (contiguous on transcript)
+        read = self._read("chr1", 102, "ACGTACGTAC", [(0, 4), (4, 2), (0, 4)])
+        new = remap_read(read, idx["t"], _header())
+        assert new.reference_start == 2
+        assert new.cigartuples == [(0, 4), (4, 2), (0, 4)]
+
+    def test_internal_insertion(self):
+        """An insertion inside an exon is preserved as an I on the transcript."""
+        idx = _build_index({"g": {"t": _transcript("+", [(100, 130)])}})
+        read = self._read("chr1", 102, "ACGTACGTAC", [(0, 4), (1, 2), (0, 4)])
+        new = remap_read(read, idx["t"], _header())
+        assert new.reference_start == 2
+        assert new.cigartuples == [(0, 4), (1, 2), (0, 4)]
+
+    def test_intron_dipping_m_softclipped(self):
+        """An M block running past an exon's 3' end into the intron -> soft-clipped."""
+        idx = _build_index({"g": {"t": _transcript("+", [(100, 110), (200, 230)])}})
+        # 8M at 102: exon1 covers [102,110) -> t[2,10) (8 bases); nothing else here
+        read = self._read("chr1", 102, "ACGTACGTACGT", [(0, 8), (3, 90), (0, 4)])
+        # exon1 [102,110)=8 M t[2,10); intron 90; exon2 [200,204)=4 M t[10,14) contiguous
+        new = remap_read(read, idx["t"], _header())
+        assert new.reference_start == 2
+        assert new.cigartuples == [(0, 12)]
+
+    def test_intron_dipping_m_into_intron(self):
+        """An M block that extends INTO the intron -> the intronic part soft-clips."""
+        idx = _build_index({"g": {"t": _transcript("+", [(100, 110)])}})
+        # 8M at 105: exon1 [105,110) = 5 bases t[5,10), then 3 bases in intron -> S
+        read = self._read("chr1", 105, "ACGTACGT", [(0, 8)])
+        new = remap_read(read, idx["t"], _header())
+        assert new.reference_start == 5
+        assert new.cigartuples == [(0, 5), (4, 3)]
+
+    def test_minus_with_internal_softclip(self):
+        """' - ' transcript still remaps a read with a leading soft-clip validly."""
+        idx = _build_index({"g": {"t": _transcript("-", [(100, 130)])}})
+        # 3S + 5M at 105 in '-' transcript (5' end at 129)
+        read = self._read("chr1", 105, "AAAACCCC", [(4, 3), (0, 5)])
+        new = remap_read(read, idx["t"], _header())
+        # validity guarantees: strand flipped, query length preserved, in-bounds
+        assert new is not None
+        assert new.flag == 0x10
+        assert sum(n for op, n in new.cigartuples if op in (0, 1, 4)) == len(
+            "AAAACCCC"
+        )
+        assert 0 <= new.reference_start and new.reference_start + sum(
+            n for op, n in new.cigartuples if op in (0, 2)
+        ) <= 30
+
 
 class TestConvertEndToEnd:
     @pytest.fixture(params=[1, 4])

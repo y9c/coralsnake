@@ -125,61 +125,142 @@ def _classify_cigar(cigartuples):
     return leading, trailing, middle, clean
 
 
-def remap_read(align, meta, t_header):
-    """Remap one genome-aligned read onto a transcript reference (5'->3').
+def _per_query_disposition(align, meta):
+    """Walk a genome CIGAR into a per-query-base transcript disposition.
 
-    Returns a new AlignedSegment, or None if the read cannot be cleanly mapped.
+    Returns ``(qdisp, qlen, has_deletion)``, where ``qdisp`` is a list parallel
+    to the read's query bases whose entries are an int (transcript position for
+    an exonic M/=/X base), ``'C'`` (soft-clip: explicit soft-clip, or an M base
+    that fell inside an intron), or ``'I'`` (insertion). Returns ``None`` if the
+    read cannot be cleanly handled (e.g. any reference deletion ``D``, which is
+    not yet remapped).
     """
     if align.cigartuples is None:
         return None
-    leading_s, trailing_s, middle, clean = _classify_cigar(align.cigartuples)
-    if not clean:
+    cigar = align.cigartuples
+    if any(op == 2 for op, _ in cigar):
+        return None  # deletions unsupported (conservative, rare)
+    strand = meta["strand"]
+    exons = meta["exons"]
+    offs = meta["offs"]
+
+    def tpos(idx, g):
+        es, ee = exons[idx]
+        return offs[idx] + (g - es if strand == "+" else ee - 1 - g)
+
+    def containing(g):
+        for i, (es, ee) in enumerate(exons):
+            if es <= g < ee:
+                return i
         return None
 
-    # Aligned reference blocks (M/=/X), excluding N introns. Verify each is
-    # fully exonic; map to transcript coordinates.
-    mapped = []
-    for (gs, ge) in align.get_blocks():
-        if not _fully_exonic(meta, gs, ge):
-            return None
-        iv = _interval_to_transcript(gs, ge, meta)
-        if iv is None:
-            return None
-        mapped.append(iv)
-    if not mapped:
+    seq = align.query_sequence or ""
+    qlen = len(seq)
+    qdisp = []
+    g = align.reference_start
+    q = 0
+    for op, length in cigar:
+        if op in (0, 7, 8):  # M/=/X: query + reference
+            for _ in range(length):
+                idx = containing(g)
+                qdisp.append(tpos(idx, g) if idx is not None else "C")
+                q += 1
+                g += 1
+        elif op == 1:  # I: query only
+            for _ in range(length):
+                qdisp.append("I")
+                q += 1
+        elif op == 3:  # N: reference-only (intron) - advance genome
+            g += length
+        elif op == 4:  # S: query only (soft clip)
+            for _ in range(length):
+                qdisp.append("C")
+                q += 1
+        elif op in (5, 8):  # H, P
+            pass
+    if q != qlen:
+        return None  # input CIGAR/query length mismatch
+    return qdisp, qlen, False
+
+
+def _assemble_cigar(qdisp):
+    """Build a transcript CIGAR from per-query transcript dispositions.
+
+    ``qdisp`` must already be in transcript (5'->3', increasing position) order.
+    Returns ``(cigar_tuples, reference_start, reference_end)`` or ``None``.
+    """
+    out = []
+    last_t = None
+    first_t = None
+    for it in qdisp:
+        if isinstance(it, int):
+            t = it
+            if first_t is None:
+                first_t = t
+            if last_t is None:
+                out.append([0, 1])
+            elif t == last_t + 1:
+                if out and out[-1][0] == 0:
+                    out[-1][1] += 1
+                else:
+                    out.append([0, 1])
+            elif t > last_t + 1:
+                out.append([3, t - last_t - 1])  # skipped exonic gap
+                out.append([0, 1])
+            else:
+                return None  # overlapping bases - bail
+            last_t = t
+        elif it == "I":
+            if out and out[-1][0] == 1:
+                out[-1][1] += 1
+            else:
+                out.append([1, 1])
+        elif it == "C":
+            if out and out[-1][0] == 4:
+                out[-1][1] += 1
+            else:
+                out.append([4, 1])
+    if first_t is None:
         return None
-    mapped.sort()
-    merged = [list(mapped[0])]
-    for a, b in mapped[1:]:
-        if a <= merged[-1][1]:
-            merged[-1][1] = max(merged[-1][1], b)
-        else:
-            merged.append([a, b])
+    return [(op, n) for op, n in out], first_t, last_t + 1
 
-    t_start = merged[0][0]
-    cigar = []
-    prev_end = None
-    for a, b in merged:
-        if prev_end is not None and a > prev_end:
-            cigar.append((3, a - prev_end))  # skipped exonic gap on the transcript
-        cigar.append((0, b - a))
-        prev_end = b
-    if leading_s:
-        cigar.insert(0, (4, leading_s))
-    if trailing_s:
-        cigar.append((4, trailing_s))
 
-    # Safety: the query- (M+I+S) consuming length must equal the read length.
-    if sum(length for op, length in cigar if op in (0, 1, 4)) != len(align.query_sequence):
+def remap_read(align, meta, t_header):
+    """Remap one genome-aligned read onto a transcript reference (5'->3').
+
+    Handles M/=/X, N (intron), soft-clips, insertions, and M blocks that dip
+    into introns (those bases become soft-clips on the transcript). Returns a
+    new AlignedSegment, or None if the read cannot be cleanly mapped.
+    """
+    res = _per_query_disposition(align, meta)
+    if res is None:
+        return None
+    qdisp, _qlen, _has_del = res
+    strand = meta["strand"]
+
+    # For '+' transcripts the read's query order equals transcript (increasing
+    # position) order. For '-' transcripts it is reversed (the read is written
+    # reverse, flag flipped), so iterate the disposition in reverse.
+    qseq = qdisp if strand == "+" else qdisp[::-1]
+    built = _assemble_cigar(qseq)
+    if built is None:
+        return None
+    cigar, t_start, t_end = built
+
+    seq = align.query_sequence or ""
+    if sum(n for op, n in cigar if op in (0, 1, 4)) != len(seq):
+        return None
+    if t_start < 0 or t_end > meta["length"]:
         return None
 
     new = pysam.AlignedSegment(header=t_header)
     new.query_name = align.query_name
     new.query_sequence = align.query_sequence
     new.query_qualities = align.query_qualities
-    # A '-' transcript is the reverse complement of the genomic '+' strand, so a
-    # read forward on the genome is reverse on the transcript (and vice-versa).
-    new.flag = flip_flag(align.flag) if meta["strand"] == "-" else align.flag
+    # A '-' transcript is the reverse complement of the '+' genomic forward
+    # strand, so a read forward on the genome is reverse on the transcript
+    # (and vice-versa): flip the strand flag.
+    new.flag = flip_flag(align.flag) if strand == "-" else align.flag
     for key, value in align.get_tags():
         if key in ("NM", "MD", "AS", "XS", "YS", "XA"):  # reference-position-dependent
             continue
