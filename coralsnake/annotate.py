@@ -178,6 +178,7 @@ def _annotate_site(
     pad=10,
     strandness=True,
     span_index=None,
+    seq_cache=None,
 ):
     """Classify one site into a list of :class:`Annotation` (one per overlap).
 
@@ -185,6 +186,9 @@ def _annotate_site(
     columns (motif / codon / amino-acid) are left as ``None`` but the region
     and gene/transcript position are always computed. ``span_index`` (from
     ``build_span_index``) avoids a full per-site scan of every transcript.
+    ``seq_cache`` (optional per-run dict) lets us assemble each transcript's
+    spliced sequence once instead of re-fetching from the FASTA for every site -
+    a large speedup when many sites fall in the same gene.
     """
     chrom = str(site.chrom)
     pos = int(site.pos)
@@ -222,7 +226,13 @@ def _annotate_site(
         tx_seq = None
 
         if fasta is not None and tx["chrom"] in fasta.references:
-            tx_seq = _tx_sequence(fasta, tx["chrom"], tx)
+            if seq_cache is not None:
+                tx_seq = seq_cache.get(tid)
+                if tx_seq is None:
+                    tx_seq = _tx_sequence(fasta, tx["chrom"], tx)
+                    seq_cache[tid] = tx_seq
+            else:
+                tx_seq = _tx_sequence(fasta, tx["chrom"], tx)
             s5 = tx_seq[max(t_pos - pad, 0) : t_pos].rjust(pad, "N")
             s0 = tx_seq[t_pos] if t_pos < len(tx_seq) else "N"
             s3 = tx_seq[t_pos + 1 : t_pos + 1 + pad].ljust(pad, "N")
@@ -352,10 +362,12 @@ def run_annotate(
     fasta = (
         pysam.FastaFile(reference_transcript[0]) if reference_transcript else None
     )
+    # Per-run cache of assembled transcript sequences (motif/codon path).
+    seq_cache = {} if fasta is not None else None
 
     def _emit(site, input_cols, output_handle):
         annotations = _annotate_site(
-            site, transcripts_by_chrom, fasta, npad, strandness, span_index
+            site, transcripts_by_chrom, fasta, npad, strandness, span_index, seq_cache
         )
         if not all_effects:
             top = _pick_top(annotations)
@@ -384,15 +396,22 @@ def run_annotate(
 
             if not with_header:
                 input_cols = first.rstrip("\n").split(col_sep)
-                site = _site_from_cols(input_cols, columns_index_mapper, strandness)
-                _emit(site, input_cols, output_handle)
+                try:
+                    site = _site_from_cols(input_cols, columns_index_mapper, strandness)
+                    _emit(site, input_cols, output_handle)
+                except (ValueError, IndexError):
+                    pass  # skip a malformed first row
 
             for raw in input_handle:
                 if not raw.strip():
                     continue
                 input_cols = raw.rstrip("\n").split(col_sep)
-                site = _site_from_cols(input_cols, columns_index_mapper, strandness)
-                _emit(site, input_cols, output_handle)
+                try:
+                    site = _site_from_cols(input_cols, columns_index_mapper, strandness)
+                    _emit(site, input_cols, output_handle)
+                except (ValueError, IndexError):
+                    # Skip a malformed row instead of aborting the whole run.
+                    continue
     finally:
         if fasta is not None:
             fasta.close()
@@ -444,8 +463,17 @@ def _site_from_cols(input_cols, columns_index_mapper, strandness):
                 try:
                     value = int(value)
                 except ValueError:
-                    pass
+                    raise ValueError(
+                        f"Position column not an integer: {value!r}"
+                    )
             setattr(site, name, value)
+    # A usable site needs at least a chromosome and a position.
+    if "chrom" not in columns_index_mapper or "pos" not in columns_index_mapper:
+        raise ValueError("columns must identify 'chrom' and 'pos'")
+    if columns_index_mapper["chrom"] >= len(input_cols) or columns_index_mapper["pos"] >= len(
+        input_cols
+    ):
+        raise ValueError("row is missing required chromosome/position columns")
     if site.ref and site.ref != "-":
         site.ref = site.ref.upper()
     if site.alt and site.alt != "N":

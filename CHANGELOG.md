@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.221] - 2026-08-28
+
+### Speed
+- **`annotate` variant-effect path now caches each transcript's spliced sequence
+  per run** (previously every site re-fetched/re-assembled the FASTA sequence of
+  its transcript). With many sites in one gene this is a large speedup
+  (benchmark: 20,000 sites in a single gene + FASTA in ~0.16 s).
+
+### Stability
+- **`annotate` skips malformed input rows instead of aborting**: a row with a
+  missing chromosome/position column or a non-integer position is now skipped
+  and processing continues (previously it aborted the whole run with a
+  `ValueError`).
+
 ## [0.0.220] - 2026-08-28
 
 ### Added / fixed

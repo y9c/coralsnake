@@ -177,6 +177,25 @@ class TestAnnotateTable:
         assert row["gene_id"] == "gx"
         assert row["transcript_pos"] == "5"  # 105-100
 
+    def test_malformed_rows_skipped(self, syn, tmp_path):
+        """Bad rows (missing cols / non-int pos) are skipped, not fatal."""
+        from coralsnake.annotate import run_annotate
+
+        inp = tmp_path / "dirty.tsv"
+        inp.write_text(
+            "chr1\t12\t+\t.\t.\n"       # good -> 5'UTR of g1
+            "notabs_no_columns\n"        # missing columns -> skipped
+            "chr1\toops\t+\t.\t.\n"      # non-integer pos -> skipped
+            "chr1\t25\t+\tA\tG\n"        # good -> CDS
+        )
+        out = tmp_path / "out.tsv"
+        run_annotate(str(inp), str(out), syn["gtf"],
+                     reference_transcript=[syn["fa"]], columns="1,2,3,4,5")
+        lines = out.read_text().rstrip("\n").split("\n")
+        assert len(lines) == 3  # header + 2 good rows
+        gene_ids = [row.split("\t")[5] for row in lines[1:]]
+        assert gene_ids == ["g1", "g1"]
+
 
 # ---------------------------------------------------------------------------
 # motif - boundary cases on the synthetic 300 bp chromosome
