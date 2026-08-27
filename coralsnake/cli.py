@@ -997,6 +997,44 @@ def metagene(
     annotated_df = map_to_transcripts(input_df, exon_ref)
     click.echo("✓ Annotated transcripts")
 
+    import polars as pl
+
+    # --- apply previously-ignored options: --normalize / --score-transform /
+    #     --weight-names / --region ------------------------------------------
+    weight_cols = [input_df.columns[i] for i in weight_col_index]
+    if score_transform != "none" or normalize:
+        for wc in weight_cols:
+            expr = pl.col(wc).cast(pl.Float64, strict=False)
+            if normalize:
+                expr = expr / pl.col("transcript_length")
+            if score_transform == "log2":
+                expr = expr.log(2.0)
+            elif score_transform == "log10":
+                expr = expr.log(10.0)
+            annotated_df = annotated_df.with_columns(expr.alias(wc))
+    if weight_names:
+        if len(weight_names) != len(weight_cols):
+            raise click.ClickException("--weight-names count must match --weight-columns")
+        for old, new in zip(weight_cols, weight_names):
+            annotated_df = annotated_df.rename({old: new})
+        weight_col_index = [i for i in range(len(weight_names))]
+    if region != "all":
+        target = {"5utr": "5UTR", "cds": "CDS", "3utr": "3UTR"}[region]
+        annotated_df = (
+            annotated_df.with_columns(
+                transcript_pos=(pl.col("transcript_start") + pl.col("transcript_end")) // 2
+            )
+            .with_columns(
+                feature_type=pl.when(pl.col("transcript_pos") < pl.col("start_codon_pos"))
+                .then(pl.lit("5UTR"))
+                .when(pl.col("transcript_pos") > pl.col("stop_codon_pos"))
+                .then(pl.lit("3UTR"))
+                .otherwise(pl.lit("CDS"))
+            )
+            .filter(pl.col("feature_type") == target)
+            .drop(["feature_type", "transcript_pos"])
+        )
+
     if output_score or output_figure:
         gene_bins, gene_stats, gene_splits = normalize_positions(
             annotated_df,
@@ -1016,8 +1054,6 @@ def metagene(
 
     # Save score statistics (if requested)
     if output_score:
-        import polars as pl
-
         gene_bins.insert_column(
             0,
             pl.when(pl.col("feature_midpoint") < gene_splits[0])

@@ -781,7 +781,7 @@ def map_file(
             worker_global_maps.append(translator)
 
         bam_outs, bam_unmap, def_bam = _setup_output_bams(
-            output_files, unmap_file, unified_h, ref_headers, stack, threads=4
+            output_files, unmap_file, unified_h, ref_headers, stack, threads=threads
         )
         p_tot = 0
         s_time = time.time()
@@ -795,6 +795,7 @@ def map_file(
             "unmapped": 0,
             "mapped_1": 0,
             "mapped_gt1": 0,
+            "discordant": 0,
         }
 
         def _writer():
@@ -814,6 +815,14 @@ def map_file(
                                 _vals["mapped_1"] += 1
                             else:
                                 _vals["mapped_gt1"] += 1
+                            if r2_file:
+                                # proper-pair flag is carried in the PE hit lists
+                                _m1 = _m[0][1]
+                                _proper = bool(_m1[18]) if _m1 else (
+                                    bool(_m[0][2][18]) if _m[0][2] else True
+                                )
+                                if not _proper:
+                                    _vals["discordant"] += 1
 
                             _tgt = bam_outs[_ridx] if bam_outs else def_bam
                             for _j, _hit in enumerate(_m):
@@ -1004,6 +1013,7 @@ def map_file(
         stats_unmapped = _vals["unmapped"]
         stats_mapped_1 = _vals["mapped_1"]
         stats_mapped_gt1 = _vals["mapped_gt1"]
+        stats_discordant = _vals["discordant"]
 
     if report_file:
         paired = r2_file is not None
@@ -1015,11 +1025,16 @@ def map_file(
             f"        Total {'pairs' if paired else 'reads'}: {p_tot}",
         ]
         if paired:
+            # stats_mapped_1/gt1 count mapped pairs, including discordant ones.
+            # Split them by the proper-pair flag so the concordant/discordant
+            # numbers actually reconcile (they were previously mislabelled and
+            # discordant was hardcoded to "0 (0.02%)").
+            concordant = max(0, stats_mapped_1 - stats_discordant)
             report_lines.extend([
                 f"                Aligned concordantly or discordantly 0 time: {stats_unmapped} ({stats_unmapped / p_tot * 100 if p_tot > 0 else 0:.2f}%)",
-                f"                Aligned concordantly 1 time: {stats_mapped_1} ({stats_mapped_1 / p_tot * 100 if p_tot > 0 else 0:.2f}%)",
+                f"                Aligned concordantly 1 time: {concordant} ({concordant / p_tot * 100 if p_tot > 0 else 0:.2f}%)",
                 f"                Aligned concordantly >1 times: {stats_mapped_gt1} ({stats_mapped_gt1 / p_tot * 100 if p_tot > 0 else 0:.2f}%)",
-                "                Aligned discordantly 1 time: 0 (0.02%)",  # Simplified
+                f"                Aligned discordantly 1 time: {stats_discordant} ({stats_discordant / p_tot * 100 if p_tot > 0 else 0:.2f}%)",
             ])
         else:
             report_lines.extend([

@@ -358,3 +358,53 @@ class TestCoordinateLogo:
         for col in m:
             for _, s in col:
                 assert not np.isnan(s)
+
+
+# ---------------------------------------------------------------------------
+# metagene options (were silently ignored before)
+# ---------------------------------------------------------------------------
+class TestMetageneOptions:
+    def test_region_and_weight_transforms(self, syn, tmp_path):
+        import polars as pl
+        from click.testing import CliRunner
+        from coralsnake.cli import cli
+
+        sites = tmp_path / "sites.tsv"
+        # g12 = 5'UTR, g25 = CDS (g1 on chr1); weight column
+        sites.write_text("chr1\t12\t+\t2\nchr1\t25\t+\t3\n")
+        runner = CliRunner()
+
+        def total(out_score):
+            return pl.read_csv(out_score, separator="\t").select(
+                pl.col(pl.Float64).sum()
+            ).item() if False else sum(
+                float(r.split("\t")[-1]) for r in out_score.read_text().splitlines()[1:]
+            )
+
+        # base: both sites
+        s0 = tmp_path / "s0.tsv"
+        o0 = tmp_path / "o0.tsv"
+        r0 = runner.invoke(
+            cli, ["metagene", "-i", str(sites), "-o", str(o0), "-s", str(s0),
+                  "--gtf", syn["gtf"], "-m", "1,2,3", "-w", "4"]
+        )
+        assert r0.exit_code == 0, r0.output
+        # region=cds filters out the 5'UTR site (weight 2)
+        s1 = tmp_path / "s1.tsv"
+        o1 = tmp_path / "o1.tsv"
+        r1 = runner.invoke(
+            cli, ["metagene", "-i", str(sites), "-o", str(o1), "-s", str(s1),
+                  "--gtf", syn["gtf"], "-m", "1,2,3", "-w", "4", "--region", "cds"]
+        )
+        assert r1.exit_code == 0, r1.output
+        assert total(s0) == 5.0
+        assert total(s1) == 3.0
+        # score-transform + normalize complete without error
+        s2 = tmp_path / "s2.tsv"
+        o2 = tmp_path / "o2.tsv"
+        r2 = runner.invoke(
+            cli, ["metagene", "-i", str(sites), "-o", str(o2), "-s", str(s2),
+                  "--gtf", syn["gtf"], "-m", "1,2,3", "-w", "4",
+                  "--score-transform", "log2", "--normalize"]
+        )
+        assert r2.exit_code == 0, r2.output

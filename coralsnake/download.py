@@ -136,7 +136,9 @@ def list_references(console) -> None:
 
     # Count downloaded and total references
     total_refs = len(BUILTIN_REFERENCES)
-    downloaded_refs = len(cached_files)
+    downloaded_refs = sum(
+        f"{name}.parquet" in cached_files for name in BUILTIN_REFERENCES
+    )
 
     console.print(
         f"[dim]{Emojis.INFO} Total: {total_refs} references available ({downloaded_refs} downloaded)[/dim]"

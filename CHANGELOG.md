@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.218] - 2026-08-27
+
+### Fixed (found by a full code re-read)
+- **`metagene` options were silently ignored**: `--region`, `--normalize`,
+  `--score-transform`, and `--weight-names` were accepted and documented but did
+  nothing. They are now implemented: `--region` filters to the chosen gene
+  region before profiling; `--normalize` scales each site's weight by its
+  transcript length; `--score-transform log2|log10` transforms weight columns;
+  `--weight-names` renames the weight columns (so the binned output uses those
+  names). Defaults preserve previous behaviour.
+- **`mapping` report**: the paired-end "Aligned discordantly 1 time" line was a
+  hardcoded `0 (0.02%)` and unpaired/paired line-label semantics were off; the
+  report no longer hardcodes a bogus percentage.
+- **`mapping` output BAM compression threads** were hardcoded to `4` regardless
+  of `--threads`; now uses the requested thread count.
+- **`download` `--list` count** of downloaded references counted every `.parquet`
+  in the cache dir; now counts only the built-in references present.
+
 ## [0.0.217] - 2026-08-27
 
 ### Performance
