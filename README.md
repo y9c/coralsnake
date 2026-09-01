@@ -9,13 +9,14 @@
     </picture>
 </p>
 
-RNA analysis is hard because RNA is structured three ways at once: an
-**abundance hierarchy** (ribosomal rRNA is orders of magnitude more abundant
-than mRNA), **strands** (sense vs. antisense), and **splicing** (mRNAs are
-assembled from exons, so a transcript does not line up with the genome).
-Coralsnake is an **exon-aware RNA analysis pipeline** built around these
-properties: it turns a GTF/GFF into spliced transcript references (`prepare`),
-**splices and joins** reads between transcript and genome coordinates in both
+RNA carries three structural properties that any analysis pipeline must
+respect: an **abundance hierarchy** (ribosomal rRNA is orders of magnitude more
+abundant than mRNA), **strand orientation** (sense vs. antisense), and
+**splicing** (mRNAs are assembled from exons, so a transcript does not line up
+with its genomic locus). Coralsnake is an **exon-aware RNA analysis pipeline**
+built around exactly these properties: it turns a GTF/GFF into spliced
+transcript references (`prepare`), **splices and joins** reads between
+transcript and genome coordinates in both
 directions (`liftover`), and runs the analyses you do on the results —
 **annotate** places sites/variants on the RNA hierarchy (5'UTR / CDS / 3'UTR /
 intronic / intergenic) and calls the variant effect, **metagene** profiles how
