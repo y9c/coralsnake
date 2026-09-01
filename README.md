@@ -27,20 +27,35 @@ bwamem, minimap2/mappy, pure-Python), on top of the lightweight
 How the subcommands fit together:
 
 ```text
-        coralsnake — exon-aware RNA analysis
+   coralsnake — exon-aware RNA analysis
    (read alignment is external: bwa / prismalign / ...)
 
-   GTF/GFF + genome.fa ── prepare ──► transcript.fa
-                                           │  (align reads against it)
-   reads ── external mapper ───────────────┘
-                                           ▼
-                          liftover   tx.bam ⇄ genome.bam
-                                           │
-                                           ▼
-            annotate · metagene · motif · coordinate · group
-                                           │
-                                           ▼
-                                         logo
+   ┌───────────────────────────────────────────────────┐
+   │ GTF/GFF + genome.fa                               │
+   └──────────────────────────┬────────────────────────┘
+                              ▼
+   ┌───────────────────────────────────────────────────┐
+   │ prepare                                           │
+   │ ──► transcript.fa  (reference)                    │
+   └──────────────────────────┬────────────────────────┘
+                              │  reads are aligned against it
+                              ▼
+   ┌───────────────────────────────────────────────────┐
+   │ reads ── external mapper ──► aligned BAM          │
+   │ (bwa / prismalign — external)                     │
+   └──────────────────────────┬────────────────────────┘
+                              ▼
+   ┌───────────────────────────────────────────────────┐
+   │ liftover    tx.bam ⇄ genome.bam                   │
+   └──────────────────────────┬────────────────────────┘
+                              ▼
+   ┌───────────────────────────────────────────────────┐
+   │ annotate · metagene · motif · coordinate · group  │
+   └──────────────────────────┬────────────────────────┘
+                              ▼
+   ┌───────────────────────────────────────────────────┐
+   │ logo                                              │
+   └───────────────────────────────────────────────────┘
 ```
 
 ## Installation
