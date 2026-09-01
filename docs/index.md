@@ -26,35 +26,36 @@ bwamem, minimap2/mappy, pure-Python).
 How the subcommands fit together:
 
 ```text
-           coralsnake — exon-aware RNA pipeline
-      (read alignment is external: bwa / prismalign / ...)
+        coralsnake — whole picture: exon-aware RNA analysis
+   (read alignment is external: bwa / prismalign / any mapper)
 
-  reads ── external mapper ──► aligned BAM
-                                    │
-                                    ▼
-       ┌─────────────────────────────────────────────────┐
-       │  prepare    GTF/GFF + genome.fa ► transcript.fa  │
-       │             (exon-spliced transcript reference)  │
-       │                                                  │
-       │  liftover   one command, both directions:        │
-       │             -d t2g   tx.bam ► genome.bam         │
-       │             -d g2t   genome.bam ► tx.bam         │
-       └─────────────────────────────────────────────────┘
-                                    │
-                   sites.tsv (chrom,pos,strand[,ref,alt])
-                                    │
-  ┌────────────┬────────────┬────────────┬────────────┬────────────┐
-  ▼            ▼            ▼            ▼            ▼
-  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
-  │  annotate  │ │   motif    │ │ coordinate │ │  metagene  │ │   group    │
-  └────────────┘ └────────────┘ └────────────┘ └────────────┘ └────────────┘
-   gene/transc    motif seq     chrom names    metagene      gene clusters
-   + region +     (strand-      (UCSC ⇄        profile       + consensus
-   effect         aware)        Ensembl)       (+ plot)
+   GTF/GFF + genome.fa ─ prepare ─► transcript.fa
+                                           │  (exon-spliced per-transcript
+                                           │   reference)
+   reads ── external mapper ──────────────┘  (align reads vs transcript.fa)
+                                           ▼
+                     ┌───────────────────────────────────┐
+                     │  liftover   one command, both dirs│
+                     │   -d t2g   tx.bam ► genome.bam    │
+                     │   -d g2t   genome.bam ► tx.bam    │
+                     └───────────────────────────────────┘
+                                           │
+                      sites.tsv (chrom,pos,strand[,ref,alt])
+                                           │
+   ┌────────────┬────────────┬────────────┬────────────┬────────────┐
+   ▼            ▼            ▼            ▼            ▼
+   ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
+   │  annotate  │ │   motif    │ │ coordinate │ │  metagene  │ │   group    │
+   └────────────┘ └────────────┘ └────────────┘ └────────────┘ └────────────┘
+   (+ GTF,       (+ genome.fa)  (+ map file /  (+ GTF /        (+ genes.fa +
+   ± genome.fa)                  -M preset)     built-in ref)    genes.gtf)
+   gene/transc    motif seq      chrom names    metagene        gene clusters
+   + region +     (strand-aware, (UCSC⇄         profile:        + consensus
+   variant effect N-padded)      Ensembl)       5'UTR/CDS/3'UTR sequence
+                                                bins (+ plot)
 
-       ┌────────────┐
-       │    logo    │   motifs ► sequence-logo image
-       └────────────┘
+   motifs (e.g. from `motif`)
+     └────────────► logo ──► sequence-logo image
 ```
 
 ## Installation
