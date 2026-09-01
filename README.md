@@ -9,14 +9,17 @@
     </picture>
 </p>
 
-Coralsnake is an **exon-aware RNA analysis pipeline**, built around the exon
-structure of RNA: it turns a GTF/GFF into spliced transcript references
-(`prepare`), **splices and joins** reads between transcript and genome
-coordinates in both directions (`liftover`), and runs the analyses you do on
-the results — **annotate** places sites/variants on the RNA hierarchy
-(5'UTR / CDS / 3'UTR / intronic / intergenic) and calls the variant effect,
-**metagene** profiles how sites distribute across 5'UTR / CDS / 3'UTR (binned
-statistics + a publication-ready plot), **motif** fetches the strand-aware
+RNA analysis is hard because RNA is structured three ways at once: an
+**abundance hierarchy** (ribosomal rRNA is orders of magnitude more abundant
+than mRNA), **strands** (sense vs. antisense), and **splicing** (mRNAs are
+assembled from exons, so a transcript does not line up with the genome).
+Coralsnake is an **exon-aware RNA analysis pipeline** built around these
+properties: it turns a GTF/GFF into spliced transcript references (`prepare`),
+**splices and joins** reads between transcript and genome coordinates in both
+directions (`liftover`), and runs the analyses you do on the results —
+**annotate** places sites/variants on the RNA hierarchy (5'UTR / CDS / 3'UTR /
+intronic / intergenic) and calls the variant effect, **metagene** profiles how
+sites distribute across 5'UTR / CDS / 3'UTR, **motif** fetches the strand-aware
 reference motif around each site, and **logo** renders a DNA/RNA sequence logo.
 
 <img src="https://coralsnake.yech.science/coralsnake_overview.svg" alt="Coralsnake pipeline overview" style="width: 720px; max-width: 100%;" />
