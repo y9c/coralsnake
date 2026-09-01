@@ -16,10 +16,10 @@ from functools import lru_cache
 import pysam
 import rich.progress
 
-# Attribute parsers live in the shared gene-annotation model; re-exported here
-# so existing imports (and this module's tests) keep working.
-from .gene_annotation import (  # noqa: F401
-    GeneAnnotation,
+# Attribute parsers live in the shared GeneModel (coralsnake.genemodel);
+# re-exported here so existing imports (and this module's tests) keep working.
+from .genemodel import (  # noqa: F401
+    GeneModel,
     parse_gff_annot,
     parse_gtf_annot,
 )
@@ -34,10 +34,10 @@ def read_gtf(gtf_file, is_gff=False, keep_annotation=False):
     gene_info = defaultdict(dict)
 
     # Shared parse layer: rows are read, attributes parsed and (optionally)
-    # seqname-renamed/filtered by GeneAnnotation. The per-row decisions below
+    # seqname-renamed/filtered by GeneModel. The per-row decisions below
     # (ranking priority, biotype inheritance, GFF Parent/ID fallback) are
     # unchanged, so prepare output is identical to the previous inline parser.
-    annotation = GeneAnnotation(gtf_file, is_gff=is_gff)
+    annotation = GeneModel(gtf_file, is_gff=is_gff)
     for row in annotation.iter_rows():
         feature_type = row.feature
         d = row.attributes

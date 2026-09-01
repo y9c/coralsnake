@@ -23,14 +23,14 @@ contributed by Zonggui Chen and reworked onto the package infrastructure:
 - Verified end-to-end: refining the yeast R64 GTF keeps all 145/145 codons and
   feeds `prepare --with-codon` correctly.
 
-### New: shared `GeneAnnotation` object (`coralsnake.gene_annotation`)
+### New: shared `GeneModel` object (`coralsnake.genemodel`)
 
 One object models one annotated genome (GTF/GFF3-style attributes): every
 feature row is parsed once, kept losslessly, and grouped under its gene and
 transcript (1-based GTF coordinates + 0-based span helpers). It is the single
 source of truth for how coralsnake reads and writes gene annotations:
 
-- `gtf2tx.read_gtf` (`prepare`) now consumes `GeneAnnotation.iter_rows()` — the
+- `gtf2tx.read_gtf` (`prepare`) now consumes `GeneModel.iter_rows()` — the
   attribute regexes, comment handling and malformed-line rules live in one
   place; per-row ranking / biotype / GFF-Parent decisions are unchanged
   (`genegroup` and `prepare` output are byte-identical).

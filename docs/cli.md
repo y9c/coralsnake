@@ -65,7 +65,7 @@ creation, overlapping-exon merge, canonical-transcript flagging, and coordinate
 checks. Codon and UTR features are preserved (so the output stays usable for
 `metagene` and `annotate`). Indexing uses pysam — no external samtools/bgzip/tabix.
 
-The GTF side is built on the shared `coralsnake.gene_annotation.GeneAnnotation`
+The GTF side is built on the shared `coralsnake.genemodel.GeneModel`
 object — the same read/serialize layer `prepare` uses — so a refined GTF is a
 drop-in replacement for the input:
 

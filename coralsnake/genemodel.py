@@ -3,7 +3,7 @@
 """
 Shared gene-annotation model for coralsnake.
 
-One :class:`GeneAnnotation` object models one annotated genome: every GTF (or
+One :class:`GeneModel` object models one annotated genome: every GTF (or
 GFF3-style) feature row is parsed once, kept losslessly, and grouped under its
 gene and transcript. Coordinates stay in GTF convention (1-based, closed) and
 0-based half-open spans are exposed as helpers.
@@ -13,13 +13,13 @@ Why this object exists
 The package has several GTF consumers (``prepare``/``gtf2tx``, ``refine``,
 ``metagene``/``annotate``). Historically each parse-path diverged (different
 attribute regexes, different rules for malformed lines, different name
-aliasing). ``GeneAnnotation`` is the single source of truth for *reading*
+aliasing). ``GeneModel`` is the single source of truth for *reading*
 (regex, comments, seqname renaming/filtering, grouping) and *writing*
 (attribute serialization, sorting, bgzip/tabix) a gene annotation:
 
-* ``refine`` loads a ``GeneAnnotation``, mutates rows/attributes, and
-  re-serializes with :meth:`GeneAnnotation.write_gtf`.
-* ``gtf2tx.read_gtf`` consumes :meth:`GeneAnnotation.iter_rows` so `prepare`
+* ``refine`` loads a ``GeneModel``, mutates rows/attributes, and
+  re-serializes with :meth:`GeneModel.write_gtf`.
+* ``gtf2tx.read_gtf`` consumes :meth:`GeneModel.iter_rows` so `prepare`
   shares the exact same read layer (its per-row ranking / biotype decisions are
   unchanged).
 
@@ -32,7 +32,7 @@ Memory note
 A ~3M-line human GTF loads in a few seconds and holds every row as a lightweight
 dataclass. That is fine for one-shot cleaning/preparation (the metagene table is
 already cached as parquet); if a future consumer needs streaming, row parsing is
-isolated in :meth:`GeneAnnotation._iter_file_lines`.
+isolated in :meth:`GeneModel._iter_file_lines`.
 """
 
 from __future__ import annotations
@@ -100,7 +100,7 @@ def detect_gff(path: str) -> bool:
 
 
 @dataclass
-class AnnotationRow:
+class Feature:
     """One feature line of a gene annotation (GTF columns 1-9).
 
     Coordinates follow the GTF convention: 1-based, closed (inclusive) — the
@@ -158,7 +158,7 @@ class Transcript:
 
     gene_id: str
     transcript_id: str
-    rows: list[AnnotationRow] = field(default_factory=list)
+    rows: list[Feature] = field(default_factory=list)
 
     @property
     def seqname(self) -> str:
@@ -169,30 +169,30 @@ class Transcript:
         return self.rows[0].strand if self.rows else "."
 
     @property
-    def features(self) -> dict[str, list[AnnotationRow]]:
-        out: dict[str, list[AnnotationRow]] = {}
+    def features(self) -> dict[str, list[Feature]]:
+        out: dict[str, list[Feature]] = {}
         for row in self.rows:
             out.setdefault(row.feature, []).append(row)
         return out
 
     @property
-    def exons(self) -> list[AnnotationRow]:
+    def exons(self) -> list[Feature]:
         return self.features.get("exon", [])
 
     @property
-    def cds(self) -> list[AnnotationRow]:
+    def cds(self) -> list[Feature]:
         return self.features.get("CDS", [])
 
     @property
-    def start_codons(self) -> list[AnnotationRow]:
+    def start_codons(self) -> list[Feature]:
         return self.features.get("start_codon", [])
 
     @property
-    def stop_codons(self) -> list[AnnotationRow]:
+    def stop_codons(self) -> list[Feature]:
         return self.features.get("stop_codon", [])
 
     @property
-    def utrs(self) -> list[AnnotationRow]:
+    def utrs(self) -> list[Feature]:
         out = []
         for row in self.rows:
             if "utr" in row.feature.lower():
@@ -219,7 +219,7 @@ class Gene:
     """All feature rows belonging to one gene, plus its transcripts."""
 
     gene_id: str
-    rows: list[AnnotationRow] = field(default_factory=list)
+    rows: list[Feature] = field(default_factory=list)
     transcripts: dict[str, Transcript] = field(default_factory=dict)
 
     @property
@@ -231,14 +231,14 @@ class Gene:
         return self.rows[0].strand if self.rows else "."
 
     @property
-    def features(self) -> dict[str, list[AnnotationRow]]:
-        out: dict[str, list[AnnotationRow]] = {}
+    def features(self) -> dict[str, list[Feature]]:
+        out: dict[str, list[Feature]] = {}
         for row in self.rows:
             out.setdefault(row.feature, []).append(row)
         return out
 
     @property
-    def gene_rows(self) -> list[AnnotationRow]:
+    def gene_rows(self) -> list[Feature]:
         return self.features.get("gene", [])
 
     @property
@@ -257,7 +257,7 @@ class Gene:
 # ---------------------------------------------------------------------------
 
 
-class GeneAnnotation:
+class GeneModel:
     """A parsed gene annotation (GTF / GFF3-style attributes).
 
     Rows are kept losslessly (every attribute survives) and grouped under
@@ -282,8 +282,8 @@ class GeneAnnotation:
 
         self.header: list[str] = []  # original "#..." comment lines
         self.genes: dict[str, Gene] = {}
-        self.unassigned_rows: list[AnnotationRow] = []
-        self._all_rows: list[AnnotationRow] = []
+        self.unassigned_rows: list[Feature] = []
+        self._all_rows: list[Feature] = []
 
         if path is not None:
             self._load()
@@ -296,7 +296,7 @@ class GeneAnnotation:
         is_gff: Optional[bool] = None,
         seqname_mapper: Optional[dict[str, str]] = None,
         seqname_pattern: Optional[str] = None,
-    ) -> "GeneAnnotation":
+    ) -> "GeneModel":
         return cls(
             path,
             is_gff=is_gff,
@@ -327,7 +327,7 @@ class GeneAnnotation:
 
     def _load(self) -> None:
         parse_annot = parse_gff_annot if self.is_gff else parse_gtf_annot
-        rows: list[AnnotationRow] = []
+        rows: list[Feature] = []
         for lineno, line in self._iter_file_lines():
             if line.startswith("#"):
                 stripped = line.strip()
@@ -358,7 +358,7 @@ class GeneAnnotation:
                     f"{line.strip()[:80]}"
                 )
                 continue
-            row = AnnotationRow(
+            row = Feature(
                 seqname=seqname,
                 source=fields[1].replace(" ", "_"),
                 feature=fields[2],
@@ -448,7 +448,7 @@ class GeneAnnotation:
         for gene in self.genes.values():
             yield from gene.transcripts.values()
 
-    def iter_rows(self) -> Iterator[AnnotationRow]:
+    def iter_rows(self) -> Iterator[Feature]:
         """Every parsed row in file order (incl. unassigned ones)."""
         yield from self._all_rows
 
@@ -509,7 +509,7 @@ class GeneAnnotation:
                 LOGGER.warning(f"Skipping bgzip/tabix indexing: {e}")
 
     @staticmethod
-    def _check_row(row: AnnotationRow) -> None:
+    def _check_row(row: Feature) -> None:
         """Invariants the refined output guarantees (strict mode)."""
         if "gene_id" not in row.attributes:
             raise ValueError(f"Refined row has no gene_id: {row}")

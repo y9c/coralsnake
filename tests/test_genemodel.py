@@ -1,10 +1,10 @@
-"""Tests for coralsnake.gene_annotation — the shared gene-annotation model."""
+"""Tests for coralsnake.genemodel — the shared gene-annotation model."""
 
 import os
 
-from coralsnake.gene_annotation import (
-    AnnotationRow,
-    GeneAnnotation,
+from coralsnake.genemodel import (
+    Feature,
+    GeneModel,
     parse_gff_annot,
     parse_gtf_annot,
 )
@@ -47,9 +47,9 @@ class TestAttributeParsers:
         assert d == {"gene_id": "G1", "gene": "a; b"}
 
 
-class TestGeneAnnotationParse:
+class TestGeneModelParse:
     def test_grouping_and_accessors(self, tmp_path):
-        ann = GeneAnnotation(_write(tmp_path, GTF))
+        ann = GeneModel(_write(tmp_path, GTF))
         assert list(ann.genes) == ["g1", "g2"]
         assert list(ann.iter_rows())[0].feature == "gene"
 
@@ -67,13 +67,13 @@ class TestGeneAnnotationParse:
         assert tx.exons[0].length == 101
 
     def test_attributes_are_lossless(self, tmp_path):
-        ann = GeneAnnotation(_write(tmp_path, GTF))
+        ann = GeneModel(_write(tmp_path, GTF))
         row = ann.gene("g1").gene_rows[0]
         assert row.attributes["gene_name"] == "Foo"
 
     def test_rows_without_gene_id_are_kept_unassigned(self, tmp_path):
         text = GTF + "chr1\tfoo\texon\t5\t9\t.\t+\t.\tno_gene here\n"
-        ann = GeneAnnotation(_write(tmp_path, text))
+        ann = GeneModel(_write(tmp_path, text))
         assert len(ann.unassigned_rows) == 1
         # 10 GTF data rows + 1 unassigned row (header lines are not rows)
         assert len(list(ann.iter_rows())) == 11
@@ -84,7 +84,7 @@ class TestGeneAnnotationParse:
 
     def test_malformed_lines_skipped(self, tmp_path):
         text = "chr1\tfoo\n" + GTF
-        ann = GeneAnnotation(_write(tmp_path, text))
+        ann = GeneModel(_write(tmp_path, text))
         assert list(ann.genes) == ["g1", "g2"]
 
     def test_gzip_input(self, tmp_path):
@@ -93,18 +93,18 @@ class TestGeneAnnotationParse:
         p = tmp_path / "in.gtf.gz"
         with gzip.open(p, "wt") as f:
             f.write(GTF)
-        ann = GeneAnnotation(str(p))
+        ann = GeneModel(str(p))
         assert list(ann.genes) == ["g1", "g2"]
 
     def test_seqname_mapper_and_pattern(self, tmp_path):
-        ann = GeneAnnotation(
+        ann = GeneModel(
             _write(tmp_path, GTF),
             seqname_mapper={"chr1": "1", "chr2": "2"},
             seqname_pattern=r"^[12]$",
         )
         assert list(ann.genes) == ["g1", "g2"]
         assert ann.gene("g1").seqname == "1"
-        ann2 = GeneAnnotation(_write(tmp_path, GTF), seqname_pattern=r"^chr1$")
+        ann2 = GeneModel(_write(tmp_path, GTF), seqname_pattern=r"^chr1$")
         assert list(ann2.genes) == ["g1"]
 
     def test_gff_attribute_style(self, tmp_path):
@@ -113,16 +113,16 @@ class TestGeneAnnotationParse:
             "chr1\tsgd\tgene\t100\t200\t.\t+\t.\tID=gene1;Name=Foo\n"
             "chr1\tsgd\tmRNA\t100\t200\t.\t+\t.\tID=mrna1;Parent=gene1\n"
         )
-        ann = GeneAnnotation(_write(tmp_path, gff, "in.gff3"))
+        ann = GeneModel(_write(tmp_path, gff, "in.gff3"))
         assert ann.is_gff
         # GFF3 rows carry ID/Parent (assigned via parse_gff_annot), no gene_id
         assert "gene1" not in ann.genes
         assert len(ann.unassigned_rows) == 2
 
 
-class TestGeneAnnotationWrite:
+class TestGeneModelWrite:
     def test_roundtrip(self, tmp_path):
-        ann = GeneAnnotation(_write(tmp_path, GTF))
+        ann = GeneModel(_write(tmp_path, GTF))
         out = str(tmp_path / "out.gtf")
         ann.write_gtf(out, sort=False, bgzip=False)
         txt = open(out).read()
@@ -133,13 +133,13 @@ class TestGeneAnnotationWrite:
         # body in original file order (gene1 before gene2)
         assert txt.index('gene_id "g1"') < txt.index('gene_id "g2"')
         # re-parsing yields the same model
-        ann2 = GeneAnnotation(out)
+        ann2 = GeneModel(out)
         assert list(ann2.genes) == ["g1", "g2"]
         assert ann2.gene("g1").transcripts["t1"].cds[0].start == 110
 
     def test_sort_and_bgzip(self, tmp_path):
         # write g2 before g1, then sort puts chr1 gene first
-        ann = GeneAnnotation(_write(tmp_path, GTF))
+        ann = GeneModel(_write(tmp_path, GTF))
         g2 = ann.genes.pop("g2")
         ann.genes = {"g2": g2, **ann.genes}
         out = str(tmp_path / "out.gtf")
@@ -152,17 +152,15 @@ class TestGeneAnnotationWrite:
         assert os.path.exists(out + ".gz.tbi")
 
     def test_remove_gene(self, tmp_path):
-        ann = GeneAnnotation(_write(tmp_path, GTF))
+        ann = GeneModel(_write(tmp_path, GTF))
         ann.remove_gene("g2")
         assert list(ann.genes) == ["g1"]
         assert all(r.attributes.get("gene_id") != "g2" for r in ann.iter_rows())
 
 
-class TestAnnotationRow:
+class TestFeature:
     def test_serialize(self):
-        row = AnnotationRow(
-            "chr1", "ens", "exon", 100, 200, ".", "+", ".", {"gene_id": "g"}
-        )
+        row = Feature("chr1", "ens", "exon", 100, 200, ".", "+", ".", {"gene_id": "g"})
         assert row.to_gtf_line() == 'chr1\tens\texon\t100\t200\t.\t+\t.\tgene_id "g";'
         assert row.span_0 == (99, 200)
         assert row.length == 101

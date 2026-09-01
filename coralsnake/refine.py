@@ -3,8 +3,8 @@
 #
 # Reference cleaning for coralsnake (`coralsnake refine`).
 #
-# Built on the shared gene-annotation model (:mod:`coralsnake.gene_annotation`):
-#   * reads and writes the annotation with GeneAnnotation (attribute parsing,
+# Built on the shared gene-annotation model (:mod:`coralsnake.genemodel`):
+#   * reads and writes the annotation with GeneModel (attribute parsing,
 #     seqname renaming/filtering, sorting, bgzip/tabix all in one place)
 #   * the refined GTF keeps start/stop codon, UTR and other feature rows
 #   * starts/ends of transcripts and genes are repaired (missing gene /
@@ -20,7 +20,7 @@ from collections import defaultdict
 
 import pysam
 
-from .gene_annotation import AnnotationRow, GeneAnnotation
+from .genemodel import Feature, GeneModel
 from .utils import get_logger
 
 LOGGER = get_logger(__name__)
@@ -51,7 +51,7 @@ def load_canonical_transcripts(path):
 
 
 # ---------------------------------------------------------------------------
-# row helpers (operate on the shared AnnotationRow)
+# row helpers (operate on the shared Feature)
 # ---------------------------------------------------------------------------
 
 
@@ -86,7 +86,7 @@ def _bounding_row(rows, feature, drop_transcript_id=True):
     attris = first.attributes.copy()
     if drop_transcript_id:
         attris.pop("transcript_id", None)
-    row = AnnotationRow(
+    row = Feature(
         seqname=first.seqname,
         source=first.source,
         feature=feature,
@@ -196,7 +196,7 @@ def create_transcript_row_from_gene_row(gene_row):
     transcript_attris["transcript_id"] = transcript_id
     transcript_attris["transcript_name"] = transcript_id
     transcript_attris["transcript_type"] = gene_attris["gene_type"]
-    return AnnotationRow(
+    return Feature(
         seqname=gene_row.seqname,
         source=gene_row.source,
         feature="transcript",
@@ -212,7 +212,7 @@ def create_transcript_row_from_gene_row(gene_row):
 def create_exon_row_from_transcript_row(transcript_row):
     exon_attris = transcript_row.attributes.copy()
     exon_attris["exon_number"] = 1
-    return AnnotationRow(
+    return Feature(
         seqname=transcript_row.seqname,
         source=transcript_row.source,
         feature="exon",
@@ -230,7 +230,7 @@ def create_exon_rows_from_cds_rows(cds_rows):
     strand = cds_rows[0].strand
     for i, cds_row in enumerate(cds_rows):
         exon_attris = cds_row.attributes.copy()
-        exon_row = AnnotationRow(
+        exon_row = Feature(
             seqname=cds_row.seqname,
             source=cds_row.source,
             feature="exon",
@@ -458,7 +458,7 @@ class GtfRefiner:
 
     def run(self):
         LOGGER.info(f"Loading annotation from {self.input_gtf}")
-        annotation = GeneAnnotation.from_file(
+        annotation = GeneModel.from_file(
             self.input_gtf,
             seqname_mapper=self.seqname_mapper,
             seqname_pattern=self.seqname_pattern,
