@@ -14,6 +14,8 @@ from collections import defaultdict
 
 import numpy as np
 
+from .utils import require_plotting
+
 __all__ = ["Mlogo", "plot_motif_score"]
 
 COLOR_SCHEME = {
@@ -24,9 +26,6 @@ COLOR_SCHEME = {
     "T": "darkgreen",
     "U": "darkgreen",
 }
-
-
-from .utils import require_plotting
 
 
 def _require_plotting():
@@ -274,7 +273,14 @@ class Mlogo:
         # Concatenate all motif strings and reinterpret as a byte buffer so the
         # (N, L) code matrix is produced by one vectorized gather (no list-of-
         # lists and no 2D np.unique).
-        buf = "".join(motifs).encode("ascii", errors="ignore")
+        joined = "".join(motifs)
+        try:
+            buf = joined.encode("ascii", errors="strict")
+        except UnicodeEncodeError as e:
+            raise ValueError(
+                "Motifs must be plain ASCII DNA/RNA letters (non-ASCII character "
+                f"in input: {joined[max(e.start - 10, 0): e.end + 1]!r})"
+            ) from e
         raw = np.frombuffer(buf, dtype=np.uint8)  # shape (n * L,)
         uniq = np.unique(raw)
         symbols = [chr(int(x)) for x in uniq]

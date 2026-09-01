@@ -17,9 +17,15 @@ from xopen import xopen
 
 # Function to parse exon data into a structured dictionary
 def parse_annot_file(tx_file, cache):
-    # check if pickle file exists, load it if it does
-    if cache and os.path.exists(tx_file + ".pickle"):
-        with open(tx_file + ".pickle", "rb") as f:
+    # check if pickle file exists, load it if it does (but never reuse a cache
+    # that is older than the table itself)
+    pickle_file = tx_file + ".pickle"
+    if (
+        cache
+        and os.path.exists(pickle_file)
+        and os.path.getmtime(pickle_file) >= os.path.getmtime(tx_file)
+    ):
+        with open(pickle_file, "rb") as f:
             data = pickle.load(f)
             exon_tree_by_chrom_strand = data["tree"]
             return exon_tree_by_chrom_strand, data["info"]
@@ -80,9 +86,15 @@ def _read_sites(fi, cols, skip_header):
     for raw in fi:
         line = raw.strip("\n")
         records = line.split("\t")
-        chroms.append(records[cols[0]])
-        positions.append(int(records[cols[1]]) - 1)
-        strands.append(records[cols[2]])
+        try:
+            chrom = records[cols[0]]
+            pos = int(records[cols[1]]) - 1
+            strand = records[cols[2]]
+        except (ValueError, IndexError):
+            continue  # skip a malformed row instead of aborting the run
+        chroms.append(chrom)
+        positions.append(pos)
+        strands.append(strand)
         lines.append(line)
     return lines, chroms, positions, strands
 

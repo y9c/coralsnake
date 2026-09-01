@@ -70,7 +70,7 @@ class TestAnnotateEndToEnd:
         from coralsnake.annotate import run_annotate
 
         inp = tmp_path / "sites.tsv"
-        inp.write_text("I\t74019\t+\tA\tG\n")
+        inp.write_text("I\t74020\t+\tA\tG\n")
         out = tmp_path / "out.tsv"
         run_annotate(
             str(inp),
@@ -101,7 +101,7 @@ class TestAnnotateEndToEnd:
         from coralsnake.annotate import run_annotate
 
         inp = tmp_path / "sites.tsv"
-        inp.write_text("I\t74019\t+\t.\t.\n")
+        inp.write_text("I\t74020\t+\t.\t.\n")
         out = tmp_path / "out.tsv"
         run_annotate(
             str(inp),

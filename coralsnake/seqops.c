@@ -81,10 +81,18 @@ static PyObject* batch_base_conversion(PyObject* self, PyObject* args) {
         else if (from_bases[i] >= 'a' && from_bases[i] <= 'z') lookup[(unsigned char)from_bases[i] - 32] = to_bases[i] - 32;
     }
     for (Py_ssize_t i = 0; i < n; i++) {
-        Py_ssize_t len; const char* seq = PyUnicode_AsUTF8AndSize(PyList_GetItem(seq_list, i), &len);
+        PyObject* item = PyList_GetItem(seq_list, i);
+        if (item == NULL) { Py_DECREF(result_list); return NULL; }
+        Py_ssize_t len;
+        const char* seq = PyUnicode_AsUTF8AndSize(item, &len);
+        if (seq == NULL) { Py_DECREF(result_list); return NULL; }  /* non-str item */
         char* target = (char*)malloc((size_t)len + 1);
         for (Py_ssize_t j = 0; j < len; j++) { unsigned char c = (unsigned char)seq[j]; target[j] = lookup[c] ? lookup[c] : (char)c; }
-        target[len] = '\0'; PyList_SetItem(result_list, i, PyUnicode_FromStringAndSize(target, len)); free(target);
+        target[len] = '\0';
+        PyObject* py_str = PyUnicode_FromStringAndSize(target, len);
+        free(target);
+        if (py_str == NULL) { Py_DECREF(result_list); return NULL; }
+        PyList_SetItem(result_list, i, py_str);
     }
     return result_list;
 }

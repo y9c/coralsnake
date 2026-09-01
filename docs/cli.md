@@ -100,7 +100,7 @@ coralsnake annotate -i sites.tsv -o out.tsv --annotation prepared_table.tsv
 
 | Option | Description                                  |
 | ------ | -------------------------------------------- |
-| `-i, --input` | Input site/variant file (default `-` = stdin). |
+| `-i, --input` | Input site/variant file (default `-` = stdin; **1-based** positions, like `motif`). |
 | `-o, --output` | Output file (default `-` = stdout).       |
 | `-g, --reference-gtf` | Reference GTF (GTF mode).          |
 | `--annotation` | Precomputed `prepare` table (fast table mode). |
@@ -115,7 +115,6 @@ Output schema: `gene_id transcript_id transcript_pos region gene_pos
 transcript_strand mut_type transcript_motif coding_pos codon_ref aa_pos aa_ref
 distance2splice`. The `mut_*`/coding columns are filled only when a genome
 FASTA and ref/alt were supplied.
-
 ---
 
 ## `metagene`

@@ -98,7 +98,7 @@
     Intergenic &lt; Intronic &lt; NoncodingTranscript &lt; IncompleteTranscript &lt; FivePrimeUTR &lt; ThreePrimeUTR &lt; IntronicSpliceSite
   </text>
   <text x="56" y="550" class="mono" font-size="11.5" fill="#374151">
-    &lt; Silent &lt; CDS &lt; Substitution &lt; InFrameIndel &lt; FrameShift &lt; PrematureStop &lt; SpliceSite
+    &lt; Silent &lt; CDS &lt; Substitution &lt; ComplexSubstitution &lt; InFrameIndel &lt; FrameShift &lt; PrematureStop &lt; SpliceSite
   </text>
   <text x="56" y="572" font-size="10.5" fill="#9ca3af">
     IntronicSpliceSite / SpliceSite are legacy names from the deprecated `effect` command (kept in the ordering for compatibility).

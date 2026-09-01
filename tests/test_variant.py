@@ -214,7 +214,7 @@ class TestEffect:
         from coralsnake.effect import run_effect
 
         inp = tmp_path / "sites.tsv"
-        inp.write_text("I\t74019\t+\tA\tG\n")
+        inp.write_text("I\t74020\t+\tA\tG\n")
         out = tmp_path / "out.tsv"
         run_effect(
             str(inp),

@@ -221,7 +221,8 @@ def _classify_exonic(transcript, t_pos):
         return "NoncodingTranscript"
     if t_pos < start:
         return "FivePrimeUTR"
-    if stop is not None and t_pos > stop:
+    if stop is not None and t_pos >= stop + 3:
+        # the stop codon itself (stop .. stop+2) is still CDS
         return "ThreePrimeUTR"
     return "CDS"
 
@@ -306,11 +307,19 @@ def _refine_cds_effect(codon_ref, site_ref, site_alt, coding_pos):
         if alt_codon == codon_ref:
             return "Silent"
         # Same amino acid despite a different codon -> synonymous = silent.
-        if CODON_TABLE.get(_to_rna(codon_ref)) == CODON_TABLE.get(_to_rna(alt_codon)):
+        aa_ref = CODON_TABLE.get(_to_rna(codon_ref))
+        aa_alt = CODON_TABLE.get(_to_rna(alt_codon))
+        if aa_ref is None or aa_alt is None:
+            # gap/malformed codon (e.g. contains N) - cannot refine
+            return "CDS"
+        if aa_ref == aa_alt:
             return "Silent"
         if "TAA" in alt_codon or "TAG" in alt_codon or "TGA" in alt_codon:
             return "PrematureStop"
         return "Substitution"
+    # Equal-length multi-base change (MNP) - not an indel.
+    if len(site_alt) == len(site_ref):
+        return "ComplexSubstitution"
     # Indel: frameshift unless the net length change is a multiple of three.
     if (len(site_alt) - len(site_ref)) % 3 == 0:
         return "InFrameIndel"
@@ -354,11 +363,13 @@ def _mut2eff(site, transcripts_by_chrom, fasta, strandness, pad):
             start = tx["start_codon_pos"]
             stop = tx["stop_codon_pos"]
             if start is not None and fasta is not None and tx_seq is not None:
-                cds = tx_seq[start : (stop + 1) if stop is not None else None]
+                # stop = first base of the stop codon; the CDS spans through
+                # stop + 2 (the stop codon is part of the CDS)
+                cds = tx_seq[start : (stop + 3) if stop is not None else None]
                 coding_pos = t_pos - start
                 codon_ref, aa_ref = _codon_and_aa(tx, t_pos, coding_pos, cds)
                 aa_pos = coding_pos // 3 + 1
-                if site.ref and site.alt and site.ref != "-":
+                if site.ref and site.alt and site.ref not in ("-", ".", "N") and site.alt not in ("-", ".", "N"):
                     if codon_ref:
                         mtype = _refine_cds_effect(
                             codon_ref, site.ref, site.alt, coding_pos
@@ -403,6 +414,7 @@ SEVERITY_ORDER = [
     "FivePrimeUTR",
     "ThreePrimeUTR",
     "Silent",
+    "CDS",
     "Substitution",
     "SpliceAcceptor",
     "SpliceDonor",
@@ -519,6 +531,9 @@ def run_effect(
             with xopen(input_file, "rt") as input_handle:
                 raw_lines = input_handle.readlines()
 
+            if not raw_lines:
+                return  # empty input: nothing to annotate
+
             if with_header:
                 header_line = raw_lines[0].rstrip("\n")
                 body_lines = raw_lines[1:]
@@ -539,7 +554,10 @@ def run_effect(
                 if not raw.strip():
                     continue
                 input_cols = raw.rstrip("\n").split(col_sep)
-                site = _site_from_cols(input_cols, columns_index_mapper, strandness)
+                try:
+                    site = _site_from_cols(input_cols, columns_index_mapper, strandness)
+                except (ValueError, IndexError):
+                    continue  # skip a malformed row instead of aborting the run
                 annot_list = _mut2eff(site, transcripts_by_chrom, fasta, strandness, npad)
                 for annot in annot_list:
                     output_handle.write(
@@ -555,7 +573,12 @@ def _site_from_cols(input_cols, columns_index_mapper, strandness):
     site = Site()
     for name, i in columns_index_mapper.items():
         if i < len(input_cols):
-            setattr(site, name, input_cols[i])
+            value = input_cols[i]
+            if name == "pos":
+                # input positions are 1-based (package convention); the
+                # internal engine works on 0-based half-open coordinates
+                value = int(value) - 1
+            setattr(site, name, value)
     if site.ref and site.ref != "-":
         site.ref = site.ref.upper()
     if site.alt and site.alt != "N":

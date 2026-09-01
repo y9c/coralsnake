@@ -47,10 +47,11 @@ _REGION_RANK = {
     "Silent": 7,
     "CDS": 8,
     "Substitution": 9,
-    "InFrameIndel": 10,
-    "FrameShift": 11,
-    "PrematureStop": 12,
-    "SpliceSite": 13,
+    "ComplexSubstitution": 10,
+    "InFrameIndel": 11,
+    "FrameShift": 12,
+    "PrematureStop": 13,
+    "SpliceSite": 14,
 }
 
 _REGION_NAMES = (
@@ -284,11 +285,18 @@ def _annotate_site(
             start = tx["start_codon_pos"]
             stop = tx["stop_codon_pos"]
             if start is not None and fasta is not None and tx_seq is not None:
-                cds = tx_seq[start : (stop + 1) if stop is not None else None]
+                # stop = first base of the stop codon; the CDS spans through
+                # stop + 2 (the stop codon is part of the CDS)
+                cds = tx_seq[start : (stop + 3) if stop is not None else None]
                 coding_pos = t_pos - start
                 codon_ref, aa_ref = _codon_and_aa(tx, t_pos, coding_pos, cds)
                 aa_pos = coding_pos // 3 + 1
-                if site.ref and site.alt and site.ref != "-":
+                if (
+                    site.ref
+                    and site.alt
+                    and site.ref not in ("-", ".", "N")
+                    and site.alt not in ("-", ".", "N")
+                ):
                     if codon_ref:
                         mut_type = _refine_cds_effect(
                             codon_ref, site.ref, site.alt, coding_pos
@@ -380,6 +388,8 @@ def run_annotate(
     col_sep = "\t"
     columns_index = [int(x) - 1 for x in str(columns).split(",")]
     columns_index_mapper = dict(zip(_ANNOTATE_COLUMNS, columns_index))
+    if "chrom" not in columns_index_mapper or "pos" not in columns_index_mapper:
+        raise ValueError("--columns must identify 'chrom' and 'pos' columns")
 
     if annotation_table is not None:
         return _run_annotate_table(
@@ -496,22 +506,24 @@ def _run_annotate_table(input_file, output_file, annot_file, columns, skip_heade
     with xopen(input_file, "rt") as fi, xopen(output_file, "wt") as fo:
         lines, chroms, positions, strands = _read_sites(fi, cols, skip_header)
         results = _annotate_batch(lines, chroms, positions, strands, tree, info)
-        write_header = True
+        # Header: placeholder names for the input columns (never leak a data
+        # row into the header), then the 13 unified annotation columns.
+        n_input = len(lines[0].split("\t")) if lines else 0
+        input_header = ["."] * n_input
+        for n, i in zip(("chrom", "pos", "strand"), cols):
+            if 0 <= i < n_input:
+                input_header[i] = n
+        fo.write("\t".join(input_header + _UNIFIED_COLUMNS) + "\n")
+        # region..distance2splice stay empty in table mode (10 columns)
+        pad = "\t" * (len(_UNIFIED_COLUMNS) - 3)
         for line, annot_list in zip(lines, results):
-            if write_header:
-                fo.write(line + "\tgene_id\ttranscript_id\ttranscript_pos\t"
-                         "region\tgene_pos\ttranscript_strand\tmut_type\t"
-                         "transcript_motif\tcoding_pos\tcodon_ref\taa_pos\taa_ref\t"
-                         "distance2splice\n")
-                write_header = False
             if annot_list:
                 for gene_id, transcript_id, transcript_pos in annot_list:
                     fo.write(
-                        f"{line}\t{gene_id}\t{transcript_id}\t{transcript_pos}"
-                        f"\t\t\t\t\t\t\t\t\t\n"
+                        f"{line}\t{gene_id}\t{transcript_id}\t{transcript_pos}{pad}\n"
                     )
             else:
-                fo.write(f"{line}\t.\t.\t.\t\t\t\t\t\t\t\t\t\n")
+                fo.write(f"{line}\t.\t.\t.{pad}\n")
 
 
 def _site_from_cols(input_cols, columns_index_mapper, strandness):
@@ -524,7 +536,9 @@ def _site_from_cols(input_cols, columns_index_mapper, strandness):
             value = input_cols[i]
             if name == "pos":
                 try:
-                    value = int(value)
+                    # input positions are 1-based (package convention); the
+                    # internal engine works on 0-based half-open coordinates
+                    value = int(value) - 1
                 except ValueError:
                     raise ValueError(
                         f"Position column not an integer: {value!r}"

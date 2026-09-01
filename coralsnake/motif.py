@@ -71,6 +71,10 @@ def get_motif(
     lfill = max(0, lpad - pos)            # leading bases that fall before 0
     rfill = max(0, rpad - (chrom_len - pos - 1))  # trailing bases past the end
 
+    if start >= end:
+        # every base of the window falls outside the contig -> all-N motif
+        return "N" * (lpad + 1 + rpad)
+
     if window_cache is None:
         seq = fasta.fetch(chrom, start, end)
     else:
@@ -155,6 +159,10 @@ def run_motif(
         results = [None] * len(rows)
         window_cache = {}
         for chrom_name, rids in by_chrom.items():
+            if chrom_name not in chrom_len_mapper:
+                raise ValueError(
+                    f"Chromosome {chrom_name!r} not found in the FASTA file"
+                )
             chrom_len = chrom_len_mapper[chrom_name]
             # Position order maximises sliding-window reuse within one chrom.
             rids.sort(key=lambda r: int(rows[r][columns_index_mapper["pos"]]))

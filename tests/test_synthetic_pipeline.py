@@ -99,13 +99,13 @@ class TestAnnotateGTF:
         return [dict(zip(header, ln.split("\t"))) for ln in lines[1:]]
 
     def test_plus_strand_regions(self, syn, fasta):
-        # (genomic pos, strand)  ->  (gene, region, transcript_pos)
+        # (genomic pos 1-based, strand)  ->  (gene, region, transcript_pos)
         cases = [
-            (12, "+", "g1", "FivePrimeUTR", "2"),
-            (25, "+", "g1", "CDS", "15"),
-            (65, "+", "g1", "ThreePrimeUTR", "35"),
-            (40, "+", "g1", "Intronic", None),
-            (5, "+", None, "Intergenic", None),
+            (13, "+", "g1", "FivePrimeUTR", "2"),
+            (26, "+", "g1", "CDS", "15"),
+            (66, "+", "g1", "ThreePrimeUTR", "35"),
+            (41, "+", "g1", "Intronic", None),
+            (6, "+", None, "Intergenic", None),
         ]
         rows = self._run(syn, [(p, s) for p, s, *_ in cases])
         for row, (p, s, gene, region, tpos) in zip(rows, cases):
@@ -116,9 +116,9 @@ class TestAnnotateGTF:
 
     def test_minus_strand_regions(self, syn, fasta):
         cases = [
-            (140, "-", "g2", "FivePrimeUTR", "9"),
-            (132, "-", "g2", "CDS", "17"),
-            (124, "-", "g2", "ThreePrimeUTR", "25"),
+            (141, "-", "g2", "FivePrimeUTR", "9"),
+            (133, "-", "g2", "CDS", "17"),
+            (125, "-", "g2", "ThreePrimeUTR", "25"),
         ]
         rows = self._run(syn, [(p, s) for p, s, *_ in cases])
         for row, (p, s, gene, region, tpos) in zip(rows, cases):
@@ -127,7 +127,7 @@ class TestAnnotateGTF:
             assert row["transcript_pos"] == tpos, p
 
     def test_noncoding_transcript(self, syn, fasta):
-        rows = self._run(syn, [(210, "+")])
+        rows = self._run(syn, [(211, "+")])
         assert rows[0]["region"] == "NoncodingTranscript"
         assert rows[0]["transcript_pos"] == "10"
 
@@ -135,7 +135,7 @@ class TestAnnotateGTF:
         from coralsnake.annotate import run_annotate
 
         inp = Path(syn["dir"]) / "var.tsv"
-        inp.write_text("chr1\t25\t+\tC\tG\n")  # codon bases at 25,26,27
+        inp.write_text("chr1\t26\t+\tC\tG\n")  # codon bases at 25,26,27 (0-based)
         out = Path(syn["dir"]) / "var_out.tsv"
         run_annotate(
             str(inp), str(out), syn["gtf"], reference_transcript=[syn["fa"]],

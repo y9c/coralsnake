@@ -179,7 +179,14 @@ class Transcript:
                 line.append(v)
             else:
                 line.append("")
-        line += [",".join([f"{v.start + 1}-{v.end}" for v in self.exons.values()])]
+        # spans are emitted in 5'->3' transcript order (deterministic,
+        # independent of the exons dict's insertion order, which get_seq()
+        # may re-sort) - table-mode annotation accumulates offsets in this
+        # order
+        exons = sorted(self.exons.values(), key=lambda e: e.start)
+        if self.strand == "-":
+            exons.reverse()
+        line += [",".join([f"{v.start + 1}-{v.end}" for v in exons])]
         if with_codon:
             # use the start postion of the span
             line += [

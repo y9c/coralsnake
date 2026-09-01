@@ -223,6 +223,10 @@ def _run_convert(direction, input_bam, output_bam, annotation_file, faidx_file, 
 
     ``t2g`` = transcript -> genome; ``g2t`` = genome -> transcript.
     """
+    if direction == "t2g" and not faidx_file:
+        raise click.ClickException(
+            "--faidx-file/-f is required for --direction t2g (genome FASTA index)."
+        )
     if direction == "g2t":
         from .gbam2tbam import convert_bam as g2t
 
@@ -309,6 +313,10 @@ def annot(
         raise click.ClickException(
             "Error: --add-count is not compatible with --collapse-annot"
         )
+    click.echo(
+        "Warning: 'annot' is deprecated - use 'annotate --annotation' instead.",
+        err=True,
+    )
     from .annot import run_annot
 
     run_annot(
@@ -450,7 +458,7 @@ def group(
     "-g",
     "gtf",
     type=click.Path(exists=True),
-    help="GTF/GFF file path for custom reference",
+    help="GTF file path for custom reference",
 )
 @click.option(
     "--region",
@@ -634,6 +642,14 @@ def metagene(
     )
     click.echo(f"Loaded {len(input_df)} input sites")
 
+    if bins <= 0:
+        raise click.ClickException("--bins must be a positive integer")
+    if weight_col_index and max(weight_col_index) >= len(input_df.columns):
+        raise click.ClickException(
+            f"--weight-columns references column {max(weight_col_index) + 1} but the "
+            f"input has only {len(input_df.columns)} column(s)"
+        )
+
     annotated_df = map_to_transcripts(input_df, exon_ref)
     click.echo("✓ Annotated transcripts")
 
@@ -688,6 +704,12 @@ def metagene(
             f"Gene splits - 5'UTR: {gene_splits[0]:.3f}, "
             f"CDS: {gene_splits[1]:.3f}, 3'UTR: {gene_splits[2]:.3f}"
         )
+        if gene_splits == (0.0, 0.0, 0.0):
+            click.echo(
+                "Warning: no mapped sites have CDS coordinates - the profile is "
+                "empty. Check that the reference has start_codon/stop_codon features.",
+                err=True,
+            )
 
     # Save annotated data
     if output_file:
@@ -978,7 +1000,7 @@ def coordinate(
     "-c",
     "columns",
     default="1,2,3,4,5",
-    help="Columns for site info. (Chrom,Pos,Strand,Ref,Alt) Ref/Alt optional.",
+    help="Columns for site info. (Chrom,Pos,Strand,Ref,Alt) Ref/Alt optional. Pos is 1-based.",
 )
 def annotate(
     input_file,
@@ -1052,7 +1074,7 @@ def annotate(
     "-c",
     "columns",
     default="1,2,3,4,5",
-    help="Columns for site info. (Chrom,Pos,Strand,Ref,Alt)",
+    help="Columns for site info. (Chrom,Pos,Strand,Ref,Alt) Pos is 1-based.",
 )
 def effect(
     input_file,
@@ -1068,6 +1090,10 @@ def effect(
     columns,
 ):
     """Annotate genomic variant effects."""
+    click.echo(
+        "Warning: 'effect' is deprecated - use 'annotate' (with a GTF + FASTA) instead.",
+        err=True,
+    )
     from .effect import run_effect
 
     try:

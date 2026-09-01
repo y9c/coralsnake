@@ -24,7 +24,7 @@ from functools import lru_cache
 import pysam
 from rich.progress import track
 
-from .utils import get_logger, load_annotation
+from .utils import get_logger, load_annotation, reverse_complement
 
 LOGGER = get_logger(__name__)
 
@@ -62,6 +62,7 @@ def _build_index(annot):
             "offs": offs,
             "length": tlen,
             "strand": tx.strand,
+            "chrom": tx.chrom,
         }
 
     for g_id in annot:
@@ -172,11 +173,13 @@ def _per_query_disposition(align, meta):
                 q += 1
         elif op == 3:  # N: reference-only (intron) - advance genome
             g += length
+        elif op == 6:  # P: reference-only (padding) - advance genome
+            g += length
         elif op == 4:  # S: query only (soft clip)
             for _ in range(length):
                 qdisp.append("C")
                 q += 1
-        elif op in (5, 8):  # H, P
+        elif op == 5:  # H: consumes neither query nor reference
             pass
     if q != qlen:
         return None  # input CIGAR/query length mismatch
@@ -235,14 +238,25 @@ def _make_segment(align, meta, t_header, cigar, t_start, t_end):
 
     new = pysam.AlignedSegment(header=t_header)
     new.query_name = align.query_name
-    new.query_sequence = align.query_sequence
-    new.query_qualities = align.query_qualities
-    # A '-' transcript is the reverse complement of the '+' genomic forward
-    # strand, so a read forward on the genome is reverse on the transcript
-    # (and vice-versa): flip the strand flag.
-    new.flag = flip_flag(align.flag) if meta["strand"] == "-" else align.flag
+    # A '-' transcript reference is the reverse complement of the genomic
+    # forward strand, and SEQ is always stored reference-forward (SAM spec),
+    # so the stored sequence/qualities must be re-oriented as well when the
+    # reference changes strands - not just the flag.
+    if meta["strand"] == "-":
+        new.flag = flip_flag(align.flag)
+        new.query_sequence = (
+            reverse_complement(align.query_sequence) if align.query_sequence else None
+        )
+        new.query_qualities = (
+            align.query_qualities[::-1] if align.query_qualities else None
+        )
+    else:
+        new.flag = align.flag
+        new.query_sequence = align.query_sequence
+        new.query_qualities = align.query_qualities
     for key, value in align.get_tags():
-        if key in ("NM", "MD", "AS", "XS", "YS", "XA"):  # reference-position-dependent
+        # reference-position-dependent tags are stale on the new reference
+        if key in ("NM", "MD", "AS", "XS", "YS", "XA", "SA", "XC"):
             continue
         new.set_tag(key, value)
     new.reference_start = t_start
@@ -308,6 +322,8 @@ def _remap_with_d(align, meta, t_header):
                 events.append((tpos(idx, g), "D"))
                 g += 1
         elif op == 3:  # N (intron)
+            g += length
+        elif op == 6:  # P (padding): reference-only - advance genome
             g += length
     if not events:
         return None
@@ -383,9 +399,15 @@ def _overlap_len(meta, align):
 
 
 def _pick_transcript(annot, align):
-    """Choose the best transcript: prefer full containment, then most overlap."""
+    """Choose the best transcript: prefer full containment, then most overlap.
+
+    Only transcripts on the read's own chromosome are considered (a read must
+    never be assigned across chromosomes just because its coordinates overlap).
+    """
     best, best_score = None, -1
     for tid, meta in annot.items():
+        if meta["chrom"] != align.reference_name:
+            continue
         if not _overlaps(meta, align):
             continue
         contained = all(
@@ -442,6 +464,32 @@ def convert_bam(input_bam, output_bam, annotation_file, threads=8, sort=False):
         _sort_out_bam(output_bam, threads)
 
 
+def _set_mate(new, align, meta, tid):
+    """Best-effort mate remap onto the same transcript as the read.
+
+    The mate's aligned length is not stored in SAM, so for a '-' transcript the
+    reported mate position is approximate (within one read length); for '+' it
+    is exact. Mates on a different chromosome, or whose position is not exonic
+    on this transcript, are left unset.
+    """
+    if align.next_reference_name != align.reference_name:
+        return
+    mate = _interval_to_transcript(
+        align.next_reference_start, align.next_reference_start + 1, meta
+    )
+    if mate is None:
+        return
+    if meta["strand"] == "+":
+        mate_t = mate[0]
+    else:
+        # the mate's leftmost transcript coordinate ~ its 3'-most base minus
+        # one read length
+        read_len = max(len(align.query_sequence or ""), 1)
+        mate_t = max(mate[0] - read_len + 1, 0)
+    new.next_reference_name = tid
+    new.next_reference_start = mate_t
+
+
 def _remap_one(align, annot, t_header):
     """Remap a single read; return an AlignedSegment or None (skipped)."""
     if align.is_unmapped or align.reference_name is None:
@@ -453,6 +501,8 @@ def _remap_one(align, annot, t_header):
     if new is None:
         return None
     new.reference_name = tid
+    if align.is_paired and align.next_reference_id >= 0:
+        _set_mate(new, align, annot[tid], tid)
     return new
 
 

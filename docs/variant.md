@@ -60,7 +60,9 @@ gene/transcript is this, and what does it do?".
 
 The same command serves a bare site (only chrom,pos,strand given ->
 gene/transcript/position + region, no FASTA needed) **and** a full variant
-(chrom,pos,strand,ref,alt + a genome FASTA -> coding codon/AA + effect):
+(chrom,pos,strand,ref,alt + a genome FASTA -> coding codon/AA + effect).
+Input positions are **1-based** (the package-wide site convention, shared with
+`motif` and the metagene 3-column mode).
 
 ```bash
 # site labeling (region + gene/transcript/position) - just a GTF
@@ -73,11 +75,11 @@ coralsnake annotate -i variants.tsv -o effects.tsv \
 
 | Option | Description                              |
 | ------ | ---------------------------------------- |
-| `-i, --input` | Input site/variant file.          |
+| `-i, --input` | Input site/variant file (**1-based** positions, like `motif`). |
 | `-o, --output` | Output annotation file.          |
 | `-g, --reference-gtf` | Reference GTF (**required**).     |
 | `-f, --reference-transcript` | Genome FASTA (needed for motif/codon/AA). |
-| `-s, --strandness` | Use strand information.          |
+| `-s, --strandness` | Use strand information (flip ref/alt for `-` sites). |
 | `-a, --all-effects` | Output all overlapping effects (not just the top). |
 | `-n, --npad` | Padding bases (default 10).       |
 | `-H, --with-header` | Input has a header.            |
@@ -120,6 +122,7 @@ a genome FASTA (`-f/--reference-transcript`) are supplied:
 | -------- | ------- | ------------ |
 | Silent | Codon change with no amino-acid change (synonymous). | CDS + ref/alt + FASTA |
 | Substitution | Codon change altering the amino acid (missense, non-stop). | CDS + ref/alt + FASTA |
+| ComplexSubstitution | Equal-length multi-base change (MNP). | CDS + ref/alt + FASTA |
 | PrematureStop | Substitution introducing an in-frame stop codon. | CDS + ref/alt + FASTA |
 | InFrameIndel | Net indel length is a multiple of three → frame kept. | CDS + ref/alt + FASTA |
 | FrameShift | Net indel length not a multiple of three → frame shifted. | CDS + ref/alt + FASTA |

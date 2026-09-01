@@ -22,23 +22,31 @@ def load_sites(
     """
     Load genomic sites from a file using Polars only.
     Returns:
-        Two Polars DataFrame with processed site information
-        df_input: Polars DataFrame with input site information
-        df_meta: Polars DataFrame with meta information
+        Polars DataFrame with processed site information (all input columns
+        plus the aliased Chromosome/Start/End/Strand columns)
     """
     df = pl.scan_csv(input_file_name, separator=separator, has_header=with_header)
     colnames = list(df.collect_schema())
 
     if meta_col_index is None:
         raise ValueError("meta_col_index must be provided")
+    if any(i < 0 or i >= len(colnames) for i in meta_col_index):
+        raise ValueError(
+            f"meta columns reference column {max(meta_col_index) + 1} but the input "
+            f"has only {len(colnames)} column(s); pass -m with valid 1-based indices "
+            f"(e.g. '1,2,3' for Chrom,Site,Strand or '1,2,3,6' for Chrom,Start,End,Strand)"
+        )
 
     meta_col_names = [colnames[i] for i in meta_col_index]
-    # check if the Chromosome, Start, End, Strand are in the colnames
-    # if so add the _original_ prefix, and return a new list of colnames
+    # Rename any header named exactly Chromosome/Start/End/Strand so the alias
+    # assignment below cannot collide with it.
     newnames = [
         "_original_" + col if col in ["Chromosome", "Start", "End", "Strand"] else col
         for col in colnames
     ]
+    # The meta columns' names AFTER the rename (schema_overrides are keyed by
+    # the pre-rename names, the with_columns aliases by the post-rename names).
+    meta_col_names_renamed = [newnames[i] for i in meta_col_index]
 
     df = pl.scan_csv(
         input_file_name,
@@ -48,19 +56,19 @@ def load_sites(
         schema_overrides={meta_col_names[0]: pl.Utf8, meta_col_names[-1]: pl.Utf8},
     )
 
-    if len(meta_col_names) == 4:
+    if len(meta_col_names_renamed) == 4:
         df = df.with_columns(
-            pl.col(meta_col_names[0]).alias("Chromosome"),
-            pl.col(meta_col_names[1]).alias("Start"),
-            pl.col(meta_col_names[2]).alias("End"),
-            pl.col(meta_col_names[3]).alias("Strand"),
+            pl.col(meta_col_names_renamed[0]).alias("Chromosome"),
+            pl.col(meta_col_names_renamed[1]).alias("Start"),
+            pl.col(meta_col_names_renamed[2]).alias("End"),
+            pl.col(meta_col_names_renamed[3]).alias("Strand"),
         )
-    elif len(meta_col_names) == 3:
+    elif len(meta_col_names_renamed) == 3:
         df = df.with_columns(
-            pl.col(meta_col_names[0]).alias("Chromosome"),
-            (pl.col(meta_col_names[1]) - 1).alias("Start"),
-            pl.col(meta_col_names[1]).alias("End"),
-            pl.col(meta_col_names[2]).alias("Strand"),
+            pl.col(meta_col_names_renamed[0]).alias("Chromosome"),
+            (pl.col(meta_col_names_renamed[1]) - 1).alias("Start"),
+            pl.col(meta_col_names_renamed[1]).alias("End"),
+            pl.col(meta_col_names_renamed[2]).alias("Strand"),
         )
     else:
         raise ValueError("meta_col_index must specify either 3 or 4 column indices")
@@ -133,7 +141,7 @@ def load_reference(species: str | None = None) -> pl.DataFrame | dict:
             "true",
             "yes",
         }
-        if (hasattr(sys, "stdin") and not sys.stdin.isatty()) or auto_env:
+        if (sys.stdin is None or not sys.stdin.isatty()) or auto_env:
             try:
                 download_references(species, silent=True)
                 return parse_feature_file(str(cache_path))

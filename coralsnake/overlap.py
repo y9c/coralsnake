@@ -153,10 +153,12 @@ def annotate_with_features(
         feature_indexed, on="feature_idx", suffix="_b"
     )
 
-    # Get the best overlap for each input interval (sort and take first per group)
+    # Get the best overlap for each input row (sort and take first per row).
+    # Grouping by the row index (not the coordinate triple) keeps duplicate
+    # input rows (same coordinates, different weights) as separate outputs.
     df = (
         df_joined.sort("Overlap", descending=True)
-        .group_by(["Chromosome", "Start", "End"], maintain_order=True)
+        .group_by("input_idx", maintain_order=True)
         .first()
     )
 
@@ -186,6 +188,11 @@ def annotate_with_features(
     # Calculate feature type ratios
     if type_ratios is not None:
         type_ratios_array = np.array(type_ratios)
+        if len(type_ratios_array) != 3:
+            raise ValueError(
+                f"type_ratios must have exactly 3 values (5UTR, CDS, 3UTR), "
+                f"got {len(type_ratios_array)}"
+            )
         type2ratio = dict(
             zip(["5UTR", "CDS", "3UTR"], type_ratios_array / np.sum(type_ratios_array))
         )

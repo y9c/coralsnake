@@ -155,13 +155,26 @@ def map_to_local(
     )
 
     if len(idx_query) == 0:
-        # No overlaps found - return empty result with expected columns
+        # No overlaps found - return an empty result with the full expected
+        # schema (extra query columns included, matching the non-empty path)
         result_cols = ["Chromosome", "Start", "End", "Strand"]
+        for col in original_query_cols:
+            if col not in ["Chromosome", "Start", "End", "Strand"]:
+                result_cols.append(col)
         if keep_global_chrom:
             result_cols.append("Chromosome_global")
         if keep_global_loc:
             result_cols.extend(["Start_global", "End_global", "Strand_global"])
-        return pl.DataFrame({col: [] for col in result_cols})
+        return pl.DataFrame(
+            {
+                col: (
+                    pl.Series([], dtype=query[col].dtype)
+                    if col in query.columns
+                    else pl.Series([], dtype=pl.Utf8)
+                )
+                for col in result_cols
+            }
+        )
 
     # Build overlapping pairs dataframe
     overlaps_df = pl.DataFrame(

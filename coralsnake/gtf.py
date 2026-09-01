@@ -135,14 +135,18 @@ def prepare_exon_ref(gtf_file: str) -> pl.DataFrame:
         ]
     )
 
-    pl_df_exon = pl_df_exon.with_columns(
+    # Sort exons into 5'->3' order within each transcript BEFORE the cumsum:
+    # cum_sum() accumulates in frame row order, and a sort_by() afterwards only
+    # reorders the accumulated values onto the wrong rows when the GTF lists
+    # exons out of transcript order (e.g. genomic order for '-' genes) - which
+    # produced wrong/negative local offsets.
+    pl_df_exon = pl_df_exon.sort(
+        ["gene_id", "transcript_id", "_order_key"]
+    ).with_columns(
         [
-            # cumulative sum ordered by strand-aware key, then shift to get start offset
+            # cumulative sum in transcript order, then shift to get start offset
             (
-                pl.col("_exon_len")
-                .cum_sum()
-                .sort_by(pl.col("_order_key"))
-                .over(["gene_id", "transcript_id"])
+                pl.col("_exon_len").cum_sum().over(["gene_id", "transcript_id"])
                 - pl.col("_exon_len")
             ).alias("Start_exon"),
         ]
@@ -236,6 +240,14 @@ def prepare_exon_ref(gtf_file: str) -> pl.DataFrame:
     if "stop_codon" in pos_codon_df.columns:
         pos_codon_df = pos_codon_df.rename({"stop_codon": "stop_codon_pos"})
 
+    # Ensure both codon columns exist: GTFs with no codon features at all (or
+    # only one of them) must not crash the cast below.
+    for name in ("start_codon_pos", "stop_codon_pos"):
+        if name not in pos_codon_df.columns:
+            pos_codon_df = pos_codon_df.with_columns(
+                pl.lit(None, dtype=pl.Int64).alias(name)
+            )
+
     # Merge with exon reference
     pl_tx = pl_df_exon.join(pos_codon_df, on="transcript_id", how="left")
 
@@ -248,6 +260,11 @@ def prepare_exon_ref(gtf_file: str) -> pl.DataFrame:
             pl.col("stop_codon_pos").cast(pl.Int32),
         ]
     )
+
+    # GTFs without an exon_number attribute must still satisfy the downstream
+    # annotation column contract.
+    if "exon_number" not in pl_tx.columns:
+        pl_tx = pl_tx.with_columns(pl.lit(None, dtype=pl.Utf8).alias("exon_number"))
 
     return pl_tx
 

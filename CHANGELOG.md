@@ -4,6 +4,77 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### ⚠ Behavior change: `annotate` / `effect` input positions are now 1-based
+- The fused `annotate` (GTF mode) and legacy `effect` commands interpreted the
+  input `Pos` as **0-based**, while `motif`, `annot`, metagene 3-column mode,
+  and `annotate --annotation` (table mode) all use the package-wide **1-based**
+  site convention. `annotate`/`effect` now convert 1-based input positions at
+  the boundary, so all site inputs behave identically. (This also fixes every
+  coordinate-dependent output of the GTF mode — region, codon, motif, distance
+  to splice — being shifted one base downstream for real inputs.)
+
+### Performance
+- **`annotate` (GTF mode) ~95× faster**: the per-site overlap used a Python
+  bisect + linear scan over every gene-body span on the chromosome; it now
+  uses chunked (50k-site) `ruranges` batch overlap, with the classifier running
+  only on true overlaps. Output schema/order/tie-break unchanged.
+- **`motif` batches FASTA access**: sites are grouped per chromosome and read
+  through a sorted sliding 4 Mb window instead of one faidx seek per site
+  (large win on big genomes); output order preserved.
+
+### Bug fixes (all regression-tested)
+- **`liftover -d g2t`**: reads on `-` transcripts now have SEQ/QUAL
+  reverse-complemented (SEQ is stored reference-forward per the SAM spec — the
+  previous output mismatched the transcript reference base-by-base);
+  cross-chromosome transcript assignment fixed (a read on chrX could be mapped
+  onto a chr1 transcript whose coordinates overlapped); mate position is
+  remapped for paired reads when possible; CIGAR `P` op handled; stale `SA`/`XC`
+  tags dropped.
+- **`liftover -d t2g`**: CIGAR `=`/`X` (and `P`) ops now consume the reference
+  (intron N's were missing → coordinates corrupted); `transcript_pos == length`
+  boundary raises the intended `ValueError` and malformed reads are demoted to
+  unmapped instead of aborting the run; mate position remapped (exact for `+`,
+  approximated within one read length for `-`); `SA`/`XA` tags dropped.
+- **`prepare`**: `--with-codon` now works for standard (Ensembl/GENCODE) GTFs
+  whose codon lines lack `exon_number`; exon spans in the output table are now
+  always in 5'→3' order (previously they flipped with `--seq-file`, corrupting
+  minus-strand `transcript_pos` in `annot`/table mode).
+- **metagene/GTF engine**: exon local offsets are correct even when a GTF lists
+  exons out of transcript order (was: wrong/negative `Start_exon` for `-`
+  genes); GTFs without codon features or `exon_number` no longer crash;
+  `--weight-names` now tracks the renamed weight columns (was: profile computed
+  on the wrong column); default `-m 1,2,3,6` auto-falls back to `1,2,3` for
+  3-column site files; friendly errors for out-of-range `-m`/`-w` and `--bins
+  <= 0`; warning when no sites have CDS coordinates.
+- **`annotate`**: the stop codon's 3 bases are CDS (were partially 3'UTR, with
+  the codon itself dropped from the CDS slice); placeholder `.`/`N` ref/alt no
+  longer fabricate variant effects; equal-length multi-base changes are
+  `ComplexSubstitution` (not `InFrameIndel`); untranslatable codons (gaps) are
+  no longer mislabeled `Silent`; table mode emits uniform 16-field rows, no
+  longer leaks the first data row into the header, and skips malformed rows;
+  `--columns` lacking chrom/pos errors up front; stale `.pickle` annotation
+  caches are re-parsed (mtime check); `effect` handles empty input / malformed
+  rows; the deprecated `annot`/`effect` commands now print a runtime warning.
+- **`io.load_sites`**: inputs with a header column named exactly
+  `Chromosome`/`Start`/`End`/`Strand` no longer crash; `map_to_local` empty
+  results keep the full column schema; reference downloads are atomic
+  (temp file + rename, no more corrupted caches).
+- **`motif`**: a site beyond the contig end yields an all-`N` motif instead of
+  crashing the run; unknown chromosome names raise a clear error.
+- **`overlap`**: duplicate input rows (same coordinates, different weights) are
+  no longer collapsed; `type_ratios` length is validated.
+- **`logo`**: non-ASCII motifs raise a clear error; import order fixed (ruff
+  E402).
+- **`seqops.c`**: `batch_base_conversion` validates list items (non-str items
+  raised `SystemError`).
+- **Verified NOT bugs** (audited, locked in by tests): minus-strand
+  sequence/CIGAR/MD handling in `t2g` (matches the SAM convention, confirmed by
+  samtools mpileup), the g2t reference walk direction, the gap-gap mask in
+  `genegroup` (pyfamsa yields int arrays), the weighted-logo IC formula
+  (inherited from `motiflogo`).
+
 ## [0.0.222] - 2026-08-31
 
 ### Architecture: `map` removed — N-color mapping lives in `prismalign`

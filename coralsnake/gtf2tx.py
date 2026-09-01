@@ -92,6 +92,18 @@ def read_gtf(gtf_file, is_gff=False, keep_annotation=False):
                 exon_id = d["exon_number"] if "exon_number" in d else d["exon"]
                 if "gene_name" not in d and "gene" in d:
                     d["gene_name"] = d["gene"]
+            elif (
+                feature_type in ("start_codon", "stop_codon")
+                and "gene_id" in d
+                and "transcript_id" in d
+            ):
+                # Standard GTFs (Ensembl/GENCODE) carry no exon_number on codon
+                # lines; codon features only need gene_id + transcript_id.
+                gene_id = d["gene_id"]
+                transcript_id = d["transcript_id"]
+                exon_id = None
+                if "gene_name" not in d and "gene" in d:
+                    d["gene_name"] = d["gene"]
             elif "Parent" in d and "ID" in d:
                 gene_id = d["Parent"]
                 # eg: NbL00g00020.1.exon.1 (last 1 is the exon number)
@@ -112,7 +124,7 @@ def read_gtf(gtf_file, is_gff=False, keep_annotation=False):
             else:
                 continue
             # if exon id is digit, convert to interger
-            if exon_id.isdigit():
+            if isinstance(exon_id, str) and exon_id.isdigit():
                 exon_id = int(exon_id)
 
             # infer transcript_support_level

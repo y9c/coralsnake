@@ -96,7 +96,7 @@ def transcript_to_genome(
     """
     transcript_pos is 0-based
     """
-    if transcript_pos > transcript.length or transcript_pos < 0:
+    if transcript_pos >= transcript.length or transcript_pos < 0:
         raise ValueError("Transcript position is out of range")
     # bisect_right dose not include the right bound
     # in math notation, it is [a, b)
@@ -121,6 +121,8 @@ def remap_to_genome(
         raise ValueError("CIGAR string is required")
 
     for tag in align.get_tags():
+        if tag[0] in ("SA", "XA"):  # embed transcript coordinates -> stale here
+            continue
         new_align.set_tag(*tag)
     if transcript.strand == "-":
         new_align.flag = flip_flag(align.flag)
@@ -142,11 +144,29 @@ def remap_to_genome(
     new_align.reference_name = transcript.chrom
     if next_transcript is not None:
         new_align.next_reference_name = next_transcript.chrom
+        # Remap the mate coordinate as well (paired-end support). SAM stores
+        # only the mate's reference_start, so for a '-' transcript the mate's
+        # aligned length is approximated by this read's.
+        try:
+            if next_transcript.strand == "+":
+                mate_pos, _ = transcript_to_genome(
+                    align.next_reference_start, next_transcript
+                )
+            else:
+                aln_len = align.reference_end - align.reference_start
+                mate_ref = next_transcript.length - (
+                    align.next_reference_start + aln_len
+                )
+                mate_ref = min(max(mate_ref, 0), next_transcript.length - 1)
+                mate_pos, _ = transcript_to_genome(mate_ref, next_transcript)
+            new_align.next_reference_start = mate_pos
+        except ValueError:
+            pass  # mate position out of range: keep the chromosome only
     new_align.reference_start = genome_pos
 
     new_cigar = []
     for op, length in cigartuples:
-        if op in (0, 2):  # Match, deletion
+        if op in (0, 2, 6, 7, 8):  # M, D, P, =, X all consume the reference
             while length > 0:
                 current_exon = transcript.exons_forwards[exon_index]
                 exon_remaining = current_exon.end - genome_pos
@@ -201,7 +221,16 @@ def parse_alignment(
         next_transcript = annot[align.next_reference_name]
     else:
         next_transcript = None
-    new_align = remap_to_genome(align, genome_header, transcript, next_transcript)
+    try:
+        new_align = remap_to_genome(align, genome_header, transcript, next_transcript)
+    except ValueError:
+        # Malformed alignment (e.g. CIGAR extends past the reference end):
+        # demote to unmapped instead of aborting the whole conversion.
+        align.reference_id = -1
+        align.reference_start = -1
+        align.next_reference_id = -1
+        align.next_reference_start = -1
+        return align
     return new_align
 
 

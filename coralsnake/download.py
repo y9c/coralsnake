@@ -8,6 +8,7 @@
 
 import urllib.request
 import urllib.error
+import os
 from pathlib import Path
 
 from rich.console import Console
@@ -204,9 +205,17 @@ def download_references(species: str, silent: bool = False) -> None:
                         logger.info(f"Skipping download for {species}.")
                         continue
 
-            # Download the file
+            # Download the file (to a temp path, then atomically rename, so an
+            # interrupted transfer can never leave a corrupt file in the cache)
             logger.info(f"Downloading {Path(info['parquet_file']).name}...")
-            urllib.request.urlretrieve(download_url, target_path)
+            tmp_path = target_path.with_name(target_path.name + ".tmp")
+            try:
+                urllib.request.urlretrieve(download_url, tmp_path)
+            except Exception:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+                raise
+            os.replace(tmp_path, target_path)
             size = format_file_size(get_file_size(target_path))
             logger.info(
                 f"{Emojis.CHECK} Successfully downloaded {Path(info['parquet_file']).name} ({size})"
