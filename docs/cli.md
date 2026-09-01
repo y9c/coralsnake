@@ -57,6 +57,36 @@ coralsnake prepare -g annotation.gtf -f genome.fa -o transcripts.fa \
 
 ---
 
+## `refine`
+
+Clean a genome FASTA and/or GTF **before** `prepare`: seqname renaming/filtering,
+gene/transcript name and type normalization, missing gene/transcript/exon row
+creation, overlapping-exon merge, canonical-transcript flagging, and coordinate
+checks. Codon and UTR features are preserved (so the output stays usable for
+`metagene` and `annotate`). Indexing uses pysam — no external samtools/bgzip/tabix.
+
+```
+coralsnake refine -f genome.fa -g annotation.gtf -o outdir -n hg38 \
+                  -m chrom_map.tsv -c canonical.tsv
+```
+
+| Option | Description                                  |
+| ------ | -------------------------------------------- |
+| `-f, --fasta-file` | Input genome FASTA (`.gz` ok).        |
+| `-g, --gtf-file` | Input GTF (`.gz` ok).                     |
+| `-o, --outdir` | Output directory (default `./`).           |
+| `-n, --name` | Output name prefix (default: outdir name). |
+| `-m, --rename-mapper` | TSV: old seqname → new seqname.    |
+| `-p, --seqname-pattern` | Keep seqnames matching this regex.    |
+| `-c, --canonical-transcripts` | TSV of canonical transcript IDs (1st column). |
+
+Outputs (under `<outdir>/<name>.*`): `.genome.fasta` (+ `.fai`, `.genome.sizes`),
+`.annotation.gtf` (+ `.gz` + tabix index), `.skip.gtf` (genes that failed
+checks), `.gene_features_summary.txt`. At least one of `-f`/`-g` is required.
+
+---
+
+
 ## `liftover`
 
 Remap a BAM between transcript and genome coordinates, **both directions**:

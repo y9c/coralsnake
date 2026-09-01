@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] (cont.) — `refine` command (from PR #2, reworked)
+
+New `coralsnake refine` command (genome FASTA + GTF cleaning before `prepare`),
+contributed by Zonggui Chen and reworked onto the package infrastructure:
+
+- **Attribute parsing reuses the hardened `gtf2tx.parse_gtf_annot`** (handles
+  quoted `;` inside values and a missing trailing `;`) instead of a hand-rolled
+  parser.
+- **Codon/UTR features are preserved** (the PR dropped start/stop_codon and UTR
+  rows, which would have broken `metagene` gene splits and `annotate` CDS
+  effects).
+- **Indexing via pysam** (`faidx`, `tabix_compress`/`tabix_index`) — no external
+  samtools/bgzip/tabix on PATH, no `shell=True`.
+- Crashes fixed: exon-only genes, CDS without a containing exon, and the empty
+  default `name` (which produced hidden dotfile outputs).
+- `refine` validates that at least one of `--fasta-file`/`--gtf-file` is given.
+- Verified end-to-end: refining the yeast R64 GTF keeps all 145/145 codons and
+  feeds `prepare --with-codon` correctly.
+
 ## [Unreleased]
 
 ### ⚠ Behavior change: `annotate` / `effect` input positions are now 1-based
