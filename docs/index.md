@@ -18,8 +18,6 @@ the results — **annotate** places sites/variants on the RNA hierarchy
 statistics + a publication-ready plot), **motif** fetches the strand-aware
 reference motif around each site, and **logo** renders a DNA/RNA sequence logo.
 
-## How it fits together
-
 ![Coralsnake pipeline overview](./coralsnake_overview.svg)
 
 ## Installation
