@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 600" width="100%" role="img"
+     aria-label="Mutation annotation types produced by coralsnake annotate: region values (Intergenic, Intronic, FivePrimeUTR, CDS, ThreePrimeUTR, NoncodingTranscript) drawn on a gene model, CDS effect refinements (Silent, Substitution, PrematureStop, InFrameIndel, FrameShift, IncompleteTranscript), and the severity order used for the top pick.">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#0460fc"/>
+    </marker>
+    <marker id="arrowGray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#9ca3af"/>
+    </marker>
+  </defs>
+
+  <style>
+    text { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+  </style>
+
+  <!-- Title -->
+  <text x="460" y="28" text-anchor="middle" font-size="22" font-weight="700" fill="#30353d">
+    annotate — mutation annotation types
+  </text>
+  <text x="460" y="47" text-anchor="middle" font-size="12.5" fill="#6b7280">
+    one unified engine: region for any site, CDS effect when ref/alt + genome FASTA are supplied
+  </text>
+
+  <!-- ================= REGION panel ================= -->
+  <rect x="40" y="64" width="840" height="246" rx="12" fill="#f8fafc" stroke="#0460fc" stroke-width="1.6"/>
+  <text x="56" y="88" font-size="15" font-weight="700" fill="#0460fc">region — where is the site? (no FASTA needed)</text>
+
+  <!-- 5' -> 3' arrow -->
+  <line x1="178" y1="120" x2="882" y2="120" stroke="#cfd8e3" stroke-width="1.4" marker-end="url(#arrowGray)"/>
+  <text x="168" y="124" text-anchor="end" font-size="11" font-weight="600" fill="#6b7280">5′</text>
+  <text x="892" y="124" font-size="11" font-weight="600" fill="#6b7280">3′</text>
+
+  <!-- intergenic flanks (no exonic box) -->
+  <line x1="124" y1="150" x2="192" y2="150" stroke="#cbd5e1" stroke-width="3"/>
+  <line x1="868" y1="150" x2="900" y2="150" stroke="#cbd5e1" stroke-width="3"/>
+
+  <!-- gene model: 5'UTR - CDS1 - intron - CDS2 - 3'UTR -->
+  <rect x="196" y="133" width="108" height="34" rx="4" fill="#e7f5ee" stroke="#2f855a" stroke-width="1.5"/>
+  <rect x="304" y="133" width="112" height="34" rx="4" fill="#dbeafe" stroke="#0460fc" stroke-width="1.5"/>
+  <line x1="416" y1="150" x2="584" y2="150" stroke="#9ca3af" stroke-width="2.4" stroke-dasharray="7 5"/>
+  <rect x="584" y="133" width="130" height="34" rx="4" fill="#dbeafe" stroke="#0460fc" stroke-width="1.5"/>
+  <rect x="714" y="133" width="150" height="34" rx="4" fill="#f3e8ff" stroke="#7c3aed" stroke-width="1.5"/>
+
+  <!-- splice-site callouts (exon|intron junctions) -->
+  <line x1="416" y1="104" x2="416" y2="128" stroke="#6b7280" stroke-width="1.2"/>
+  <circle cx="416" cy="100" r="2.4" fill="#6b7280"/>
+  <line x1="584" y1="104" x2="584" y2="128" stroke="#6b7280" stroke-width="1.2"/>
+  <circle cx="584" cy="100" r="2.4" fill="#6b7280"/>
+  <text x="416" y="96" text-anchor="middle" font-size="9.5" fill="#6b7280">donor</text>
+  <text x="584" y="96" text-anchor="middle" font-size="9.5" fill="#6b7280">acceptor</text>
+
+  <!-- region labels -->
+  <text x="158" y="193" text-anchor="middle" font-size="11.5" font-weight="600" fill="#6b7280">Intergenic</text>
+  <text x="250" y="193" text-anchor="middle" font-size="11.5" font-weight="600" fill="#2f855a">FivePrimeUTR</text>
+  <text x="360" y="193" text-anchor="middle" font-size="11.5" font-weight="600" fill="#0460fc">CDS</text>
+  <text x="500" y="193" text-anchor="middle" font-size="11.5" font-weight="600" fill="#9ca3af">Intronic</text>
+  <text x="649" y="193" text-anchor="middle" font-size="11.5" font-weight="600" fill="#0460fc">CDS</text>
+  <text x="789" y="193" text-anchor="middle" font-size="11.5" font-weight="600" fill="#7c3aed">ThreePrimeUTR</text>
+
+  <!-- noncoding transcript -->
+  <line x1="196" y1="226" x2="865" y2="226" stroke="#cbd5e1" stroke-width="1.4"/>
+  <rect x="196" y="215" width="669" height="20" rx="3" fill="#d1fae5" stroke="#2f855a" stroke-width="1.4"/>
+  <text x="530" y="229" text-anchor="middle" font-size="11" fill="#1f7a4d">non-coding transcript (lncRNA / miRNA / …) — no CDS</text>
+  <text x="196" y="261" font-size="11.5" font-weight="600" fill="#2f855a">NoncodingTranscript</text>
+  <text x="322" y="261" font-size="11" fill="#6b7280">exonic position on a transcript without start/stop codons → region stays NoncodingTranscript</text>
+
+  <!-- ================= CDS EFFECT panel ================= -->
+  <rect x="40" y="320" width="840" height="150" rx="12" fill="#eef4ff" stroke="#0460fc" stroke-width="1.6"/>
+  <text x="56" y="344" font-size="15" font-weight="700" fill="#0460fc">
+    CDS effect — mut_type refinement (needs site + ref/alt + genome FASTA)
+  </text>
+
+  <!-- effect chips -->
+  <rect x="56"  y="362" width="140" height="36" rx="8" fill="#ffffff" stroke="#0460fc" stroke-width="1.3"/>
+  <text x="126" y="385" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0460fc">Silent</text>
+  <rect x="212" y="362" width="140" height="36" rx="8" fill="#ffffff" stroke="#0460fc" stroke-width="1.3"/>
+  <text x="282" y="385" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0460fc">Substitution</text>
+  <rect x="368" y="362" width="140" height="36" rx="8" fill="#ffffff" stroke="#0460fc" stroke-width="1.3"/>
+  <text x="438" y="385" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0460fc">PrematureStop</text>
+  <rect x="524" y="362" width="140" height="36" rx="8" fill="#ffffff" stroke="#0460fc" stroke-width="1.3"/>
+  <text x="594" y="385" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0460fc">InFrameIndel</text>
+  <rect x="680" y="362" width="140" height="36" rx="8" fill="#ffffff" stroke="#0460fc" stroke-width="1.3"/>
+  <text x="750" y="385" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0460fc">FrameShift</text>
+
+  <rect x="56"  y="410" width="140" height="32" rx="8" fill="#f3f4f6" stroke="#9ca3af" stroke-width="1.2"/>
+  <text x="126" y="431" text-anchor="middle" font-size="12.5" font-weight="600" fill="#6b7280">IncompleteTranscript</text>
+  <text x="212" y="431" font-size="11" fill="#6b7280">
+    CDS site + FASTA, but the codon annotation is incomplete (no stop codon) → stays IncompleteTranscript
+  </text>
+
+  <!-- ================= SEVERITY strip ================= -->
+  <rect x="40" y="480" width="840" height="100" rx="12" fill="#fafafa" stroke="#9ca3af" stroke-width="1.4"/>
+  <text x="56" y="503" font-size="13" font-weight="700" fill="#30353d">
+    Top-pick precedence — when a site overlaps several transcripts, annotate reports the most severe
+  </text>
+  <text x="56" y="530" class="mono" font-size="11.5" fill="#374151">
+    Intergenic &lt; Intronic &lt; NoncodingTranscript &lt; IncompleteTranscript &lt; FivePrimeUTR &lt; ThreePrimeUTR &lt; IntronicSpliceSite
+  </text>
+  <text x="56" y="550" class="mono" font-size="11.5" fill="#374151">
+    &lt; Silent &lt; CDS &lt; Substitution &lt; InFrameIndel &lt; FrameShift &lt; PrematureStop &lt; SpliceSite
+  </text>
+  <text x="56" y="572" font-size="10.5" fill="#9ca3af">
+    IntronicSpliceSite / SpliceSite are legacy names from the deprecated `effect` command (kept in the ordering for compatibility).
+  </text>
+</svg>

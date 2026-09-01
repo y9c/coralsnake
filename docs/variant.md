@@ -94,6 +94,42 @@ mut_type  transcript_motif  coding_pos  codon_ref  aa_pos  aa_ref  distance2spli
 filled. The `mut_*`/coding columns are filled only when a genome FASTA and
 ref/alt were supplied; otherwise they are empty.
 
+### Mutation annotation types
+
+`annotate` emits one small fixed vocabulary, split across two columns — the
+figure below maps every type onto where it applies:
+
+<img src="./annotate_types.svg" width="100%" alt="Mutation annotation types: region labels on a gene model, CDS effect refinements, and the severity order used for the top pick">
+
+**region** — always filled; the position relative to the containing transcript
+(no FASTA needed):
+
+| region | Meaning |
+| ------ | ------- |
+| Intergenic | Outside every annotated gene body. |
+| Intronic | Inside a gene body but not in any exon. |
+| NoncodingTranscript | Exonic, on a transcript with no start/stop codon (non-coding biotype). |
+| FivePrimeUTR | Exonic, before the start codon. |
+| CDS | Exonic, inside the coding sequence. |
+| ThreePrimeUTR | Exonic, after the stop codon. |
+
+**mut_type** — the region by default; refined for CDS sites when ref/alt **and**
+a genome FASTA (`-f/--reference-transcript`) are supplied:
+
+| mut_type | Meaning | Emitted when |
+| -------- | ------- | ------------ |
+| Silent | Codon change with no amino-acid change (synonymous). | CDS + ref/alt + FASTA |
+| Substitution | Codon change altering the amino acid (missense, non-stop). | CDS + ref/alt + FASTA |
+| PrematureStop | Substitution introducing an in-frame stop codon. | CDS + ref/alt + FASTA |
+| InFrameIndel | Net indel length is a multiple of three → frame kept. | CDS + ref/alt + FASTA |
+| FrameShift | Net indel length not a multiple of three → frame shifted. | CDS + ref/alt + FASTA |
+| IncompleteTranscript | CDS site on a transcript with incomplete codon annotation (e.g. no stop codon). | CDS + FASTA, incomplete transcript |
+
+If several transcripts overlap one site, `annotate` reports the **most severe**
+annotation by default (severity order shown at the bottom of the figure) and all
+of them with `-a/--all-effects`. `IntronicSpliceSite` / `SpliceSite` are legacy
+names kept in the severity order from the deprecated `effect` command.
+
 ## Python API
 
 The commands are also importable functions.
