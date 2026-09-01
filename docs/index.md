@@ -9,23 +9,14 @@ nav_order: 1
 ![logo](./coralsnake_DNA.png)
 
 Coralsnake is an **exon-aware RNA analysis pipeline**, built around the exon
-structure of RNA: it turns a GTF/GFF into spliced transcript references, splices
-reads between transcript and genome coordinates, and runs the analyses you do on
-the results — site/variant annotation, metagene profiling and motif analysis.
-
-## Highlights
-
-- **Splice-aware BAM conversion** — `liftover` joins and splits reads between
-  transcript and genome coordinates, in both directions.
-- **Exon-aware annotation** — `annotate` places sites/variants on the RNA
-  hierarchy (5'UTR / CDS / 3'UTR / intronic / intergenic) and calls the variant
-  effect, in one fixed output schema.
-- **Exon-aware metagene profiling** — `metagene` profiles how sites distribute
-  across 5'UTR / CDS / 3'UTR (binned statistics + a publication-ready plot).
-- **Strand-aware motif analysis** — `motif` fetches the reference motif around
-  each site.
-- **Sequence-logo plotting** — `logo` renders a DNA/RNA logo (pure-numpy engine;
-  plotting via the optional `plot` extra).
+structure of RNA: it turns a GTF/GFF into spliced transcript references
+(`prepare`), **splices and joins** reads between transcript and genome
+coordinates in both directions (`liftover`), and runs the analyses you do on
+the results — **annotate** places sites/variants on the RNA hierarchy
+(5'UTR / CDS / 3'UTR / intronic / intergenic) and calls the variant effect,
+**metagene** profiles how sites distribute across 5'UTR / CDS / 3'UTR (binned
+statistics + a publication-ready plot), **motif** fetches the strand-aware
+reference motif around each site, and **logo** renders a DNA/RNA sequence logo.
 
 ## How it fits together
 
