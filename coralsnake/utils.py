@@ -283,7 +283,7 @@ def load_annotation(
         if with_header:
             header = f.readline().strip("\n").split("\t")
             gene_id_idx = header.index("gene_id")
-            transcript_id_idx = header.index("transcript_id")
+            transcript_id_idx = header.index("transcript_id") if "transcript_id" in header else gene_id_idx
             chrom_idx = header.index("chrom")
             strand_idx = header.index("strand")
             spans_idx = header.index("spans")
