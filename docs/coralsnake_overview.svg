@@ -118,19 +118,23 @@
   <!-- ================= VISUALIZATION: metagene ================= -->
   <rect x="468" y="412" width="198" height="150" rx="12" fill="#eafaf1" stroke="#2f855a" stroke-width="1.6"/>
   <text x="482" y="436" font-size="14" font-weight="700" fill="#2f855a">metagene</text>
-  <text x="482" y="455" font-size="10" fill="#6b7280">profile across 5'UTR/CDS/3'UTR</text>
-  <!-- region bar -->
-  <rect x="480" y="470" width="58" height="14" fill="#bbf7d0" stroke="#2f855a" stroke-width="0.8"/>
-  <rect x="538" y="470" width="58" height="14" fill="#2f855a" opacity="0.85"/>
-  <rect x="596" y="470" width="58" height="14" fill="#bbf7d0" stroke="#2f855a" stroke-width="0.8"/>
-  <text x="509" y="497" text-anchor="middle" font-size="9.5" fill="#374151">5'UTR</text>
-  <text x="567" y="497" text-anchor="middle" font-size="9.5" fill="#374151">CDS</text>
-  <text x="625" y="497" text-anchor="middle" font-size="9.5" fill="#374151">3'UTR</text>
-  <!-- profile curve + fill -->
-  <polygon points="480,540 498,527 516,506 538,495 556,489 567,487 578,491 596,506 614,527 636,540 654,544 654,548 480,548"
+  <text x="482" y="455" font-size="10" fill="#6b7280">density profile · 0–1 · multi-series</text>
+  <!-- region boundary lines (red = 5'UTR/CDS, green = CDS/3'UTR), as in plot_profile -->
+  <line x1="536" y1="464" x2="536" y2="548" stroke="#dc2626" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <line x1="602" y1="464" x2="602" y2="548" stroke="#2f855a" stroke-width="1.2" stroke-dasharray="4 3"/>
+  <!-- bold region labels -->
+  <text x="507" y="478" text-anchor="middle" font-size="9" font-weight="700" fill="#374151">5'UTR</text>
+  <text x="569" y="478" text-anchor="middle" font-size="9" font-weight="700" fill="#374151">CDS</text>
+  <text x="628" y="478" text-anchor="middle" font-size="9" font-weight="700" fill="#374151">3'UTR</text>
+  <!-- main series: filled profile peaking in CDS -->
+  <polygon points="480,540 500,528 520,508 540,496 555,490 570,488 585,492 600,504 620,524 640,538 654,542 654,548 480,548"
            fill="#2f855a" opacity="0.16"/>
-  <polyline points="480,540 498,527 516,506 538,495 556,489 567,487 578,491 596,506 614,527 636,540 654,544"
-            fill="none" stroke="#2f855a" stroke-width="2"/>
+  <polyline points="480,540 500,528 520,508 540,496 555,490 570,488 585,492 600,504 620,524 640,538 654,542"
+            fill="none" stroke="#2f855a" stroke-width="1.8"/>
+  <!-- secondary series (multi-metric overlay, as in count_* columns) -->
+  <polyline points="480,544 500,535 520,519 540,509 555,505 570,503 585,507 600,517 620,533 640,543 654,546"
+            fill="none" stroke="#9467bd" stroke-width="1"/>
+  <!-- x axis -->
   <line x1="480" y1="548" x2="654" y2="548" stroke="#2f855a" stroke-width="1.2"/>
 
   <!-- ================= VISUALIZATION: logo ================= -->
