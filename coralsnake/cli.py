@@ -8,8 +8,12 @@ __VERSION__ = importlib.metadata.version("coralsnake")
 click.rich_click.COMMAND_GROUPS = {
     "coralsnake": [
         {
+            "name": "Reference Preparation",
+            "commands": ["refine", "prepare"],
+        },
+        {
             "name": "Read Mapping",
-            "commands": ["refine", "prepare", "liftover"],
+            "commands": ["liftover"],
         },
         {
             "name": "Site & Variant Annotation",
@@ -114,6 +118,7 @@ class CoralsnakeGroup(click.RichGroup):
 def cli(ctx):
     pass
 
+
 @cli.command(
     help="Refine genome fasta and gtf files.",
     no_args_is_help=True,
@@ -123,9 +128,27 @@ def cli(ctx):
 @click.option("--gtf-file", "-g", "gtf_file", help="GTF file.", default=None)
 @click.option("--outdir", "-o", "outdir", help="Output directory.", default="./")
 @click.option("--name", "-n", "name", help="Name of refined genome.", default=None)
-@click.option("--rename-mapper", "-m", "rename_mapper", help="Rename mapper file (TSV format, 1st column is old seqname, 2nd column is new seqname).", default=None)
-@click.option("--seqname-pattern", "-p", "seqname_pattern", help="Seqname pattern (regex).", default=None)
-@click.option("--canonical-transcripts", "-c", "canonical_transcripts", help="Canonical transcripts file (TSV; 1st column is the transcript ID).", default=None)
+@click.option(
+    "--rename-mapper",
+    "-m",
+    "rename_mapper",
+    help="Rename mapper file (TSV format, 1st column is old seqname, 2nd column is new seqname).",
+    default=None,
+)
+@click.option(
+    "--seqname-pattern",
+    "-p",
+    "seqname_pattern",
+    help="Seqname pattern (regex).",
+    default=None,
+)
+@click.option(
+    "--canonical-transcripts",
+    "-c",
+    "canonical_transcripts",
+    help="Canonical transcripts file (TSV; 1st column is the transcript ID).",
+    default=None,
+)
 def refine(
     fasta_file,
     gtf_file,

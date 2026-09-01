@@ -222,6 +222,52 @@ class TestGtfRefiner:
         assert rows[1].startswith("g1\tt1\t")
 
 
+class TestTableLiftoverIntegration:
+    def test_refine_feeds_liftover_table(self, tmp_path):
+        """`refine` -> `prepare` table -> `liftover --table` (t2g + g2t).
+
+        Regression guard that the refined GTF stays a drop-in reference for the
+        new `liftover --table` sites converter on top of the shared pipeline.
+        """
+        from coralsnake.gtf2tx import parse_file
+        from coralsnake.refine import refine_genome_references
+        from coralsnake.table_liftover import run_liftover_table
+
+        gtf = tmp_path / "in.gtf"
+        gtf.write_text(_gtf1_gene())
+        prefix = refine_genome_references(
+            input_gtf=str(gtf), outdir=str(tmp_path), name="test"
+        )
+        table = tmp_path / "prepared.tsv"
+        parse_file(prefix + ".annotation.gtf", None, str(table))
+
+        # t2g: (gene, 1-based tx pos) -> (GenomeChrom, GenomePos)
+        t2g_in = tmp_path / "t2g.tsv"
+        t2g_in.write_text("Chrom\tPos\ng1\t10\ng1\t1\n")
+        t2g_out = tmp_path / "t2g.out.tsv"
+        run_liftover_table(str(t2g_in), str(t2g_out), str(table), "t2g")
+        out = t2g_out.read_text().strip().split("\n")
+        assert out[1].split("\t") == ["g1", "10", "chr1", "109"]
+        assert out[2].split("\t") == ["g1", "1", "chr1", "100"]
+
+        # g2t round-trip: (GenomeChrom, Pos, Strand) -> (Gene, GenePos)
+        g2t_in = tmp_path / "g2t.tsv"
+        g2t_in.write_text("Chrom\tPos\tStrand\nchr1\t109\t+\n")
+        g2t_out = tmp_path / "g2t.out.tsv"
+        run_liftover_table(str(g2t_in), str(g2t_out), str(table), "g2t")
+        row = g2t_out.read_text().strip().split("\n")[1].split("\t")
+        assert row == ["chr1", "109", "+", "g1", "10"]
+
+
+def _gtf1_gene():
+    """A single-exon + strand gene spanning chr1:100-300 (1-based)."""
+    return (
+        'chr1\tens\tgene\t100\t300\t.\t+\t.\tgene_id "g1"; gene_name "Foo"; gene_type "protein_coding";\n'
+        'chr1\tens\ttranscript\t100\t300\t.\t+\t.\tgene_id "g1"; transcript_id "t1"; gene_type "protein_coding"; transcript_type "protein_coding";\n'
+        'chr1\tens\texon\t100\t300\t.\t+\t.\tgene_id "g1"; transcript_id "t1"; exon_number "1";\n'
+    )
+
+
 class TestRefineCli:
     def test_neither_input_is_an_error(self):
         from click.testing import CliRunner

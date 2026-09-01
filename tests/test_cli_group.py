@@ -34,6 +34,8 @@ class TestHelpNoErrorPanel:
         "cmd",
         [
             ["--help"],
+            ["refine", "--help"],
+            ["prepare", "--help"],
             ["annot", "--help"],
             ["effect", "--help"],
             ["annotate", "--help"],
