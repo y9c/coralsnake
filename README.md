@@ -13,8 +13,11 @@ RNA carries three structural properties that any analysis pipeline must
 respect: an **abundance hierarchy** (ribosomal rRNA is orders of magnitude more
 abundant than mRNA), **strand orientation** (sense vs. antisense), and
 **splicing** (mRNAs are assembled from exons, so a transcript does not line up
-with its genomic locus). Coralsnake is an **exon-aware RNA analysis pipeline**
-built around exactly these properties: it turns a GTF/GFF into spliced
+with its genomic locus). Conventional genomics tools are built around DNA — a
+linear, double-stranded reference where each locus lines up 1:1 with the
+sequence — and tend to miss these RNA-specific properties. Coralsnake is an
+**exon-aware RNA analysis pipeline** built around exactly these properties: it
+turns a GTF/GFF into spliced
 transcript references (`prepare`), **splices and joins** reads between
 transcript and genome coordinates in both
 directions (`liftover`), and runs the analyses you do on the results —
@@ -23,7 +26,7 @@ intronic / intergenic) and calls the variant effect, **metagene** profiles how
 sites distribute across 5'UTR / CDS / 3'UTR, **motif** fetches the strand-aware
 reference motif around each site, and **logo** renders a DNA/RNA sequence logo.
 
-<img src="https://coralsnake.yech.science/coralsnake_overview.svg" alt="Coralsnake pipeline overview" style="width: 720px; max-width: 100%;" />
+<img src="https://coralsnake.yech.science/coralsnake_overview.svg?v=2" alt="Coralsnake pipeline overview" style="width: 720px; max-width: 100%;" />
 
 ## Installation
 
