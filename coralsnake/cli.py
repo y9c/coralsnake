@@ -260,18 +260,38 @@ def _run_convert(direction, input_bam, output_bam, annotation_file, faidx_file, 
     "--annotation-file", "-a", "annotation_file", help="Annotation file.", required=True
 )
 @click.option(
+    "--table", "table_mode", is_flag=True,
+    help="Convert a sites TABLE between transcript(gene) and genome coordinates" )
+@click.option("--gene-col", "gene_col", default="Chrom", help="gene column (t2g) / chrom column (g2t)")
+@click.option("--pos-col", "pos_col", default="Pos", help="position column (1-based)")
+@click.option("--strand-col", "strand_col", default="Strand", help="strand column (g2t)")
+@click.option(
     "--faidx-file", "-f", "faidx_file", help="Faidx file (required for 't2g')."
 )
 @click.option("--threads", "-t", "threads", help="Threads.", default=8)
 @click.option("--sort", "-s", "sort", help="Sort.", is_flag=True)
-def liftover(direction, input_bam, output_bam, annotation_file, faidx_file, threads, sort):
-    """Convert a BAM between genome and transcript coordinates (choose --direction).
+def liftover(direction, input_bam, output_bam, annotation_file, faidx_file,
+             threads, sort, table_mode, gene_col, pos_col, strand_col):
+    """Convert reads (BAM) or a sites TABLE between genome and transcript
+    coordinates (choose --direction).
 
     ``--direction t2g`` (default) remaps transcriptome-aligned reads back to
     genome coordinates; ``--direction g2t`` remaps genome-aligned reads back to
     transcript coordinates (this is the former standalone ``gbam2tbam`` command,
     now fully fused into ``liftover``).
+
+    ``--table`` converts a tab-separated sites table instead:
+      t2g: input has a gene column (--gene-col) and 1-based transcript
+           position (--pos-col); appends GenomeChrom/GenomePos.
+      g2t: input has chromosome (--gene-col), position (--pos-col) and strand
+           (--strand-col); appends Gene/GenePos.
     """
+    if table_mode:
+        from .table_liftover import run_liftover_table
+        run_liftover_table(input_bam, output_bam, annotation_file, direction,
+                           gene_col=gene_col, pos_col=pos_col,
+                           strand_col=strand_col)
+        return
     _run_convert(direction, input_bam, output_bam, annotation_file, faidx_file, threads, sort)
 
 
