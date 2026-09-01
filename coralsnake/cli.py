@@ -9,7 +9,7 @@ click.rich_click.COMMAND_GROUPS = {
     "coralsnake": [
         {
             "name": "Read Mapping",
-            "commands": ["prepare", "liftover"],
+            "commands": ["refine", "prepare", "liftover"],
         },
         {
             "name": "Site & Variant Annotation",
@@ -113,6 +113,38 @@ class CoralsnakeGroup(click.RichGroup):
 @click.pass_context
 def cli(ctx):
     pass
+
+@cli.command(
+    help="Refine genome fasta and gtf files.",
+    no_args_is_help=True,
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+@click.option("--fasta-file", "-f", "fasta_file", help="Fasta file.", default=None)
+@click.option("--gtf-file", "-g", "gtf_file", help="GTF file.", default=None)
+@click.option("--outdir", "-o", "outdir", help="Output directory.", default="./")
+@click.option("--name", "-n", "name", help="Name of refined genome.", default=None)
+@click.option("--rename-mapper", "-m", "rename_mapper", help="Rename mapper file (TSV format, 1st column is old seqname, 2nd column is new seqname).", default=None)
+@click.option("--seqname-pattern", "-p", "seqname_pattern", help="Seqname pattern.", default=None)
+@click.option("--canonical-transcripts", "-c", "canonical_transcripts", help="Canonical transcripts file (TSV format, 1st column is transcript ID, 2nd column is gene ID).", default=None)
+def refine(
+    fasta_file,
+    gtf_file,
+    outdir,
+    name,
+    rename_mapper,
+    seqname_pattern,
+    canonical_transcripts,
+):
+    from .refine import refine_genome_references
+    refine_genome_references(
+        input_fasta=fasta_file,
+        input_gtf=gtf_file,
+        outdir=outdir,
+        name=name,
+        rename_mapper=rename_mapper,
+        seqname_pattern=seqname_pattern,
+        canonical_transcripts=canonical_transcripts,
+    )
 
 
 @cli.command(
