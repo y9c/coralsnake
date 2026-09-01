@@ -108,11 +108,111 @@ static PyObject* convert_fasta_file(PyObject* self, PyObject* args) {
     gzclose(in); fclose(out); Py_RETURN_NONE;
 }
 
+/* reverse_md(md) — C port of tbam2gbam's Python reverse_md.
+ *
+ * Reverse the direction of an MD:Z tag (used when flipping a read for a '-'
+ * transcript during liftover). Algorithm (identical to the Python original):
+ *   - tokenize MD into numbers, mismatch bases, and deletions ("^BASES")
+ *   - reverse the token list
+ *   - merge adjacent numbers (they sum), re-inserting the total as decimal
+ *   - deletion: complement each base and reverse their order
+ */
+typedef struct { unsigned char kind; long val; long st; long len; unsigned char base; } md_tok_t;
+
+static inline int md_itoa(long val, char* buf) {
+    if (val == 0) { *buf = '0'; return 1; }
+    char tmp[24]; int len = 0;
+    while (val > 0) { tmp[len++] = (val % 10) + '0'; val /= 10; }
+    for (int i = 0; i < len / 2; i++) { char t = tmp[i]; tmp[i] = tmp[len - 1 - i]; tmp[len - 1 - i] = t; }
+    memcpy(buf, tmp, len);
+    return len;
+}
+
+static inline unsigned char md_complement(unsigned char c) {
+    switch (c) {
+        case 'A': return 'T';
+        case 'C': return 'G';
+        case 'G': return 'C';
+        case 'T': return 'A';
+        case 'N': return 'N';
+        default: return c;
+    }
+}
+
+static PyObject* reverse_md(PyObject* self, PyObject* args) {
+    const char* md; Py_ssize_t md_len;
+    if (!PyArg_ParseTuple(args, "s#", &md, &md_len)) return NULL;
+    if (md_len == 0) return PyUnicode_FromString("");
+    Py_ssize_t cap = md_len + 1;
+    md_tok_t* toks = (md_tok_t*)malloc(cap * sizeof(md_tok_t));
+    if (!toks) return PyErr_NoMemory();
+    Py_ssize_t ntok = 0;
+    const char* p = md;
+    while (*p) {
+        if (*p >= '0' && *p <= '9') {
+            long v = 0;
+            while (*p >= '0' && *p <= '9') { v = v * 10 + (*p - '0'); p++; }
+            toks[ntok].kind = 0; toks[ntok].val = v; ntok++;
+        } else if (*p == '^') {
+            p++;
+            toks[ntok].kind = 2; toks[ntok].st = p - md; toks[ntok].len = 0;
+            while (*p && ( (*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') )) { toks[ntok].len++; p++; }
+            ntok++;
+        } else if ((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z')) {
+            toks[ntok].kind = 1; toks[ntok].base = md_complement((unsigned char)*p); ntok++; p++;
+        } else { p++; }
+    }
+
+    // Pass 1: compute the output length (reverse traversal, merging adjacent numbers)
+    long pending = 0;
+    Py_ssize_t out_len = 0;
+    char tmp[24];
+    for (Py_ssize_t i = ntok - 1; i >= 0; i--) {
+        if (toks[i].kind == 0) {
+            pending += toks[i].val;
+        } else {
+            out_len += md_itoa(pending, tmp);
+            pending = 0;
+            if (toks[i].kind == 1) out_len += 1;
+            else out_len += 1 + toks[i].len;  // '^' + bases
+        }
+    }
+    out_len += md_itoa(pending, tmp);
+
+    // Pass 2: fill the output buffer
+    char* out = (char*)malloc((size_t)out_len + 1);
+    if (!out) { free(toks); return PyErr_NoMemory(); }
+    Py_ssize_t o = 0;
+    pending = 0;
+    for (Py_ssize_t i = ntok - 1; i >= 0; i--) {
+        if (toks[i].kind == 0) {
+            pending += toks[i].val;
+        } else {
+            o += md_itoa(pending, out + o);
+            pending = 0;
+            if (toks[i].kind == 1) {
+                out[o++] = (char)toks[i].base;
+            } else {
+                out[o++] = '^';
+                for (long j = 0; j < toks[i].len; j++) {
+                    out[o++] = (char)md_complement((unsigned char)md[toks[i].st + toks[i].len - 1 - j]);
+                }
+            }
+        }
+    }
+    o += md_itoa(pending, out + o);
+    out[o] = '\0';
+    PyObject* res = PyUnicode_FromStringAndSize(out, o);
+    free(out); free(toks);
+    return res;
+}
+
 static PyMethodDef SeqOpsMethods[] = {
     {"score_and_tag", score_and_tag, METH_VARARGS, ""},
     {"reverse_complement", reverse_complement, METH_VARARGS, ""},
     {"batch_base_conversion", batch_base_conversion, METH_VARARGS, ""},
     {"convert_fasta_file", convert_fasta_file, METH_VARARGS, ""},
+    {"reverse_md", reverse_md, METH_VARARGS, ""},
     {NULL, NULL, 0, NULL}
 };
 

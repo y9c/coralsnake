@@ -45,10 +45,13 @@ class TestReverseMd:
         # ^ACGT: comp=TGCA, rev=ACGT → same
         assert reverse_md("0^ACGT0") == "0^ACGT0"
 
-    def test_cache_identity(self):
+    def test_stable_value(self):
+        # value-stable across calls (the fast C kernel is not cached by object
+        # identity like the old lru_cached regex implementation, so compare
+        # by value — and it is the value that matters downstream)
         a = reverse_md("5A5")
         b = reverse_md("5A5")
-        assert a is b
+        assert a == b
 
 
 # ---------------------------------------------------------------------------

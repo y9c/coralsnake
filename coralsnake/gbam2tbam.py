@@ -6,7 +6,7 @@
 #
 # gbam2tbam: remap a GENOME-aligned BAM back onto TRANSCRIPT references.
 #
-# Inverse of `tbam2gbam` (`coralsnake liftover`, `coralsnake tbam2gbam`).
+# Inverse of `tbam2gbam` (`coralsnake liftover --direction t2g`).
 # Reads aligned to genomic coordinates are clipped at exon boundaries and
 # re-mapped to per-transcript reference sequences in 5'->3' orientation
 # (matching the transcript FASTA emitted by `prepare`). Introns disappear, so a

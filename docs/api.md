@@ -22,25 +22,34 @@ from coralsnake.utils import Span, Transcript, reverse_complement, load_faidx
 - `reverse_complement(seq)` — reverse-complement a nucleotide string.
 - `load_faidx(path)` / `load_annotation(path)` — I/O helpers.
 
-## Two-color mapping (`coralsnake.mapping`)
+## Mapping (`coralsnake.mapping` removed)
+
+`coralsnake.mapping` was removed in 0.0.222. Mapping is out of scope:
+
+- **plain alignment** → `from bwamem import BwaAligner` (`bwamem` package)
+- **nucleotide-conversion (two-color / three-color / 3-nt)** →
+  `from prismalign import NColorMapper` (`prismalign` package, pluggable
+  backends: bwamem / minimap2-mappy / pure-Python)
+
+Feed the resulting BAM into `prepare` + `liftover` (both `--direction` options) as usual.
+
+## Annotation (`coralsnake.annotate`)
+
+The unified site/variant annotation tool is importable as a function:
 
 ```python
-from coralsnake.mapping import map_file, score_to_mapq
+from coralsnake.annotate import run_annotate, Annotation
 
-map_file(r1_file, r2_file, ref_files, output_files, unmap_file, report_file,
-         forward_library, max_mismatches, threads, min_alignment_length,
-         min_mapping_ratio, max_a2g_ratio, max_c2t_ratio, index_dir,
-         index_only, batch_size, orientation_filter)
+run_annotate(input_file, output_file, reference_gtf,
+             reference_transcript="genome.fa", strandness=True)
 ```
 
-## Annotation (`coralsnake.annot`)
-
-```python
-from coralsnake.annot import run_annot
-
-run_annot(input_file, output_file, annot_file, cols="1,2,3",
-          keep_na=True, collapse_annot=False, add_count=False, skip_header=False)
-```
+`run_annotate(...)` labels a bare site (chrom,pos,strand) with its
+gene/transcript/position + region and — with a genome FASTA + ref/alt — the
+full variant effect (codon/AA + mut_type). `Annotation` is the output-row
+dataclass whose `COLUMNS` order defines the output column order. A
+precomputed `prepare` table can be passed as `annotation_table` for fast
+table mode.
 
 ## Gene grouping (`coralsnake.genegroup`)
 
@@ -92,28 +101,21 @@ logo.plot(ax)   # requires coralsnake[plot]
 
 `Mlogo` computes the score matrix with pure numpy; plotting needs matplotlib.
 
-## Variant analysis (`coralsnake.effect`, `.motif`, `.coordinate`)
+## Variant analysis (`coralsnake.annotate`, `.motif`, `.coordinate`)
 
-The fused variant subcommands are importable functions.
+The variant subcommands are importable functions.
 
 ```python
-from coralsnake.effect import run_effect
+from coralsnake.annotate import run_annotate, Annotation  # unified site/variant annotation
 from coralsnake.motif import run_motif
 from coralsnake.coordinate import run_coordinate
 ```
 
-Shared types/constants live in `coralsnake.effect`:
-
-```python
-from coralsnake.effect import Annot, Site, IUPAC, CODON_TABLE, reverse_base
-```
-
-- `Site` / `Annot` — input/output row dataclasses. `Annot`'s field order
-  defines the output column order (identical to the standalone `variant`).
-- `IUPAC` / `CODON_TABLE` / `reverse_base` — ambiguity codes, the standard
-  genetic code, and strand helpers.
-- `effect.build_transcript_index(gtf_file)` / `effect.site2mut(...)` — lower
-  level building blocks for the classifier.
+- `run_annotate(...)` — label a site with gene/transcript/position + region and
+  (with a genome FASTA + ref/alt) the full variant effect, in one fixed output
+  schema. `Annotation`'s field order defines the output column order.
+- `get_motif` / `run_motif` — strand-aware genomic motif fetch.
+- `run_coordinate` — chromosome-name mapping (UCSC ↔ Ensembl).
 
 ## I/O conventions
 

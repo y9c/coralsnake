@@ -9,10 +9,54 @@
     </picture>
 </p>
 
-Coralsnake is a transcriptome mapping toolkit. In addition to the
-two-color mapping workflow (`prepare`, `map`, `liftover`, `annot`, `group`), it
-now bundles the full **metagene** profiling analysis and a **sequence-logo**
-plotter as first-class subcommands.
+Coralsnake is an **exon-aware RNA analysis pipeline**. Its core is the
+exon structure of RNA: it assembles exons into transcript references
+(`prepare`), and then **splices and joins** reads between transcript and
+genome coordinates (`liftover`), runs exon-aware
+metagene profiling, and annotates sites to genes/transcripts. It also bundles a
+sequence-logo plotter as a first-class subcommand.
+
+Nucleotide-conversion (two-color / three-color) mapping is **not** part of
+coralsnake any more: it lives in the dedicated
+[`prismalign`](https://github.com/y9c/prismalign) package (pluggable backends:
+bwamem, minimap2/mappy, pure-Python), on top of the lightweight
+[`bwamem`](https://github.com/y9c/bwamem) BWA-MEM binding.
+
+## Overview
+
+How the subcommands fit together:
+
+```text
+           coralsnake — exon-aware RNA pipeline
+      (read alignment is external: bwa / prismalign / ...)
+
+  reads ── external mapper ──► aligned BAM
+                                    │
+                                    ▼
+       ┌─────────────────────────────────────────────────┐
+       │  prepare    GTF/GFF + genome.fa ► transcript.fa  │
+       │             (exon-spliced transcript reference)  │
+       │                                                  │
+       │  liftover   one command, both directions:        │
+       │             -d t2g   tx.bam ► genome.bam         │
+       │             -d g2t   genome.bam ► tx.bam         │
+       └─────────────────────────────────────────────────┘
+                                    │
+                   sites.tsv (chrom,pos,strand[,ref,alt])
+                                    │
+  ┌────────────┬────────────┬────────────┬────────────┬────────────┐
+  ▼            ▼            ▼            ▼            ▼
+  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
+  │  annotate  │ │   motif    │ │ coordinate │ │  metagene  │ │   group    │
+  └────────────┘ └────────────┘ └────────────┘ └────────────┘ └────────────┘
+   gene/transc    motif seq     chrom names    metagene      gene clusters
+   + region +     (strand-      (UCSC ⇄        profile       + consensus
+   effect         aware)        Ensembl)       (+ plot)
+
+       ┌────────────┐
+       │    logo    │   motifs ► sequence-logo image
+       └────────────┘
+```
 
 ## Installation
 
@@ -32,35 +76,37 @@ pip install "coralsnake[plot]"
 
 | Route | Command | Description |
 | ----- | ------- | ----------- |
-| t -> g | `liftover` / `tbam2gbam` | Remap transcriptome-aligned reads to genome coordinates. |
-| g -> t | `gbam2tbam` | Remap genome-aligned reads back to transcript coordinates. |
+| t -> g | `liftover` | Remap transcriptome-aligned reads to genome coordinates (default `--direction t2g`). |
+| g -> t | `liftover -d g2t` | Remap genome-aligned reads back to transcript coordinates. |
 
 ## Read mapping (both directions)
 
-`prepare` builds a transcript reference; `map` aligns reads to it. The two
-BAM-conversion commands round-trip between transcript and genome span:
-- `coralsnake tbam2gbam` (alias: `liftover`) – transcript BAM → genome BAM
-  (splices reads at exon boundaries, inserts introns).
-- `coralsnake gbam2tbam` – genome BAM → transcript BAM (clips to exons,
+`prepare` builds a transcript reference. The BAM-conversion commands
+round-trip between transcript and genome span:
+- `coralsnake liftover` (default `--direction t2g`) – transcript BAM → genome
+  BAM (splices reads at exon boundaries, inserts introns).
+- `coralsnake liftover -d g2t` – genome BAM → transcript BAM (clips to exons,
   joins spliced reads contiguously on the transcript).
+
+> **Mapping itself is out of scope:** align reads with `bwamem map`, with
+> `prismalign map` for nucleotide-conversion (two/three-color) chemistry, or any
+> other mapper, then feed the BAM into the commands above wearing a matching
+> reference.
 
 ## Command reference
 | Command      | Description                                                        |
 | ------------ | ------------------------------------------------------------------ |
 | `prepare`    | Extract primary transcript from a GTF/GFF file.                    |
-| `map`        | Map reads to a reference genome using BWA-MEM (two-color aware).   |
-| `liftover` / `tbam2gbam` | Remap transcriptome-aligned reads to genome coords.   |
-| `gbam2tbam`  | Remap genome-aligned reads back to transcript coordinates.         |
+| `liftover`  | Remap reads between genome/transcript coords (`--direction t2g` default, `g2t` inverts). |
 | `annotate`   | Unified site/variant annotation (region + gene/transcript/effect). |
-| `annot`      | Site labeling (legacy; use `annotate --annotation`).               |
-| `effect`     | Variant effect (legacy; use `annotate` with GTF+FASTA).            |
 | `group`      | Group genes and build a consensus sequence.                        |
 | `metagene`   | Metagene profiling: distribution of sites across 5'UTR/CDS/3'UTR.  |
 | `logo`       | Plot a DNA/RNA sequence logo (requires `coralsnake[plot]`).        |
-| `variant`    | Variant utilities (`motif`, `coordinate`).                         |
+| `motif`      | Fetch a genomic motif around variant sites (strand-aware).         |
+| `coordinate` | Map chromosome names between coordinate systems (UCSC↔Ensembl).    |
 
-> **`annotate` is the single annotation tool** (merged `annot` + `effect`). One
-> command, one schema. Two input modes share one engine:
+> **`annotate` is the single annotation tool** — one command, one schema, two
+> input modes sharing one engine:
 > - `--reference-gtf [--reference-transcript FASTA]` – region + gene/transcript/
 >   position + (with ref/alt + FASTA) the full variant effect.
 > - `--annotation <prepare-table>` – fast precomputed-table site labeling.
@@ -145,11 +191,11 @@ m.plot(ax)  # requires matplotlib (plot extra)
 
 ## Variant analysis
 
-The `motif`, `coordinate` and `effect` commands are a migration of the
-standalone `variant` package — fused into the top-level CLI with the old
-`pyfaidx` / `urllib3` / `pyensembl`+`varcode` dependencies removed and
-coralsnake's `pysam` + `ruranges` stack used instead. Naming and output format
-are unchanged.
+The `motif` and `coordinate` commands are a migration of the standalone
+`variant` package — fused into the top-level CLI with the old `pyfaidx` /
+`urllib3` dependencies removed and coralsnake's `pysam` + `ruranges` stack used
+instead. Naming and output format are unchanged. Variant *effect* annotation is
+covered by `annotate` (`--reference-gtf` + a genome FASTA + ref/alt columns).
 
 ```bash
 # Motif fetch (strand-aware, padded with N)
@@ -158,17 +204,16 @@ coralsnake motif -i sites.tsv -o motifs.tsv -f genome.fa -n 2,3 -w
 # Chromosome-name mapping (UCSC ↔ Ensembl)
 coralsnake coordinate -i sites.tsv -o mapped.tsv -M U2E
 
-# Variant effect annotation (pure Python classifier on coralsnake GTF)
-coralsnake effect -i variants.tsv -o effects.tsv \
-                  --reference-gtf annotation.gtf \
-                  --reference-transcript transcripts.fa -s -a
+# Variant effect annotation (region + codon/AA + effect)
+coralsnake annotate -i variants.tsv -o effects.tsv \
+                    --reference-gtf annotation.gtf \
+                    --reference-transcript genome.fa -s -a
 ```
 
 ```python
-from coralsnake.effect import Annot, Site, reverse_base
 from coralsnake.motif import get_motif
 from coralsnake.coordinate import run_coordinate
-from coralsnake.effect import run_effect
+from coralsnake.annotate import run_annotate
 ```
 
 ## Documentation

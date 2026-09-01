@@ -38,7 +38,7 @@ def flip_flag(flag):
 
 
 @lru_cache(maxsize=10000)
-def reverse_md(md: str) -> str:
+def _reverse_md_python(md: str) -> str:
     # Parse MD into components: numbers, mismatches, deletions
     parts = []
     import re
@@ -69,6 +69,24 @@ def reverse_md(md: str) -> str:
             merged_parts.append(p)
     merged_parts.append(str(current_num))
     return "".join(merged_parts)
+
+
+def reverse_md(md: str) -> str:
+    """Reverse the direction of an MD:Z tag (fast C kernel, Python fallback).
+
+    Called once per '-' strand read during liftover; the C kernel in
+    ``coralsnake.seqops`` is ~an order of magnitude faster than the regex
+    implementation, which is kept as a fallback for builds without the
+    compiled extension.
+    """
+    try:
+        from . import seqops
+    except ImportError:  # pragma: no cover - compiled extension absent
+        return _reverse_md_python(md)
+    try:
+        return seqops.reverse_md(md)
+    except AttributeError:  # pragma: no cover - older compiled extension
+        return _reverse_md_python(md)
 
 
 @lru_cache(maxsize=100000)

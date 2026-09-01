@@ -98,3 +98,55 @@ class TestScoreAndTag:
         score, mm, md, yf, zf, yc, zc, ns, nc = res
         assert score == 4 # 6 matches - 2 indels = 4
         assert md == "3^cc3"
+
+
+# reverse_md (C kernel added for tbam2gbam liftover)
+class TestReverseMd:
+    # reference vectors mirror tbam2gbam.test_tbam2gbam / the Python implementation
+    def test_known_cases(self):
+        cases = {
+            "10": "10",
+            "0": "0",
+            "2A3": "3T2",
+            "0A0C5": "5G0T0",
+            "2^ACG3": "3^CGT2",
+            "0A0^GT3": "3^AC0T0",
+            "0G0": "0C0",
+            "3A2^TT0C4": "4G0^AA2T3",
+            "0^ACGT0": "0^ACGT0",
+        }
+        for md, expected in cases.items():
+            assert seqops.reverse_md(md) == expected, md
+
+    def test_matches_python_reference(self):
+        import re
+
+        COMP = str.maketrans("ACGTNacgtn", "TGCANtgcan")
+
+        def py_reverse_md(md):
+            parts = []
+            for m in re.finditer(r"([0-9]+)|([A-Z])|(\^[A-Z]+)", md):
+                if m.group(1) is not None:
+                    parts.append(int(m.group(1)))
+                elif m.group(2):
+                    parts.append(m.group(2).translate(COMP))
+                elif m.group(3):
+                    del_bases = m.group(3)[1:]
+                    parts.append("^" + del_bases.translate(COMP)[::-1])
+            parts.reverse()
+            merged, cur = [], 0
+            for p in parts:
+                if isinstance(p, int):
+                    cur += p
+                else:
+                    merged.append(str(cur))
+                    cur = 0
+                    merged.append(p)
+            merged.append(str(cur))
+            return "".join(merged)
+
+        for md in [
+            "0", "5", "100", "1A0", "47T13", "5N3", "10^ACGT2", "3G2C1",
+            "0A^GT0", "2^C3TA", "1^AC2G3", "7A^CT6^G5", "0^NN0",
+        ]:
+            assert seqops.reverse_md(md) == py_reverse_md(md), md

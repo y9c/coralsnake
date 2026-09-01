@@ -8,10 +8,54 @@ nav_order: 1
 
 ![logo](./coralsnake_DNA.png)
 
-> Transcriptome mapping in two colors
+> Exon-aware RNA analysis: splicing-aware liftover, metagene profiling and annotation
 
-Coralsnake is a transcriptome mapping toolkit with a two-color mapping
-workflow and bundled **metagene** profiling and **sequence-logo** plotting.
+Coralsnake is an exon-aware RNA analysis pipeline — it assembles exons into
+transcript references (`prepare`), **splices and joins** reads between
+transcript and genome coordinates (`liftover`),
+runs exon-aware metagene profiling, and annotates sites to genes/transcripts —
+and bundles **sequence-logo** plotting.
+
+Nucleotide-conversion (two-color / three-color) *mapping* is not part of
+coralsnake any more; it lives in the dedicated
+[`prismalign`](https://github.com/y9c/prismalign) package (pluggable backends:
+bwamem, minimap2/mappy, pure-Python).
+
+## Overview
+
+How the subcommands fit together:
+
+```text
+           coralsnake — exon-aware RNA pipeline
+      (read alignment is external: bwa / prismalign / ...)
+
+  reads ── external mapper ──► aligned BAM
+                                    │
+                                    ▼
+       ┌─────────────────────────────────────────────────┐
+       │  prepare    GTF/GFF + genome.fa ► transcript.fa  │
+       │             (exon-spliced transcript reference)  │
+       │                                                  │
+       │  liftover   one command, both directions:        │
+       │             -d t2g   tx.bam ► genome.bam         │
+       │             -d g2t   genome.bam ► tx.bam         │
+       └─────────────────────────────────────────────────┘
+                                    │
+                   sites.tsv (chrom,pos,strand[,ref,alt])
+                                    │
+  ┌────────────┬────────────┬────────────┬────────────┬────────────┐
+  ▼            ▼            ▼            ▼            ▼
+  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
+  │  annotate  │ │   motif    │ │ coordinate │ │  metagene  │ │   group    │
+  └────────────┘ └────────────┘ └────────────┘ └────────────┘ └────────────┘
+   gene/transc    motif seq     chrom names    metagene      gene clusters
+   + region +     (strand-      (UCSC ⇄        profile       + consensus
+   effect         aware)        Ensembl)       (+ plot)
+
+       ┌────────────┐
+       │    logo    │   motifs ► sequence-logo image
+       └────────────┘
+```
 
 ## Installation
 
@@ -31,15 +75,13 @@ pip install "coralsnake[plot]"
 | Command    | Description                                                       |
 | ---------- | ----------------------------------------------------------------- |
 | `prepare`  | Extract primary transcript from a GTF/GFF file.                   |
-| `map`      | Map reads to a reference genome using BWA-MEM (two-color aware).  |
-| `liftover` | Remap transcriptome-aligned reads back to genome coordinates.     |
-| `annot`    | Annotate a TSV of genomic sites with transcript positions.        |
+| `liftover` | Bidirectional BAM liftover; `--direction t2g` (default) → genome, `g2t` → transcript. |
+| `annotate` | Unified site/variant annotation (region + gene/transcript/effect).|
 | `group`    | Group genes and build a consensus sequence.                       |
 | `metagene` | Metagene profiling across 5'UTR/CDS/3'UTR.                        |
 | `logo`     | Plot a DNA/RNA sequence logo.                                     |
 | `motif`    | Fetch a genomic motif around variant sites.                       |
 | `coordinate` | Map chromosome names between coordinate systems.                |
-| `effect`   | Annotate genomic variant effects.                                 |
 
 ## Documentation
 

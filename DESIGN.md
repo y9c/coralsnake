@@ -22,7 +22,7 @@ developers extending it. (A web-friendly version lives in
 | Module | Responsibility | Key deps |
 | ------ | -------------- | -------- |
 | `cli.py` | command group, option parsing | rich-click |
-| `mapping.py` | BWA-MEM two-color mapping | bwamem, pysam, ruranges |
+| `seqops.c` | C kernels: RC, batch conversion, `score_and_tag`, `reverse_md` | (compiled) |
 | `gtf2tx.py` | GTF/GFF → transcript FASTA | pysam |
 | `tbam2gbam.py` / `gbam2tbam.py` | BAM liftover | pysam, ruranges |
 | `genegroup.py` | gene clustering / consensus | numpy, scipy |

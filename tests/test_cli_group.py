@@ -37,7 +37,7 @@ class TestHelpNoErrorPanel:
             ["annot", "--help"],
             ["effect", "--help"],
             ["annotate", "--help"],
-            ["map", "--help"],
+            ["liftover", "--help"],
         ],
     )
     def test_subcommand_help_has_no_error_panel(self, cmd):

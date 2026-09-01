@@ -74,16 +74,6 @@ def interval_groups(labels, labels2=None):
     return inv[: a.size].astype(np.uint32), inv[a.size :].astype(np.uint32)
 
 
-def mk_conversion(seq: str) -> str:
-    """Convert A->G, C->T (M to K conversion)."""
-    return seqops.base_conversion(seq, "AC", "GT")
-
-
-def km_conversion(seq: str) -> str:
-    """Convert G->A, T->C (K to M conversion)."""
-    return seqops.base_conversion(seq, "GT", "AC")
-
-
 def convert_file_realtime(
     input_file: str,
     output_file: str,

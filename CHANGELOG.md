@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.222] - 2026-08-31
+
+### Architecture: `map` removed — N-color mapping lives in `prismalign`
+- **`coralsnake map` is removed.** The two-color (and N-color) nucleotide-
+  conversion mapping engine has moved out of both coralsnake *and* bwamem into
+  a new dedicated package, **`prismalign`** (2-color MK/KM, 3-nt BS/SLAM/A2G and
+  custom N-channel schemes), which uses **pluggable alignment backends** —
+  `bwamem` (BWA-MEM), a pure-Python reference backend, and `mappy` (minimap2).
+  bwamem itself is kept **light** (a thin BWA-MEM binding; its earlier color
+  addition was reverted).
+- **identity**: coralsnake is now the exon-aware RNA pipeline — `prepare`,
+  `liftover` (both directions; splicing/joining), `annotate`, `metagene`,
+  `variant`. README / DESIGN / metadata updated.
+
+### CLI: `gbam2tbam` fused into `liftover`
+- **`coralsnake gbam2tbam` is removed** — the g2t direction is now
+  `coralsnake liftover --direction g2t`. `gbam2tbam.py` stays as the internal
+  g2t implementation; `liftover` is the single BAM-conversion command
+  (`-d t2g` transcript→genome, `-d g2t` genome→transcript).
+- **Docs cleaned up**: the deprecated `annot`/`effect` commands are no longer
+  documented (`annotate` is the one annotation tool); CLI/API/architecture
+  pages now match the current command set, and an ASCII overview diagram was
+  added to README + docs index.
+
+### Speed (C)
+- **`seqops.c` gains `reverse_md`** — a C kernel reversing MD:Z tags on `-`
+  strand reads during `tbam2gbam` (pure-Python regex fallback kept). Tested 1:1
+  against the Python implementation across deletion/mismatch/merge cases.
+- **removed dead `mk_conversion`/`km_conversion` helpers** from `utils.py`
+  (they called a non-existent `seqops.base_conversion`; unused).
+
 ## [0.0.221] - 2026-08-28
 
 ### Speed

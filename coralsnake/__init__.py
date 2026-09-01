@@ -4,9 +4,9 @@
 # Copyright © 2024 Ye Chang yech1990@gmail.com
 # Distributed under terms of the GNU license.
 #
-# coralsnake - transcriptome mapping in two colors.
+# coralsnake - exon-aware RNA analysis pipeline.
 
-__version__ = "0.0.221"
+__version__ = "0.0.222"
 
 
 def __getattr__(name):

@@ -15,17 +15,19 @@ Usage: coralsnake [OPTIONS] COMMAND [ARGS]...
 | Command    | Description                                            |
 | ---------- | ------------------------------------------------------ |
 | `prepare`  | Extract primary transcript from GTF/GFF file.          |
-| `map`      | Map reads to reference genome using BWA-MEM.           |
-| `liftover` | Remap transcriptome-aligned reads to genome BAM.       |
-| `annot`    | Annotate a TSV of genomic sites with transcript info.  |
+| `liftover` | Bidirectional BAM liftover (`--direction t2g` default / `g2t`). |
+| `annotate` | Unified site/variant annotation (region + gene/effect).|
 | `group`    | Group genes and build consensus sequences.             |
 | `metagene` | Metagene profiling across 5'UTR/CDS/3'UTR.             |
 | `logo`     | Plot a DNA/RNA sequence-logo.                          |
 | `motif`    | Fetch a genomic motif around variant sites.            |
 | `coordinate` | Map chromosome names between coordinate systems.    |
-| `effect`   | Annotate genomic variant effects.                      |
 
 Run `coralsnake <command> --help` for the full option list of any command.
+
+> **Mapping is out of scope:** `coralsnake map` was removed. Align reads with
+> `bwamem map` (plain) or `prismalign map` (nucleotide-conversion / two-color),
+> then `prepare` + `liftover` for the exon-aware steps.
 
 ---
 
@@ -55,76 +57,122 @@ coralsnake prepare -g annotation.gtf -f genome.fa -o transcripts.fa \
 
 ---
 
-## `map`
-
-Map paired/single-end reads to a reference with BWA-MEM, tuned for dual-base
-conversion chemistry (MK/KM).
-
-```
-coralsnake map -1 R1.fq.gz -2 R2.fq.gz -r ref.fa -o out.bam \
-               --fwd-ref --max-a2g-ratio 0.1 --threads 8
-```
-
-| Option | Description                                        |
-| ------ | -------------------------------------------------- |
-| `-1, --r1-file` | Read 1 FASTA/Q.                                 |
-| `-2, --r2-file` | Read 2 FASTA/Q.                                 |
-| `-r, --ref-file` | Reference FASTA (repeatable).                   |
-| `-o, --output-file` | Output BAM (repeatable, matches refs).        |
-| `-u, --unmap-file` | BAM for unmapped reads.                       |
-| `--report` | HISAT2-style mapping summary (use `-` for stdout). |
-| `-m, --max-mismatches` | Max bad mismatches (default 10).            |
-| `-t, --threads` | Worker processes (default 8).                 |
-| `--min-alignment-length` | Default 20.                             |
-| `--min-mapping-ratio` | Default 0.5.                              |
-| `--max-a2g-ratio` | Max A→G proportion (default 1.0).             |
-| `--max-c2t-ratio` | Max C→T proportion (default 1.0).             |
-| `--index-dir` | BWA index directory (repeatable).              |
-| `--index-only` | Build indices without mapping.                |
-| `--fwd-lib/--rev-lib` | Library orientation.                     |
-| `--fwd-ref/--rev-ref/--dbl-ref` | Reference strand.                  |
-
----
-
 ## `liftover`
 
-Remap a transcriptome-aligned BAM back to genome coordinates.
+Remap a BAM between transcript and genome coordinates, **both directions**:
+
+- `--direction t2g` (default) — transcriptome-aligned BAM → genome coordinates.
+- `--direction g2t` — genome-aligned BAM → transcript coordinates (the former
+  standalone `gbam2tbam` command, now fully fused into `liftover`).
 
 ```
 coralsnake liftover -i tx.bam -o genome.bam -a annot.tsv -f faidx.fai --sort
+coralsnake liftover -d g2t -i genome.bam -o tx.bam -a annot.tsv --sort
 ```
 
 | Option | Description                                  |
 | ------ | -------------------------------------------- |
+| `-d, --direction` | `t2g` (default) or `g2t`.             |
 | `-i, --input-bam` | Input BAM (**required**).               |
 | `-o, --output-bam` | Output BAM (**required**).              |
 | `-a, --annotation-file` | Annotation TSV (**required**).         |
-| `-f, --faidx-file` | Reference `.fai` (**required**).          |
+| `-f, --faidx-file` | Reference `.fai` (required for `t2g`).   |
 | `-t, --threads` | Threads.                                   |
 | `-s, --sort` | Sort output by coordinate.                    |
 
 ---
 
-## `annot`
+## `annotate`
 
-Annotate a TSV of genomic sites (chrom, position, strand) with the matching
-gene/transcript and the transcript-relative position.
+The unified site / variant annotation command, with a single output schema.
+One command serves a bare site (chrom,pos,strand → gene/transcript/position +
+region) and a full variant (chrom,pos,strand,ref,alt + genome FASTA → codon/AA +
+effect). A precomputed `prepare`-style table (`--annotation`) gives fast table
+mode.
 
 ```
-coralsnake annot -i sites.tsv -o annotated.tsv -a annot_table.tsv \
-                 -c 1,2,3 -k
+coralsnake annotate -i sites.tsv -o out.tsv --reference-gtf annotation.gtf -c 1,2,3
+coralsnake annotate -i variants.tsv -o effects.tsv \
+                    --reference-gtf annotation.gtf \
+                    --reference-transcript genome.fa -s -a
+coralsnake annotate -i sites.tsv -o out.tsv --annotation prepared_table.tsv
 ```
 
 | Option | Description                                  |
 | ------ | -------------------------------------------- |
-| `-i, --input-file` | Input TSV (**required**).               |
-| `-o, --output-file` | Output TSV (**required**).              |
-| `-a, --annot-file` | Annotation table (**required**).          |
-| `-c, --cols` | Columns of Chrom,Pos,Strand (default `1,2,3`). |
-| `-k, --keep-na` | Emit `.` for unannotated sites.           |
-| `-l, --collapse-annot` | Collapse multiple hits into one row.   |
-| `-n, --add-count` | Append a hit count column.               |
-| `-H, --skip-header` | Input has a header line.                 |
+| `-i, --input` | Input site/variant file (default `-` = stdin). |
+| `-o, --output` | Output file (default `-` = stdout).       |
+| `-g, --reference-gtf` | Reference GTF (GTF mode).          |
+| `--annotation` | Precomputed `prepare` table (fast table mode). |
+| `-f, --reference-transcript` | Genome FASTA (needed for motif/codon/AA). |
+| `-s, --strandness` | Use strand information.                |
+| `-n, --npad` | Padding bases for motif (default 10).        |
+| `-a, --all-effects` | Output all overlapping effects (not just top). |
+| `-H, --with-header` | Input has a header line.            |
+| `-c, --columns` | Chrom,Pos,Strand,Ref,Alt (default `1,2,3,4,5`; Ref/Alt optional). |
+
+Output schema: `gene_id transcript_id transcript_pos region gene_pos
+transcript_strand mut_type transcript_motif coding_pos codon_ref aa_pos aa_ref
+distance2splice`. The `mut_*`/coding columns are filled only when a genome
+FASTA and ref/alt were supplied.
+
+---
+
+## `metagene`
+
+Run metagene profiling: the distribution of genomic sites relative to gene
+regions (5'UTR / CDS / 3'UTR), with optional binned score statistics and a
+publication-ready profile plot (requires `coralsnake[plot]`). Use a built-in
+reference (`-r GRCh38`) or a custom GTF (`-g file.gtf`); `--list` shows the
+built-in references and `--download <name|all>` fetches them.
+
+```
+coralsnake metagene -i sites.tsv.gz -r GRCh38 -H -m 1,2,3 -w 5 \
+                    -o out.tsv -s scores.tsv -p plot.png
+coralsnake metagene -i sites.bed -g custom.gtf.gz -m 1,2,3,6 -o out.tsv
+```
+
+| Option | Description                                  |
+| ------ | -------------------------------------------- |
+| `-i, --input` | Input file (BED/TSV/CSV).             |
+| `-o, --output` | Output score table path.             |
+| `-s, --output-score` | Output binned score statistics path. |
+| `-p, --output-figure` | Metagene plot path (`coralsnake[plot]`). |
+| `-r, --reference` | Built-in reference (e.g. `GRCh38`, `GRCm39`). |
+| `-g, --gtf` | Custom GTF/GFF reference.          |
+| `--region` | `all` (default) / `5utr` / `cds` / `3utr`. |
+| `-b, --bins` | Number of bins (default 100).      |
+| `-H, --with-header` | Input has a header line.     |
+| `-S, --separator` | Input separator (default tab). |
+| `-m, --meta-columns` | Coordinate columns (default `1,2,3,6`). |
+| `-w, --weight-columns` | Weight/score columns (1-based). |
+| `-n, --weight-names` | Names for the weight columns.   |
+| `--score-transform` | `none` (default) / `log2` / `log10`. |
+| `--normalize` | Normalize scores by transcript length. |
+| `--list` | List built-in references and exit.  |
+| `--download` | Download a reference (`<name>` or `all`). |
+
+---
+
+## `logo`
+
+Plot a DNA/RNA sequence-logo from a set of motif sequences. The scoring engine
+is pure numpy; rendering requires matplotlib (`pip install "coralsnake[plot]"`).
+
+```
+coralsnake logo -m ACGT -m ACGG -m CCGT -o logo.png
+coralsnake logo -i motifs.tsv -o logo.svg   # one motif per line; seq<TAB>count for weights
+```
+
+| Option | Description                                  |
+| ------ | -------------------------------------------- |
+| `-m, --motifs` | Motif sequences (repeatable / comma-separated). |
+| `-i, --input` | File of motifs, one per line.         |
+| `-o, --output` | Output image (e.g. `logo.png`, `logo.svg`) (**required**). |
+| `-w, --weights` | Comma-separated per-motif weights.  |
+| `--t2u/--no-t2u` | Convert T→U (default on).        |
+| `--2bit/--no-2bit` | 2-bit logo (default on).       |
+| `--normed` | Normalize letter heights.               |
 
 ---
 
@@ -192,32 +240,3 @@ coralsnake coordinate -i in.tsv -o out.tsv -M U2E -c 1 -k
 | `-c, --columns` | Chrom column (default `1`).            |
 | `-H, --with-header` | Input has a header line.            |
 | `-k, --keep-original` | Keep original chrom as an extra column. |
-
----
-
-## `effect`
-
-Annotate each variant with its predicted effect (5'UTR/CDS/3'UTR, splice
-sites, intronic, intergenic, …), the affected gene/transcript, codon and
-amino-acid context. Uses a pure-Python classifier over coralsnake's GTF
-machinery — no `pyensembl`/`varcode`.
-
-```
-coralsnake effect -i sites.tsv -o effects.tsv \
-                  -g annotation.gtf \
-                  --reference-transcript genome.fa -s -n 10 -a
-```
-
-| Option | Description                                      |
-| ------ | ------------------------------------------------ |
-| `-i, --input` | Input file (default `-` = stdin).       |
-| `-o, --output` | Output annotation file (default `-` = stdout). |
-| `-g, --reference-gtf` | Reference GTF (**required**).        |
-| `--reference-transcript` | Reference transcript FASTA(s).  |
-| `--reference-protein` | Reference protein FASTA(s).       |
-| `-s, --strandness` | Use strand information.             |
-| `-u, --pU-mode` | Prioritise RNA genes.                |
-| `-n, --npad` | Padding bases for motif (default 10).          |
-| `-a, --all-effects` | Output all effects (not just the top). |
-| `-H, --with-header` | Input has a header line.            |
-| `-c, --columns` | Site columns Chrom,Pos,Strand,Ref,Alt (default `1,2,3,4,5`). |

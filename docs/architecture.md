@@ -9,22 +9,25 @@ nav_order: 2
 This document explains how coralsnake is organized, why it is designed the way
 it is, and how the pieces fit together for anyone extending it.
 
-> Lifecycle note: coralsnake grew from a single-purpose two-color mapper into a
-> general NGS genomics toolkit. This page is the canonical "why is it built this
-> way" reference.
+> Lifecycle note: coralsnake grew from a single-purpose two-color transcriptome
+> mapper into an exon-aware RNA pipeline; the mapping engine itself now lives in
+> the [`prismalign`](https://github.com/y9c/prismalign) package (on top of the
+> lightweight [`bwamem`](https://github.com/y9c/bwamem) binding). This page is the
+> canonical "why is it built this way" reference.
 
 ## 1. Package layout
 
 ```
 coralsnake/
 ├── cli.py              # click/rich_click command group — the only entry point
-├── mapping.py          # BWA-MEM two-color mapping engine (reads → BAM)
 ├── gtf2tx.py           # GTF/GFF → reference transcript FASTA
 ├── tbam2gbam.py        # transcriptome BAM → genome BAM (liftover)
 ├── gbam2tbam.py        # reverse direction (thin wrapper)
 ├── genegroup.py        # gene clustering & consensus
-├── annot.py            # genomic-site → gene/transcript annotation
+├── annotate.py         # unified site/variant annotation (annot + effect)
+├── annot.py            # legacy table-based site annotation
 ├── utils.py            # core data structures (Span, Transcript) + logging/plot/io helpers
+├── seqops.c            # C kernels: RC, batch conversion, score_and_tag, reverse_md
 ├── logo.py             # DNA/RNA sequence-logo (numpy scoring, optional mpl)
 ├── motif.py            # genomic motif fetch (strand-aware)
 ├── coordinate.py       # chrom-name mapping (UCSC↔Ensembl)
@@ -51,12 +54,20 @@ that validates input and then delegates to a module function. The rule of thumb:
 | Command    | Module function        | Purpose                                    |
 | ---------- | ---------------------- | ------------------------------------------ |
 | `prepare`  | `gtf2tx.parse_file`    | Extract primary transcript from GTF/GFF.    |
-| `map`      | `mapping.map_file`     | Two-color BWA-MEM mapping to BAM.           |
-| `liftover` | `tbam2gbam.convert_bam`| Remap transcriptome BAM to genome BAM.      |
-| `annot`    | `annot.run_annot`      | Annotate TSV sites with transcript positions.|
+| `liftover --direction t2g` | `tbam2gbam.convert_bam` | Remap transcriptome BAM to genome BAM. |
+| `liftover --direction g2t` | `gbam2tbam.convert_bam` | Remap genome BAM to transcriptome BAM. |
+| `annotate` | `annotate.run_annotate`| Unified site/variant annotation.             |
 | `group`    | `genegroup.group_genes`| Cluster genes & build consensus sequences.  |
-| `metagene` | `metagene.*`           | Metagene profiling across 5'UTR/CDS/3'UTR.  |
+| `metagene` | `annotation.*`         | Metagene profiling across 5'UTR/CDS/3'UTR.  |
+| `motif`    | `motif.run_motif`      | Strand-aware genomic motif fetch.           |
+| `coordinate`| `coordinate.run_coordinate` | Chrom-name mapping (UCSC↔Ensembl).    |
 | `logo`     | `logo.Mlogo`           | Plot a DNA/RNA sequence logo.               |
+
+> `map` was removed in 0.0.222 — mapping lives in
+> [`prismalign`](https://github.com/y9c/prismalign) (nucleotide-conversion /
+> two-color) and [`bwamem`](https://github.com/y9c/bwamem) (plain BWA-MEM,
+> including its `HierarchicalAligner` for priority-ordered multi-reference
+> mapping).
 
 ## 3. Layered design
 
@@ -161,7 +172,7 @@ so the core analysis works without it. `coralsnake[plot]` adds it back.
 4. **Cache aggressively.** `load_gtf` writes a sidecar `.parquet` (and a pickle
    cache in `annot`) so repeated runs on the same reference are fast.
 
-## 7. The `variant` commands (`motif`, `coordinate`, `effect`)
+## 7. The `variant` commands (`motif`, `coordinate`)
 
 The standalone [`variant`](https://github.com/y9c/variant) toolkit has been
 fused into coralsnake as flat top-level modules (no `variant` subpackage), with
@@ -171,13 +182,13 @@ its old buggy dependencies removed:
 | ------- | ------------------- | ------------------ |
 | `motif` | pyfaidx | pysam.FastaFile |
 | `coordinate` | urllib3 | stdlib urllib |
-| `effect` | pyensembl + varcode | pure Python + coralsnake `metagene.load_gtf` machinery |
 
 Naming and output column order are kept identical to the standalone package.
-The `effect` classifier reuses coralsnake's GTF/CDS machinery (transcript
-offsets, start/stop codon positions) instead of re-implementing it, and replaces
-varcode's taxonomy with a conservative pure-Python classifier living in the
-same module (`effect.py`, `get_top_effect`).
+The variant-effect classifier (region + codon/AA annotation, formerly
+`pyensembl` + `varcode`) is now exposed through the unified `annotate` command,
+which reuses coralsnake's GTF/CDS machinery (transcript offsets, start/stop
+codon positions) instead of re-implementing it — a conservative pure-Python
+classifier lives in `annotate.py`.
 
 ### 7.1 Duplicate-fusion policy
 Where the standalone package re-implemented things coralsnake already had, the

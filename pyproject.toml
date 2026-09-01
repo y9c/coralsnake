@@ -1,15 +1,14 @@
 [project]
 name = "coralsnake"
-version = "0.0.221"
-description = "Transcriptome mapping in two colors"
+version = "0.0.222"
+description = "Exon-aware RNA pipeline: splicing-aware liftover (tbam2gbam/gbam2tbam), metagene, annotation"
 authors = [{ name = "Chang Ye", email = "yech1990@gmail.com" }]
 requires-python = ">=3.12"
 readme = "README.md"
 license = { text = "GPL-3.0-only" }
-keywords = ["transcriptome", "mapping", "metagene", "genomics", "variant", "rna", "polars"]
+keywords = ["transcriptome", "exon", "liftover", "metagene", "genomics", "variant", "rna", "polars"]
 # Runtime dependencies only (build tools belong under [build-system])
 dependencies = [
-  "bwamem>=0.0.52",
   "ruranges>=0.0.14",
   "numpy>=1.26",
   "polars>=1.30.0",

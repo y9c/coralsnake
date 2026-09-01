@@ -6,13 +6,14 @@ nav_order: 7
 
 # Variant Analysis
 
-Coralsnake provides three variant-analysis commands — `motif`, `coordinate`
-and `effect` — fused into the top-level CLI. They are a migration of the
-standalone [`variant`](https://github.com/y9c/variant) toolkit with the same
-naming and output format, but built on coralsnake's `pysam` + `ruranges` stack
-(the old `pyfaidx` / `urllib3` / `pyensembl` + `varcode` dependencies are gone).
+Coralsnake provides two variant-analysis commands — `motif` and `coordinate` —
+plus the unified `annotate` command for site/variant annotation. `motif` and
+`coordinate` are a migration of the standalone
+[`variant`](https://github.com/y9c/variant) toolkit with the same naming and
+output format, but built on coralsnake's `pysam` + `ruranges` stack (the old
+`pyfaidx` / `urllib3` dependencies are gone).
 
-All three commands read/write gzip and `-` (stdin/stdout) transparently.
+All of these commands read/write gzip and `-` (stdin/stdout) transparently.
 
 ## `motif`
 
@@ -53,10 +54,8 @@ coralsnake coordinate -i sites.tsv -o mapped.tsv -M U2E
 
 ## `annotate`
 
-The unified site / variant annotation command. It **merges** the two legacy
-tools `annot` (label a site with its gene/transcript/position) and `effect`
-(classify a variant's functional effect) into a single GTF-based engine with
-one fixed output schema. Use `annotate` for anything that falls under "which
+The unified site / variant annotation command — one GTF-based engine, one fixed
+output schema. Use `annotate` for anything that falls under "which
 gene/transcript is this, and what does it do?".
 
 The same command serves a bare site (only chrom,pos,strand given ->
@@ -95,55 +94,12 @@ mut_type  transcript_motif  coding_pos  codon_ref  aa_pos  aa_ref  distance2spli
 filled. The `mut_*`/coding columns are filled only when a genome FASTA and
 ref/alt were supplied; otherwise they are empty.
 
-## `effect`
-
-Annotate the effect of each variant (chrom, pos[, strand, ref, alt]). It
-classifies the site into a region (5'UTR / CDS / 3'UTR / splice), computes
-transcript-relative coordinates, and (for coding positions) the codon +
-amino-acid context.
-
-> New code should prefer `annotate` (above), which subsumes `effect` and also
-> handles plain sites and intergenic/intronic regions. `effect` is retained
-> for backward compatibility (its output columns match the standalone
-> `variant` package).
-
-```bash
-coralsnake effect -i variants.tsv -o effects.tsv \
-                  --reference-gtf annotation.gtf \
-                  --reference-transcript transcripts.fa \
-                  -s -a
-```
-| Option | Description                              |
-| ------ | ---------------------------------------- |
-| `-i, --input` | Input variant file.                |
-| `-o, --output` | Output annotation file.           |
-| `-g, --reference-gtf` | Reference GTF (**required**).     |
-| `--reference-transcript` | Transcript FASTA (repeatable). |
-| `-s, --strandness` | Use strand information.          |
-| `-a, --all-effects` | Output all effects (not just top). |
-| `-u, --pU-mode` | Prioritise RNA genes.             |
-| `-n, --npad` | Padding bases (default 10).         |
-| `-H, --with-header` | Input has a header.            |
-| `-c, --columns` | Chrom,Pos,Strand,Ref,Alt (default `1,2,3,4,5`). |
-
-### Output columns
-
-```
-mut_type  gene_type  gene_name  gene_pos  transcript_name  transcript_pos
-transcript_motif  transcript_strand  coding_pos  codon_ref  aa_pos  aa_ref
-distance2splice
-```
-
-The field order is identical to the standalone `variant` package.
-
 ## Python API
 
 The commands are also importable functions.
 
 ```python
-from coralsnake.annotate import run_annotate, Annotation   # unified (new)
-from coralsnake.effect import Annot, Site, expand_base, reverse_base
+from coralsnake.annotate import run_annotate, Annotation  # unified
 from coralsnake.motif import get_motif
 from coralsnake.coordinate import run_coordinate
-from coralsnake.effect import build_transcript_index, run_effect
 ```
