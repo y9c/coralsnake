@@ -26,36 +26,20 @@ bwamem, minimap2/mappy, pure-Python).
 How the subcommands fit together:
 
 ```text
-        coralsnake — whole picture: exon-aware RNA analysis
-   (read alignment is external: bwa / prismalign / any mapper)
+        coralsnake — exon-aware RNA analysis
+   (read alignment is external: bwa / prismalign / ...)
 
-   GTF/GFF + genome.fa ─ prepare ─► transcript.fa
-                                           │  (exon-spliced per-transcript
-                                           │   reference)
-   reads ── external mapper ──────────────┘  (align reads vs transcript.fa)
+   GTF/GFF + genome.fa ── prepare ──► transcript.fa
+                                           │  (align reads against it)
+   reads ── external mapper ───────────────┘
                                            ▼
-                     ┌───────────────────────────────────┐
-                     │  liftover   one command, both dirs│
-                     │   -d t2g   tx.bam ► genome.bam    │
-                     │   -d g2t   genome.bam ► tx.bam    │
-                     └───────────────────────────────────┘
+                          liftover   tx.bam ⇄ genome.bam
                                            │
-                      sites.tsv (chrom,pos,strand[,ref,alt])
+                                           ▼
+            annotate · metagene · motif · coordinate · group
                                            │
-   ┌────────────┬────────────┬────────────┬────────────┬────────────┐
-   ▼            ▼            ▼            ▼            ▼
-   ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
-   │  annotate  │ │   motif    │ │ coordinate │ │  metagene  │ │   group    │
-   └────────────┘ └────────────┘ └────────────┘ └────────────┘ └────────────┘
-   (+ GTF,       (+ genome.fa)  (+ map file /  (+ GTF /        (+ genes.fa +
-   ± genome.fa)                  -M preset)     built-in ref)    genes.gtf)
-   gene/transc    motif seq      chrom names    metagene        gene clusters
-   + region +     (strand-aware, (UCSC⇄         profile:        + consensus
-   variant effect N-padded)      Ensembl)       5'UTR/CDS/3'UTR sequence
-                                                bins (+ plot)
-
-   motifs (e.g. from `motif`)
-     └────────────► logo ──► sequence-logo image
+                                           ▼
+                                         logo
 ```
 
 ## Installation
