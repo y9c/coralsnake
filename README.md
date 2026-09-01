@@ -9,15 +9,14 @@
     </picture>
 </p>
 
-RNA carries three structural properties that any analysis pipeline must
-respect: an **abundance hierarchy** (ribosomal rRNA is orders of magnitude more
-abundant than mRNA), **strand orientation** (sense vs. antisense), and
-**splicing** (mRNAs are assembled from exons, so a transcript does not line up
-with its genomic locus). Conventional genomics tools are built around DNA — a
-linear, double-stranded reference where each locus lines up 1:1 with the
-sequence — and tend to miss these RNA-specific properties. Coralsnake is an
-**exon-aware RNA analysis pipeline** built around exactly these properties: it
-turns a GTF/GFF into spliced
+Conventional genomics tools are built around DNA — a linear, double-stranded
+reference where each locus lines up 1:1 with the sequence — and often lack
+explicit consideration of RNA's structural properties: an **abundance
+hierarchy** (ribosomal rRNA is orders of magnitude more abundant than
+mRNA), **strand orientation** (sense vs. antisense), and **splicing** (mRNAs
+are assembled from exons, so a transcript does not line up with its genomic
+locus). Coralsnake is an **exon-aware RNA analysis pipeline** built around
+exactly these properties: it turns a GTF/GFF into spliced
 transcript references (`prepare`), **splices and joins** reads between
 transcript and genome coordinates in both
 directions (`liftover`), and runs the analyses you do on the results —
