@@ -59,8 +59,8 @@ pip install "coralsnake[plot]"
 | `logo`       | Plot a DNA/RNA sequence logo (needs `coralsnake[plot]`).            |
 
 > **`annotate` is the single annotation tool** — one command, one schema, two
-> input modes: `--reference-gtf` (region + gene/transcript +, with a genome
-> FASTA + ref/alt, the full variant effect) or `--annotation <table>` (fast
+> input modes: `--reference-gtf` (region + gene/transcript, and the full variant
+> effect when given a genome FASTA + ref/alt) or `--annotation <table>` (fast
 > precomputed-table site labeling).
 
 ## Quick example
