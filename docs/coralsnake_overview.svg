@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 660" width="100%" role="img"
+     aria-label="Coralsnake pipeline overview: prepare builds the transcript reference, reads are aligned by an external mapper, liftover converts between transcript and genome coordinates, then analysis commands (annotate, metagene, motif, coordinate, group) and logo.">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#0460fc"/>
+    </marker>
+    <marker id="arrowGray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#9ca3af"/>
+    </marker>
+  </defs>
+
+  <style>
+    text { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  </style>
+
+  <!-- Title -->
+  <text x="360" y="30" text-anchor="middle" font-size="23" font-weight="700" fill="#30353d">
+    coralsnake — exon-aware RNA analysis
+  </text>
+  <text x="360" y="53" text-anchor="middle" font-size="13" fill="#6b7280">
+    read alignment is external: bwa / prismalign / …
+  </text>
+
+  <!-- prepare box -->
+  <rect x="50" y="84" width="300" height="118" rx="12" fill="#eef4ff" stroke="#0460fc" stroke-width="1.6"/>
+  <text x="200" y="112" text-anchor="middle" font-size="16" font-weight="700" fill="#0460fc">prepare</text>
+  <text x="200" y="143" text-anchor="middle" font-size="13" fill="#374151">GTF/GFF + genome.fa</text>
+  <text x="200" y="169" text-anchor="middle" font-size="13" fill="#374151">
+    <tspan font-weight="600" fill="#0460fc">→</tspan> transcript.fa (reference)
+  </text>
+
+  <!-- external mapper box (dashed) -->
+  <rect x="402" y="84" width="268" height="118" rx="12" fill="#fafafa" stroke="#9ca3af"
+        stroke-width="1.6" stroke-dasharray="6 4"/>
+  <text x="536" y="112" text-anchor="middle" font-size="15" font-weight="600" fill="#6b7280">external mapper</text>
+  <text x="536" y="140" text-anchor="middle" font-size="13" fill="#374151">reads</text>
+  <text x="536" y="158" text-anchor="middle" font-size="13" fill="#9ca3af">(bwa / prismalign)</text>
+  <text x="536" y="182" text-anchor="middle" font-size="13" fill="#374151">
+    <tspan font-weight="600" fill="#0460fc">→</tspan> aligned BAM
+  </text>
+
+  <!-- reference connector: prepare -> external mapper -->
+  <path d="M 350 146 C 374 146, 374 124, 402 124" fill="none" stroke="#9ca3af"
+        stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#arrowGray)"/>
+  <text x="372" y="113" text-anchor="middle" font-size="11" fill="#6b7280">reference</text>
+
+  <!-- arrows into liftover -->
+  <line x1="200" y1="202" x2="200" y2="275" stroke="#0460fc" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="536" y1="202" x2="536" y2="275" stroke="#0460fc" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- liftover box -->
+  <rect x="110" y="281" width="500" height="66" rx="12" fill="#eef4ff" stroke="#0460fc" stroke-width="1.6"/>
+  <text x="360" y="320" text-anchor="middle" font-size="15" fill="#374151">
+    <tspan font-weight="700" fill="#0460fc">liftover</tspan>    tx.bam ⇄ genome.bam
+  </text>
+
+  <!-- lifeover -> analysis -->
+  <line x1="360" y1="347" x2="360" y2="398" stroke="#0460fc" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- analysis commands box -->
+  <rect x="60" y="404" width="600" height="62" rx="12" fill="#eef4ff" stroke="#0460fc" stroke-width="1.6"/>
+  <text x="360" y="441" text-anchor="middle" font-size="15.5" fill="#374151">
+    annotate · metagene · motif · coordinate · group
+  </text>
+
+  <!-- analysis -> logo -->
+  <line x1="360" y1="466" x2="360" y2="531" stroke="#0460fc" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- logo box -->
+  <rect x="300" y="537" width="120" height="56" rx="12" fill="#eafaf1" stroke="#2f855a" stroke-width="1.6"/>
+  <text x="360" y="571" text-anchor="middle" font-size="16" font-weight="700" fill="#2f855a">logo</text>
+</svg>

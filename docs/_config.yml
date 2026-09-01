@@ -1,17 +1,52 @@
-remote_theme: just-the-docs/just-the-docs
-ga_tracking: G-EFHY8WFMHK
-ga_tracking_anonymize_ip: true
-color_scheme: light
-favicon_ico: '/favicon.ico'
-footer_content: 'Copyright &copy; 2021-2024, Chang Ye'
+# Site
+title: "Coralsnake"
+description: >-
+  Exon-aware RNA analysis pipeline: splice-aware liftover,
+  site/variant annotation, metagene profiling and motif analysis.
+url: "https://coralsnake.yech.science"
+repository: y9c/coralsnake
 
+# Theme (pinned for reproducible builds)
+remote_theme: just-the-docs/just-the-docs@v0.12.0
+
+# Appearance
+color_scheme: light
+favicon_ico: "/favicon.ico"
+
+# Search (built into just-the-docs)
+search_enabled: true
+
+# Navigation
+back_to_top: true
+back_to_top_text: "Back to top"
+nav_sort: case_insensitive
+
+# External link in the top navigation bar
+aux_links:
+  - label: "Coralsnake on GitHub"
+    uri: "https://github.com/y9c/coralsnake"
+aux_links_new_tab: true
+
+# Footer
+footer_content: "Copyright &copy; 2021-2024, Chang Ye. Hosted on GitHub Pages."
+last_edit_timestamp: true
+last_edit_time_format: "%b %e, %Y"
+
+# Callouts
 callouts:
-  warning:
-    title: Warning
-    color: red
   note:
     title: Note
     color: green
+  tip:
+    title: Tip
+    color: yellow
+  important:
+    title: Important
+    color: blue
+  warning:
+    title: Warning
+    color: red
 
-plugins:
-  - jekyll-spaceship
+# Google Analytics
+ga_tracking: G-EFHY8WFMHK
+ga_tracking_anonymize_ip: true

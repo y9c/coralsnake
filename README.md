@@ -9,54 +9,28 @@
     </picture>
 </p>
 
-Coralsnake is an **exon-aware RNA analysis pipeline**. Its core is the
-exon structure of RNA: it assembles exons into transcript references
-(`prepare`), and then **splices and joins** reads between transcript and
-genome coordinates (`liftover`), runs exon-aware
-metagene profiling, and annotates sites to genes/transcripts. It also bundles a
-sequence-logo plotter as a first-class subcommand.
+Coralsnake is an **exon-aware RNA analysis pipeline**, built around the exon
+structure of RNA: it turns a GTF/GFF into spliced transcript references, splices
+reads between transcript and genome coordinates, and runs the analyses you do on
+the results — site/variant annotation, metagene profiling and motif analysis.
 
-Nucleotide-conversion (two-color / three-color) mapping is **not** part of
-coralsnake any more: it lives in the dedicated
-[`prismalign`](https://github.com/y9c/prismalign) package (pluggable backends:
-bwamem, minimap2/mappy, pure-Python), on top of the lightweight
-[`bwamem`](https://github.com/y9c/bwamem) BWA-MEM binding.
+## Highlights
 
-## Overview
+- **Splice-aware BAM conversion** — `liftover` joins and splits reads between
+  transcript and genome coordinates, in both directions.
+- **Exon-aware annotation** — `annotate` places sites/variants on the RNA
+  hierarchy (5'UTR / CDS / 3'UTR / intronic / intergenic) and calls the variant
+  effect, in one fixed output schema.
+- **Exon-aware metagene profiling** — `metagene` profiles how sites distribute
+  across 5'UTR / CDS / 3'UTR (binned statistics + a publication-ready plot).
+- **Strand-aware motif analysis** — `motif` fetches the reference motif around
+  each site.
+- **Sequence-logo plotting** — `logo` renders a DNA/RNA logo (pure-numpy engine;
+  plotting via the optional `plot` extra).
 
-How the subcommands fit together:
+## How it fits together
 
-```text
-   coralsnake — exon-aware RNA analysis
-   (read alignment is external: bwa / prismalign / ...)
-
-   ┌───────────────────────────────────────────────────┐
-   │ GTF/GFF + genome.fa                               │
-   └──────────────────────────┬────────────────────────┘
-                              ▼
-   ┌───────────────────────────────────────────────────┐
-   │ prepare                                           │
-   │ ──► transcript.fa  (reference)                    │
-   └──────────────────────────┬────────────────────────┘
-                              │  reads are aligned against it
-                              ▼
-   ┌───────────────────────────────────────────────────┐
-   │ reads ── external mapper ──► aligned BAM          │
-   │ (bwa / prismalign — external)                     │
-   └──────────────────────────┬────────────────────────┘
-                              ▼
-   ┌───────────────────────────────────────────────────┐
-   │ liftover    tx.bam ⇄ genome.bam                   │
-   └──────────────────────────┬────────────────────────┘
-                              ▼
-   ┌───────────────────────────────────────────────────┐
-   │ annotate · metagene · motif · coordinate · group  │
-   └──────────────────────────┬────────────────────────┘
-                              ▼
-   ┌───────────────────────────────────────────────────┐
-   │ logo                                              │
-   └───────────────────────────────────────────────────┘
-```
+<img src="https://coralsnake.yech.science/coralsnake_overview.svg" alt="Coralsnake pipeline overview" style="width: 720px; max-width: 100%;" />
 
 ## Installation
 
@@ -64,9 +38,8 @@ How the subcommands fit together:
 pip install coralsnake
 ```
 
-Optional support for the visualization commands (metagene profile plot and
-sequence logo) requires the lightweight `plot` extra, which only pulls in
-matplotlib when you need it:
+The visualization commands (metagene plot, sequence logo) need the lightweight
+`plot` extra, which only pulls in matplotlib when you need it:
 
 ```bash
 pip install "coralsnake[plot]"
@@ -74,48 +47,85 @@ pip install "coralsnake[plot]"
 
 ## Commands
 
-| Route | Command | Description |
-| ----- | ------- | ----------- |
-| t -> g | `liftover` | Remap transcriptome-aligned reads to genome coordinates (default `--direction t2g`). |
-| g -> t | `liftover -d g2t` | Remap genome-aligned reads back to transcript coordinates. |
-
-## Read mapping (both directions)
-
-`prepare` builds a transcript reference. The BAM-conversion commands
-round-trip between transcript and genome span:
-- `coralsnake liftover` (default `--direction t2g`) – transcript BAM → genome
-  BAM (splices reads at exon boundaries, inserts introns).
-- `coralsnake liftover -d g2t` – genome BAM → transcript BAM (clips to exons,
-  joins spliced reads contiguously on the transcript).
-
-> **Mapping itself is out of scope:** align reads with `bwamem map`, with
-> `prismalign map` for nucleotide-conversion (two/three-color) chemistry, or any
-> other mapper, then feed the BAM into the commands above wearing a matching
-> reference.
-
-## Command reference
-| Command      | Description                                                        |
-| ------------ | ------------------------------------------------------------------ |
-| `prepare`    | Extract primary transcript from a GTF/GFF file.                    |
-| `liftover`  | Remap reads between genome/transcript coords (`--direction t2g` default, `g2t` inverts). |
-| `annotate`   | Unified site/variant annotation (region + gene/transcript/effect). |
-| `group`      | Group genes and build a consensus sequence.                        |
-| `metagene`   | Metagene profiling: distribution of sites across 5'UTR/CDS/3'UTR.  |
-| `logo`       | Plot a DNA/RNA sequence logo (requires `coralsnake[plot]`).        |
-| `motif`      | Fetch a genomic motif around variant sites (strand-aware).         |
+| Command      | What it does                                                        |
+| ------------ | ------------------------------------------------------------------- |
+| `prepare`    | Extract the spliced primary transcript reference from GTF/GFF.      |
+| `liftover`   | Splice/join reads between genome/transcript BAMs (`-d t2g` default, `-d g2t` inverts). |
+| `annotate`   | Unified site/variant annotation: region on the RNA hierarchy + gene/transcript + variant effect. |
+| `metagene`   | Exon-aware metagene profiling across 5'UTR/CDS/3'UTR.              |
+| `motif`      | Strand-aware genomic motif fetch around variant sites.              |
 | `coordinate` | Map chromosome names between coordinate systems (UCSC↔Ensembl).    |
+| `group`      | Group genes and build a consensus sequence.                         |
+| `logo`       | Plot a DNA/RNA sequence logo (needs `coralsnake[plot]`).            |
 
 > **`annotate` is the single annotation tool** — one command, one schema, two
-> input modes sharing one engine:
-> - `--reference-gtf [--reference-transcript FASTA]` – region + gene/transcript/
->   position + (with ref/alt + FASTA) the full variant effect.
-> - `--annotation <prepare-table>` – fast precomputed-table site labeling.
+> input modes: `--reference-gtf` (region + gene/transcript +, with a genome
+> FASTA + ref/alt, the full variant effect) or `--annotation <table>` (fast
+> precomputed-table site labeling).
 
-## Metagene subcommand
+## Quick example
 
-`coralsnake metagene` is a full migration of the `metagene` package, built on
-the high-performance `polars` + `ruranges` stack. It computes the distribution
-of genomic sites relative to gene regions (5'UTR, CDS, 3'UTR) and can emit
+A typical end-to-end run (read alignment is done by any external mapper, e.g.
+`bwa` / `prismalign`):
+
+```bash
+# 1. Build the spliced transcript reference from the annotation
+coralsnake prepare -g annotation.gtf -f genome.fa -o transcript.fa --with-txpos
+
+# 2. Align reads to transcript.fa with an external mapper  →  tx.bam
+
+# 3. Splice the transcript-aligned BAM back to genome coordinates
+coralsnake liftover -d t2g -i tx.bam -o genome.bam -a annotation.tsv -f genome.fai
+
+# 4. Annotate sites to genes/transcripts (RNA hierarchy + variant effect)
+coralsnake annotate -i sites.tsv -o annotated.tsv \
+                    --reference-gtf annotation.gtf \
+                    --reference-transcript genome.fa -s -a
+
+# 5. Exon-aware metagene profile across 5'UTR / CDS / 3'UTR
+coralsnake metagene -i sites.tsv -g annotation.gtf -o profile.tsv -p profile.png
+```
+
+## Subcommands
+
+### `prepare` — spliced transcript reference
+
+Build the spliced transcript reference (the target that reads are aligned to)
+from a GTF/GFF and a genome FASTA:
+
+```bash
+coralsnake prepare -g annotation.gtf -f genome.fa -o transcript.fa \
+                   --with-codon --with-genename --filter-biotype protein_coding
+```
+
+### `liftover` — splice-aware BAM conversion
+
+`prepare` builds the transcript reference; `liftover` round-trips a BAM between
+transcript and genome coordinates, splicing reads at exon boundaries:
+
+- `coralsnake liftover -d t2g` (default) — transcript BAM → genome BAM (splices
+  reads at exon boundaries, inserts introns).
+- `coralsnake liftover -d g2t` — genome BAM → transcript BAM (clips to exons,
+  joins spliced reads contiguously on the transcript).
+
+### `annotate` — exon-aware annotation
+
+Label a site (chrom,pos,strand) with gene/transcript/position + region
+(5'UTR/CDS/3'UTR/intronic/intergenic); add a genome FASTA + ref/alt to get the
+full variant effect (codon/AA + mut_type). Fast precomputed-table mode via
+`--annotation <table>`.
+
+```bash
+coralsnake annotate -i sites.tsv -o out.tsv --reference-gtf annotation.gtf -c 1,2,3
+coralsnake annotate -i variants.tsv -o effects.tsv \
+                    --reference-gtf annotation.gtf \
+                    --reference-transcript genome.fa -s -a
+```
+
+### `metagene` — exon-aware metagene profiling
+
+Built on the high-performance `polars` + `ruranges` stack. Computes the
+distribution of sites relative to gene regions (5'UTR, CDS, 3'UTR) and can emit
 binned statistics and a publication-ready profile plot.
 
 ```bash
@@ -134,9 +144,7 @@ coralsnake metagene --list
 coralsnake metagene --download GRCh38
 ```
 
-### Python API
-
-The metagene functions are also importable directly from the flat modules:
+**Python API** — the functions are importable from the flat modules:
 
 ```python
 from coralsnake.io import load_sites, load_reference
@@ -157,24 +165,39 @@ plot_profile(gene_bins, gene_splits, "metagene_plot.png")
 local = map_to_local(sites, ref, ref_id_col="transcript_id")
 ```
 
-## Performance
+### `motif` & `coordinate`
 
-The metagene core is built on the vectorized `polars` + `ruranges` stack, and
-uses Rust-backed `ruranges` primitives instead of slow per-group Python applies:
+A migration of the standalone `variant` package — fused into the top-level CLI
+with the old `pyfaidx` / `urllib3` dependencies removed and coralsnake's
+`pysam` + `ruranges` stack used instead. Naming and output format are unchanged.
 
-- `map_to_transcripts` picks the best transcript per gene with a vectorized
-  sort + `group_by().first()` (was `group_by().map_groups()` python apply) —
-  **~20× faster** on realistic inputs.
-- `map_to_local` uses `ruranges.numpy.group_cumsum` for strand-aware cumulative
-  transcript offsets (was a hand-rolled `map_groups` apply) — **~7× faster**.
-- `Mlogo` (sequence logo) builds its score matrix with vectorized `numpy`
-  (`bincount` + codepoint lookup) — **~1.5× faster** and fixes a `0·log2(0)`
-  NaN edge case.
+```bash
+# Motif fetch (strand-aware, padded with N)
+coralsnake motif -i sites.tsv -o motifs.tsv -f genome.fa -n 2,3 -w
 
-## Logo subcommand
+# Chromosome-name mapping (UCSC ↔ Ensembl)
+coralsnake coordinate -i sites.tsv -o mapped.tsv -M U2E
+```
 
-`coralsnake logo` plots a DNA/RNA sequence logo from a set of motif sequences.
-The scoring engine is pure numpy; the renderer needs matplotlib (`plot` extra).
+```python
+from coralsnake.motif import get_motif
+from coralsnake.coordinate import run_coordinate
+from coralsnake.annotate import run_annotate
+```
+
+### `group` — gene clustering & consensus
+
+Group related genes and build a consensus sequence:
+
+```bash
+coralsnake group -f genes.fa -g genes.gtf -o grouped.tsv \
+                 --output-consensus consensus.fa --threads 8
+```
+
+### `logo` — sequence logo
+
+Plots a DNA/RNA sequence logo from a set of motif sequences. The scoring engine
+is pure numpy; the renderer needs matplotlib (`plot` extra).
 
 ```bash
 coralsnake logo -m ACGT -m ACGG -m CCGT -o logo.png
@@ -189,34 +212,29 @@ m = Mlogo(motifs=["ACGT", "ACGG", "CCGT"], to2bit=True)
 m.plot(ax)  # requires matplotlib (plot extra)
 ```
 
-## Variant analysis
+## Performance
 
-The `motif` and `coordinate` commands are a migration of the standalone
-`variant` package — fused into the top-level CLI with the old `pyfaidx` /
-`urllib3` dependencies removed and coralsnake's `pysam` + `ruranges` stack used
-instead. Naming and output format are unchanged. Variant *effect* annotation is
-covered by `annotate` (`--reference-gtf` + a genome FASTA + ref/alt columns).
+The core is built on the vectorized `polars` + `ruranges` stack, using Rust-backed
+`ruranges` primitives instead of slow per-group Python applies:
 
-```bash
-# Motif fetch (strand-aware, padded with N)
-coralsnake motif -i sites.tsv -o motifs.tsv -f genome.fa -n 2,3 -w
-
-# Chromosome-name mapping (UCSC ↔ Ensembl)
-coralsnake coordinate -i sites.tsv -o mapped.tsv -M U2E
-
-# Variant effect annotation (region + codon/AA + effect)
-coralsnake annotate -i variants.tsv -o effects.tsv \
-                    --reference-gtf annotation.gtf \
-                    --reference-transcript genome.fa -s -a
-```
-
-```python
-from coralsnake.motif import get_motif
-from coralsnake.coordinate import run_coordinate
-from coralsnake.annotate import run_annotate
-```
+- `map_to_transcripts` picks the best transcript per gene with a vectorized
+  sort + `group_by().first()` (was `group_by().map_groups()` python apply) —
+  **~20× faster** on realistic inputs.
+- `map_to_local` uses `ruranges.numpy.group_cumsum` for strand-aware cumulative
+  transcript offsets (was a hand-rolled `map_groups` apply) — **~7× faster**.
+- `Mlogo` (sequence logo) builds its score matrix with vectorized `numpy`
+  (`bincount` + codepoint lookup) — **~1.5× faster** and fixes a `0·log2(0)`
+  NaN edge case.
 
 ## Documentation
 
 - [Architecture & Design](DESIGN.md) — package layout and design decisions.
 - Full docs site: <https://coralsnake.yech.science/> (see `docs/`).
+
+---
+
+> **Mapping is out of scope.** Nucleotide-conversion (two-color / three-color)
+> mapping is not part of coralsnake any more: it lives in the dedicated
+> [`prismalign`](https://github.com/y9c/prismalign) package (pluggable backends:
+> bwamem, minimap2/mappy, pure-Python), on top of the lightweight
+> [`bwamem`](https://github.com/y9c/bwamem) BWA-MEM binding.
