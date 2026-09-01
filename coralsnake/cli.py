@@ -59,6 +59,26 @@ def _metagene_parse_floats(ctx, param, value):
     return _parse_csv(ctx, param, value, float, "Must be comma-separated numbers")
 
 
+def _count_input_columns(path, with_header, separator):
+    """Peek at the first data line of a delimited file (gz supported).
+
+    Returns the number of columns, or None if it cannot be determined
+    (empty file or unreadable).
+    """
+    import xopen
+
+    try:
+        with xopen.xopen(path, mode="r") as f:
+            line = f.readline()
+            if with_header:
+                line = f.readline()
+            if not line:
+                return None
+            return len(line.rstrip("\r\n").split(separator))
+    except Exception:
+        return None
+
+
 class CoralsnakeGroup(click.RichGroup):
     """Click group that surfaces deliberate data/input errors cleanly.
 
@@ -108,7 +128,7 @@ def cli(ctx):
     "--sanitize",
     "-z",
     "sanitize",
-    help="Sanitize name to remove specical charaters.",
+    help="Sanitize names to remove special characters.",
     is_flag=True,
 )
 @click.option(
@@ -304,7 +324,7 @@ def annot(
 
 
 @cli.command(
-    help="Group and find consenus of gene.",
+    help="Group genes and build consensus sequences.",
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
@@ -324,7 +344,7 @@ def annot(
     "--output-consensus",
     "-c",
     "output_consensus",
-    help="Output artifical fasta file containing consenus sequences.",
+    help="Output artificial FASTA file containing consensus sequences.",
     required=False,
 )
 @click.option(
@@ -591,8 +611,19 @@ def metagene(
         exon_ref = load_gtf(gtf)
         click.echo("✓ GTF file loaded")
 
-    # Convert 1-based to 0-based indices for meta_columns
+    # Convert 1-based to 0-based indices for meta_columns.
+    # The default (1,2,3,6) assumes a >=6-column BED-like file; the common
+    # 3-column site file (Chrom,Site,Strand) would crash on it, so auto-fall
+    # back to 1,2,3 when the input has exactly 3 columns.
     meta_col_index = [col - 1 for col in meta_columns]
+    if meta_columns == [1, 2, 3, 6]:
+        ncols = _count_input_columns(input_file, with_header, separator)
+        if ncols == 3:
+            meta_col_index = [0, 1, 2]
+            click.echo(
+                "Note: input has 3 columns; using meta-columns 1,2,3 "
+                "(Chrom,Site,Strand) instead of the default 1,2,3,6."
+            )
     weight_col_index = [col - 1 for col in weight_columns]
 
     input_df = load_sites(
@@ -626,7 +657,9 @@ def metagene(
             raise click.ClickException("--weight-names count must match --weight-columns")
         for old, new in zip(weight_cols, weight_names):
             annotated_df = annotated_df.rename({old: new})
-        weight_col_index = [i for i in range(len(weight_names))]
+        # rename() preserves column positions, so re-locate the (renamed)
+        # weight columns rather than assuming they are at 0..n-1.
+        weight_col_index = [annotated_df.columns.index(n) for n in weight_names]
     if region != "all":
         target = {"5utr": "5UTR", "cds": "CDS", "3utr": "3UTR"}[region]
         annotated_df = (
@@ -745,11 +778,16 @@ def logo(motifs, input_file, output_file, weights, t2u, to2bit, normed):
                     continue
                 parts = raw.split("\t")
                 motifs_list.append(parts[0])
+                # One weight per line (default 1.0) so motif_weights stays
+                # aligned with motifs_list even when some lines carry no
+                # explicit weight.
                 if len(parts) > 1:
                     try:
                         motif_weights.append(float(parts[1]))
                     except ValueError:
                         motif_weights.append(1.0)
+                else:
+                    motif_weights.append(1.0)
     for m in motifs:
         motifs_list.extend([x.strip() for x in m.split(",") if x.strip()])
 
@@ -821,7 +859,12 @@ def motif(
     from .motif import run_motif
 
     if "," in npad:
-        lpad, rpad = npad.split(",")
+        parts = npad.split(",")
+        if len(parts) != 2:
+            raise click.ClickException(
+                f"--npad should be 'N' or 'left,right', not {npad!r}"
+            )
+        lpad, rpad = parts
     else:
         lpad, rpad = npad, npad
     if not lpad.isdigit() or not rpad.isdigit():

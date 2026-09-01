@@ -23,6 +23,17 @@ class TestParseGtfAnnot:
         assert "basic" in d["tag"]
         assert "MANE_Select" in d["tag"]
 
+    def test_quoted_semicolon_in_value(self):
+        # Some GTF have values containing a ';' inside the quotes (e.g.
+        # Ensembl descriptions): it must stay part of the value, not be treated
+        # as an attribute separator.
+        d = parse_gtf_annot('gene_id "G1"; gene "aaa; bbb"; transcript_id "T1";')
+        assert d == {"gene_id": "G1", "gene": "aaa; bbb", "transcript_id": "T1"}
+
+    def test_duplicate_key_with_quoted_semicolon(self):
+        d = parse_gtf_annot('tag "basic"; tag "MANE_Select; basic2";')
+        assert d["tag"] == "basic; MANE_Select; basic2"
+
     def test_empty(self):
         d = parse_gtf_annot("")
         assert d == {}

@@ -171,6 +171,43 @@ def _overlap_transcripts_fast(span_index, chrom, pos):
     return hits
 
 
+def _chunk_overlaps(span_index, sites):
+    """Batch gene-body overlaps for many sites with one ruranges call.
+
+    ``sites`` is a list of :class:`Site`; returns a list parallel to it where
+    each element holds that site's overlapping (lo, hi, tx) spans, ordered by
+    (lo, hi) to match the deterministic result of ``_overlap_transcripts_fast``.
+    This replaces the O(chrom-size) per-site Python scan with a single
+    vectorised overlap per chromosome (~1000x fewer interpreted ops).
+    """
+    import numpy as np
+    from ruranges.numpy import overlaps
+
+    n = len(sites)
+    hits = [[] for _ in range(n)]
+    by_chrom = {}
+    for qi, site in enumerate(sites):
+        by_chrom.setdefault(str(site.chrom), []).append(qi)
+
+    for chrom, qis in by_chrom.items():
+        spans = span_index.get(chrom)
+        if not spans or not qis:
+            continue
+        lo = np.array([s[0] for s in spans], dtype=np.int64)
+        hi = np.array([s[1] for s in spans], dtype=np.int64)
+        pos = np.array([sites[q].pos for q in qis], dtype=np.int64)
+        idx_span, idx_site = overlaps(
+            starts=lo, ends=hi, starts2=pos, ends2=pos + 1
+        )
+        for s, q in zip(idx_span, idx_site):
+            hits[qis[q]].append(spans[int(s)])
+    for i, h in enumerate(hits):
+        h.sort(key=lambda x: (x[0], x[1]))
+        # unwrap (lo, hi, tx) -> tx for the classifier
+        hits[i] = [span[2] for span in h]
+    return hits
+
+
 def _annotate_site(
     site,
     transcripts_by_chrom,
@@ -179,6 +216,7 @@ def _annotate_site(
     strandness=True,
     span_index=None,
     seq_cache=None,
+    overlaps=None,
 ):
     """Classify one site into a list of :class:`Annotation` (one per overlap).
 
@@ -188,14 +226,17 @@ def _annotate_site(
     ``build_span_index``) avoids a full per-site scan of every transcript.
     ``seq_cache`` (optional per-run dict) lets us assemble each transcript's
     spliced sequence once instead of re-fetching from the FASTA for every site -
-    a large speedup when many sites fall in the same gene.
+    a large speedup when many sites fall in the same gene. ``overlaps``, when
+    given, is a precomputed list of the site's (lo, hi, tx) body spans (from
+    :func:`_chunk_overlaps`) and bypasses the per-site lookup entirely.
     """
     chrom = str(site.chrom)
     pos = int(site.pos)
-    if span_index is not None:
-        overlaps = _overlap_transcripts_fast(span_index, chrom, pos)
-    else:
-        overlaps = _find_overlapping(transcripts_by_chrom, chrom, pos)
+    if overlaps is None:
+        if span_index is not None:
+            overlaps = _overlap_transcripts_fast(span_index, chrom, pos)
+        else:
+            overlaps = _find_overlapping(transcripts_by_chrom, chrom, pos)
 
     if not overlaps:
         return [Annotation(region="Intergenic", mut_type="Intergenic")]
@@ -365,10 +406,7 @@ def run_annotate(
     # Per-run cache of assembled transcript sequences (motif/codon path).
     seq_cache = {} if fasta is not None else None
 
-    def _emit(site, input_cols, output_handle):
-        annotations = _annotate_site(
-            site, transcripts_by_chrom, fasta, npad, strandness, span_index, seq_cache
-        )
+    def _write_annotations(input_cols, annotations, output_handle):
         if not all_effects:
             top = _pick_top(annotations)
             annotations = [top] if top is not None else annotations
@@ -383,6 +421,10 @@ def run_annotate(
                 input_header[i] = n
         return input_header
 
+    # Batch size for the vectorised overlap step (bounds peak memory while
+    # keeping the per-site gene-body lookup vectorised via ruranges).
+    _CHUNK = 50_000
+
     try:
         with xopen(output_file, "wt") as output_handle, xopen(input_file, "rt") as input_handle:
             first = input_handle.readline()
@@ -394,24 +436,45 @@ def run_annotate(
                 input_header = _build_header(first.rstrip("\n").split(col_sep))
             output_handle.write(col_sep.join(input_header + _UNIFIED_COLUMNS) + "\n")
 
-            if not with_header:
-                input_cols = first.rstrip("\n").split(col_sep)
-                try:
-                    site = _site_from_cols(input_cols, columns_index_mapper, strandness)
-                    _emit(site, input_cols, output_handle)
-                except (ValueError, IndexError):
-                    pass  # skip a malformed first row
+            def _iter_rows():
+                if not with_header:
+                    yield first.rstrip("\n").split(col_sep)
+                for raw in input_handle:
+                    if raw.strip():
+                        yield raw.rstrip("\n").split(col_sep)
 
-            for raw in input_handle:
-                if not raw.strip():
-                    continue
-                input_cols = raw.rstrip("\n").split(col_sep)
+            def _flush(rows, output_handle):
+                # rows: list of (input_cols, site_or_None); None => malformed row
+                sites = [site for _, site in rows if site is not None]
+                hits = _chunk_overlaps(span_index, sites) if sites else []
+                it = iter(hits)
+                for input_cols, site in rows:
+                    if site is None:
+                        continue  # skip a malformed row instead of aborting
+                    annotations = _annotate_site(
+                        site,
+                        transcripts_by_chrom,
+                        fasta,
+                        npad,
+                        strandness,
+                        span_index=span_index,
+                        seq_cache=seq_cache,
+                        overlaps=next(it),
+                    )
+                    _write_annotations(input_cols, annotations, output_handle)
+
+            buf = []
+            for input_cols in _iter_rows():
                 try:
                     site = _site_from_cols(input_cols, columns_index_mapper, strandness)
-                    _emit(site, input_cols, output_handle)
                 except (ValueError, IndexError):
-                    # Skip a malformed row instead of aborting the whole run.
-                    continue
+                    site = None
+                buf.append((input_cols, site))
+                if len(buf) >= _CHUNK:
+                    _flush(buf, output_handle)
+                    buf = []
+            if buf:
+                _flush(buf, output_handle)
     finally:
         if fasta is not None:
             fasta.close()
