@@ -20,7 +20,9 @@ it is, and how the pieces fit together for anyone extending it.
 ```
 coralsnake/
 ├── cli.py              # click/rich_click command group — the only entry point
-├── gtf2tx.py           # GTF/GFF → reference transcript FASTA
+├── gtf2tx.py           # GTF/GFF → reference transcript FASTA (reads via gene_annotation)
+├── gene_annotation.py  # SHARED gene-annotation object (load/group/write GTF/GFF3)
+├── refine.py           # genome FASTA + GTF cleaning (mutates a GeneAnnotation)
 ├── tbam2gbam.py        # transcriptome BAM → genome BAM (liftover)
 ├── gbam2tbam.py        # reverse direction (thin wrapper)
 ├── genegroup.py        # gene clustering & consensus
@@ -42,6 +44,23 @@ coralsnake/
 ├── plotting.py         # metagene: profile plot (optional matplotlib)
 └── __init__.py         # lazy top-level exports (Mlogo, __version__)
 ```
+ 
+### 1.1 The shared gene-annotation object
+
+`coralsnake.gene_annotation.GeneAnnotation` is the single source of truth for
+how the package *reads* and *writes* a gene annotation:
+
+- One object per annotated genome: every GTF (or GFF3-style attribute) row is
+  parsed once, kept losslessly, and grouped under its gene → transcript (1-based
+  GTF coordinates, 0-based span helpers).
+- `prepare` (`gtf2tx.read_gtf`) consumes `GeneAnnotation.iter_rows()`; `refine`
+  loads a `GeneAnnotation`, mutates it, and re-serializes with `write_gtf`
+  (sort + bgzip/tabix). The attribute regexes, comment/malformed-line rules,
+  seqname renaming/filtering, and serialization live in exactly one place.
+- `metagene`/`annotate` keep their fast, cached Polars loader; the semantics
+  they consume (attribute tokens, exon/codon features, biotype aliases) are
+  defined here, and a refined GTF is a drop-in for the original (verified
+  numerically on yeast R64).
 
 ## 2. The command layer
 

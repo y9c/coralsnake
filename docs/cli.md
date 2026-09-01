@@ -65,6 +65,19 @@ creation, overlapping-exon merge, canonical-transcript flagging, and coordinate
 checks. Codon and UTR features are preserved (so the output stays usable for
 `metagene` and `annotate`). Indexing uses pysam — no external samtools/bgzip/tabix.
 
+The GTF side is built on the shared `coralsnake.gene_annotation.GeneAnnotation`
+object — the same read/serialize layer `prepare` uses — so a refined GTF is a
+drop-in replacement for the input:
+
+- **Biotypes written for `prepare`**: both `gene_type`/`transcript_type`
+  (GENCODE style) and `gene_biotype`/`transcript_biotype` (Ensembl style) are
+  emitted, so `prepare --filter-biotype / --with-biotype` work on the refined
+  output even when the input only carried `*_type`.
+- **Canonical transcripts are flagged** with `is_canonical` *and* tagged
+  `Ensembl_canonical`, so `prepare`'s ranking (MANE/Ensembl-canonical priority)
+  picks the transcript `refine` selected (longest protein-coding, or from
+  `--canonical-transcripts`).
+
 ```
 coralsnake refine -f genome.fa -g annotation.gtf -o outdir -n hg38 \
                   -m chrom_map.tsv -c canonical.tsv
