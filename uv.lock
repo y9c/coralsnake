@@ -91,7 +91,7 @@ wheels = [
 
 [[package]]
 name = "coralsnake"
-version = "0.0.222"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },
