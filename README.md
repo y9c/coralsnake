@@ -47,7 +47,7 @@ pip install "coralsnake[plot]"
 | `prepare`    | Extract the spliced primary transcript reference from GTF/GFF.      |
 | `liftover`   | Splice/join reads between genome/transcript BAMs (`-d t2g` default, `-d g2t` inverts). |
 | `annotate`   | Unified site/variant annotation: region on the RNA hierarchy + gene/transcript + variant effect. |
-| `metagene`   | Exon-aware metagene profiling across 5'UTR/CDS/3'UTR.              |
+| `metagene`   | Exon-aware metagene profiling across 5'UTR/CDS/3'UTR (profile plot needs `coralsnake[plot]`). |
 | `motif`      | Strand-aware genomic motif fetch around variant sites.              |
 | `coordinate` | Map chromosome names between coordinate systems (UCSC↔Ensembl).    |
 | `group`      | Group genes and build a consensus sequence.                         |
@@ -121,7 +121,8 @@ coralsnake annotate -i variants.tsv -o effects.tsv \
 
 Built on the high-performance `polars` + `ruranges` stack. Computes the
 distribution of sites relative to gene regions (5'UTR, CDS, 3'UTR) and can emit
-binned statistics and a publication-ready profile plot.
+binned statistics and a publication-ready profile plot. The `-p` profile plot
+needs the `plot` extra; the tabular outputs (`-o`, `-s`) work without it.
 
 ```bash
 # Using a built-in reference (GRCh38) or a custom GTF:
