@@ -4,6 +4,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] (cont.) — `refine` command (from PR #2, reworked)
+
+New `coralsnake refine` command (genome FASTA + GTF cleaning before `prepare`),
+contributed by Zonggui Chen and reworked onto the package infrastructure:
+
+- **Attribute parsing reuses the hardened `gtf2tx.parse_gtf_annot`** (handles
+  quoted `;` inside values and a missing trailing `;`) instead of a hand-rolled
+  parser.
+- **Codon/UTR features are preserved** (the PR dropped start/stop_codon and UTR
+  rows, which would have broken `metagene` gene splits and `annotate` CDS
+  effects).
+- **Indexing via pysam** (`faidx`, `tabix_compress`/`tabix_index`) — no external
+  samtools/bgzip/tabix on PATH, no `shell=True`.
+- Crashes fixed: exon-only genes, CDS without a containing exon, and the empty
+  default `name` (which produced hidden dotfile outputs).
+- `refine` validates that at least one of `--fasta-file`/`--gtf-file` is given.
+- Verified end-to-end: refining the yeast R64 GTF keeps all 145/145 codons and
+  feeds `prepare --with-codon` correctly.
+
+### New: shared `GeneModel` object (`coralsnake.genemodel`)
+
+One object models one annotated genome (GTF/GFF3-style attributes): every
+feature row is parsed once, kept losslessly, and grouped under its gene and
+transcript (1-based GTF coordinates + 0-based span helpers). It is the single
+source of truth for how coralsnake reads and writes gene annotations:
+
+- `gtf2tx.read_gtf` (`prepare`) now consumes `GeneModel.iter_rows()` — the
+  attribute regexes, comment handling and malformed-line rules live in one
+  place; per-row ranking / biotype / GFF-Parent decisions are unchanged
+  (`genegroup` and `prepare` output are byte-identical).
+- `refine` is rebuilt on the object (load → mutate → `write_gtf` with sort +
+  bgzip/tabix). The metagene/annotate path keeps its fast cached Polars loader.
+
+Compatibility guarantees for the built-in tools:
+
+- **Biotype aliases**: refined GTFs emit both `gene_type`/`transcript_type`
+  (GENCODE) and `gene_biotype`/`transcript_biotype` (Ensembl), so
+  `prepare --with-biotype / --filter-biotype` work on GENCODE-style inputs.
+- **Canonical transcripts are tagged** `Ensembl_canonical` (plus `is_canonical`),
+  so `prepare`'s ranking picks the transcript `refine` selected.
+- Verified numerically identical for metagene/annotate: `prepare_exon_ref` on the
+  original R64 GTF vs the refined one agrees on all 218 exon rows (coordinates,
+  exon numbers, transcript offsets, codon positions, levels).
+
 ## [Unreleased]
 
 ### ⚠ Behavior change: `annotate` / `effect` input positions are now 1-based

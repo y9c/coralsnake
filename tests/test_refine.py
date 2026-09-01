@@ -1,0 +1,279 @@
+"""Tests for coralsnake.refine (`coralsnake refine`)."""
+
+import os
+from pathlib import Path
+
+
+FASTA = ">chr1\n" + "A" * 100 + "\n>chr2\n" + "C" * 200 + "\n>chrM\n" + "G" * 50 + "\n"
+
+
+def _gtf(**over):
+    """A realistic 2-exon protein-coding gene with codons + UTRs."""
+    return (
+        'chr1\tens\tgene\t100\t300\t.\t+\t.\tgene_id "g1"; gene_name "Foo"; gene_type "protein_coding";\n'
+        'chr1\tens\ttranscript\t100\t300\t.\t+\t.\tgene_id "g1"; transcript_id "t1"; gene_name "Foo"; gene_type "protein_coding"; transcript_type "protein_coding";\n'
+        'chr1\tens\texon\t100\t150\t.\t+\t.\tgene_id "g1"; transcript_id "t1"; exon_number "1";\n'
+        'chr1\tens\texon\t200\t300\t.\t+\t.\tgene_id "g1"; transcript_id "t1"; exon_number "2";\n'
+        'chr1\tens\tCDS\t110\t150\t.\t+\t0\tgene_id "g1"; transcript_id "t1";\n'
+        'chr1\tens\tCDS\t200\t270\t.\t+\t0\tgene_id "g1"; transcript_id "t1";\n'
+        'chr1\tens\tstart_codon\t110\t112\t.\t+\t0\tgene_id "g1"; transcript_id "t1";\n'
+        'chr1\tens\tstop_codon\t268\t270\t.\t+\t0\tgene_id "g1"; transcript_id "t1";\n'
+        'chr1\tens\tfive_prime_utr\t100\t109\t.\t+\t.\tgene_id "g1"; transcript_id "t1";\n'
+        'chr1\tens\tthree_prime_utr\t271\t300\t.\t+\t.\tgene_id "g1"; transcript_id "t1";\n'
+    )
+
+
+class TestFastaRefiner:
+    def test_rename_and_filter(self, tmp_path):
+        from coralsnake.refine import refine_genome_references
+
+        fa = tmp_path / "in.fa"
+        fa.write_text(FASTA)
+        mapper = tmp_path / "map.tsv"
+        mapper.write_text("chr1\t1\nchr2\t2\nchrM\tMT\n")
+        prefix = refine_genome_references(
+            input_fasta=str(fa),
+            outdir=str(tmp_path),
+            name="test",
+            rename_mapper=str(mapper),
+        )
+        out = Path(prefix + ".genome.fasta").read_text()
+        assert out.startswith(">1 chr1")  # renamed, original kept in the description
+        assert ">2 chr2" in out and ">MT chrM" in out
+        # faidx + sizes produced without external samtools
+        assert Path(prefix + ".genome.fasta.fai").exists()
+        sizes = Path(prefix + ".genome.sizes").read_text()
+        assert "1\t100" in sizes and "2\t200" in sizes
+
+    def test_seqname_pattern_filter(self, tmp_path):
+        from coralsnake.refine import refine_genome_references
+
+        fa = tmp_path / "in.fa"
+        fa.write_text(FASTA)
+        prefix = refine_genome_references(
+            input_fasta=str(fa),
+            outdir=str(tmp_path),
+            name="test",
+            seqname_pattern=r"^chr[12]$",
+        )
+        out = Path(prefix + ".genome.fasta").read_text()
+        assert ">chr1" in out and ">chr2" in out and "chrM" not in out
+
+    def test_default_name_is_not_empty(self, tmp_path):
+        """Default --outdir ./ must not produce hidden dotfile outputs."""
+        from coralsnake.refine import refine_genome_references
+
+        fa = tmp_path / "in.fa"
+        fa.write_text(FASTA)
+        prefix = refine_genome_references(input_fasta=str(fa), outdir=str(tmp_path))
+        assert os.path.basename(prefix) != ""
+        assert Path(prefix + ".genome.fasta").exists()
+
+
+class TestGtfRefiner:
+    def test_codon_and_utr_rows_preserved(self, tmp_path):
+        """start/stop codon and UTR rows must survive refinement (metagene and
+        annotate need them)."""
+        from coralsnake.refine import refine_genome_references
+
+        gtf = tmp_path / "in.gtf"
+        gtf.write_text(_gtf())
+        prefix = refine_genome_references(
+            input_gtf=str(gtf), outdir=str(tmp_path), name="test"
+        )
+        out = Path(prefix + ".annotation.gtf").read_text()
+        for feature in (
+            "gene",
+            "transcript",
+            "exon",
+            "CDS",
+            "start_codon",
+            "stop_codon",
+            "five_prime_utr",
+            "three_prime_utr",
+        ):
+            assert f"\t{feature}\t" in out, f"{feature} row dropped"
+        assert 'is_canonical "True"' in out
+
+    def test_exon_only_gene_does_not_crash(self, tmp_path):
+        """A gene with only exon rows gets a synthesized gene/transcript row."""
+        from coralsnake.refine import refine_genome_references
+
+        gtf = tmp_path / "in.gtf"
+        gtf.write_text(
+            'chr1\tens\texon\t100\t150\t.\t+\t.\tgene_id "g1"; transcript_id "t1";\n'
+            'chr1\tens\texon\t200\t250\t.\t+\t.\tgene_id "g1"; transcript_id "t1";\n'
+        )
+        prefix = refine_genome_references(
+            input_gtf=str(gtf), outdir=str(tmp_path), name="test"
+        )
+        out = Path(prefix + ".annotation.gtf").read_text()
+        assert "\tgene\t" in out and "\ttranscript\t" in out
+
+    def test_cds_without_matching_exon_is_skipped_not_crash(self, tmp_path):
+        """CDS outside every exon -> transcript skipped, no crash."""
+        from coralsnake.refine import refine_genome_references
+
+        gtf = tmp_path / "in.gtf"
+        gtf.write_text(
+            'chr1\tens\texon\t100\t150\t.\t+\t.\tgene_id "g1"; transcript_id "t1";\n'
+            'chr1\tens\tCDS\t200\t250\t.\t+\t0\tgene_id "g1"; transcript_id "t1";\n'
+        )
+        prefix = refine_genome_references(
+            input_gtf=str(gtf), outdir=str(tmp_path), name="test"
+        )
+        out = Path(prefix + ".annotation.gtf").read_text()
+        skip = Path(prefix + ".skip.gtf").read_text()
+        assert "g1" not in out  # the bad gene is dropped from the main GTF
+        assert "g1" in skip  # ... and moved to the skip file, no crash
+
+    def test_attribute_without_trailing_semicolon(self, tmp_path):
+        """A GTF line whose last attribute lacks ';' must not crash."""
+        from coralsnake.refine import refine_genome_references
+
+        gtf = tmp_path / "in.gtf"
+        gtf.write_text(
+            'chr1\tens\texon\t100\t150\t.\t+\t.\tgene_id "g1"; transcript_id "t1"\n'
+        )
+        prefix = refine_genome_references(
+            input_gtf=str(gtf), outdir=str(tmp_path), name="test"
+        )
+        assert "g1" in Path(prefix + ".annotation.gtf").read_text()
+
+    def test_duplicate_gene_name_is_renamed(self, tmp_path):
+        from coralsnake.refine import refine_genome_references
+
+        gtf = tmp_path / "in.gtf"
+        two = _gtf() + _gtf().replace('gene_id "g1"', 'gene_id "g2"').replace(
+            'transcript_id "t1"', 'transcript_id "t2"'
+        )
+        gtf.write_text(two)
+        prefix = refine_genome_references(
+            input_gtf=str(gtf), outdir=str(tmp_path), name="test"
+        )
+        out = Path(prefix + ".annotation.gtf").read_text()
+        assert 'gene_name "Foo_g2"' in out  # duplicate name disambiguated
+
+    def test_gencode_biotype_feeds_prepare(self, tmp_path):
+        """GENCODE-style input (gene_type only, no *_biotype) must still let
+        `prepare --with-biotype / --filter-biotype` work on the refined GTF."""
+        from coralsnake.gtf2tx import parse_file
+        from coralsnake.refine import refine_genome_references
+
+        def gencode():
+            return (
+                'chr1\tens\tgene\t100\t300\t.\t+\t.\tgene_id "g1"; gene_name "Foo"; gene_type "protein_coding";\n'
+                'chr1\tens\ttranscript\t100\t300\t.\t+\t.\tgene_id "g1"; transcript_id "t1"; gene_type "protein_coding"; transcript_type "protein_coding";\n'
+                'chr1\tens\texon\t100\t300\t.\t+\t.\tgene_id "g1"; transcript_id "t1"; exon_number "1";\n'
+                'chr1\tens\tstart_codon\t110\t112\t.\t+\t0\tgene_id "g1"; transcript_id "t1";\n'
+                'chr1\tens\tstop_codon\t268\t270\t.\t+\t0\tgene_id "g1"; transcript_id "t1";\n'
+            )
+
+        gtf = tmp_path / "in.gtf"
+        gtf.write_text(gencode())
+        prefix = refine_genome_references(
+            input_gtf=str(gtf), outdir=str(tmp_path), name="test"
+        )
+        out_gtf = Path(prefix + ".annotation.gtf").read_text()
+        assert 'gene_biotype "protein_coding"' in out_gtf
+        assert 'transcript_biotype "protein_coding"' in out_gtf
+
+        prepared = tmp_path / "prepared.tsv"
+        parse_file(
+            prefix + ".annotation.gtf",
+            None,
+            str(prepared),
+            with_biotype=True,
+            filter_biotype="protein_coding",
+        )
+        rows = prepared.read_text().strip().split("\n")
+        assert len(rows) == 2  # header + 1 kept transcript
+        assert rows[1].split("\t")[-1] == "protein_coding"
+
+    def test_canonical_transcript_tagged_for_prepare(self, tmp_path):
+        """The longest protein-coding transcript is flagged is_canonical and
+        tagged Ensembl_canonical so `prepare` ranks it first."""
+        from coralsnake.gtf2tx import parse_file
+        from coralsnake.refine import refine_genome_references
+
+        two = (
+            # t1 (long) vs t2 (short) — both protein_coding, same gene
+            'chr1\tens\tgene\t100\t400\t.\t+\t.\tgene_id "g1"; gene_name "Foo"; gene_type "protein_coding";\n'
+            'chr1\tens\ttranscript\t100\t400\t.\t+\t.\tgene_id "g1"; transcript_id "t1"; gene_type "protein_coding"; transcript_type "protein_coding";\n'
+            'chr1\tens\texon\t100\t400\t.\t+\t.\tgene_id "g1"; transcript_id "t1"; exon_number "1";\n'
+            'chr1\tens\tCDS\t110\t300\t.\t+\t0\tgene_id "g1"; transcript_id "t1";\n'
+            'chr1\tens\ttranscript\t100\t200\t.\t+\t.\tgene_id "g1"; transcript_id "t2"; gene_type "protein_coding"; transcript_type "protein_coding";\n'
+            'chr1\tens\texon\t100\t200\t.\t+\t.\tgene_id "g1"; transcript_id "t2"; exon_number "1";\n'
+            'chr1\tens\tCDS\t110\t180\t.\t+\t0\tgene_id "g1"; transcript_id "t2";\n'
+        )
+        gtf = tmp_path / "in.gtf"
+        gtf.write_text(two)
+        prefix = refine_genome_references(
+            input_gtf=str(gtf), outdir=str(tmp_path), name="test"
+        )
+        out = Path(prefix + ".annotation.gtf").read_text()
+        # the longer transcript is canonical and tagged
+        assert 'transcript_id "t1";' in out and 'is_canonical "True"' in out
+        assert 'tag "Ensembl_canonical"' in out
+        # ... and prepare reports it first (1 row per gene)
+        prepared = tmp_path / "prepared.tsv"
+        parse_file(prefix + ".annotation.gtf", None, str(prepared))
+        rows = prepared.read_text().strip().split("\n")
+        assert rows[1].startswith("g1\tt1\t")
+
+
+class TestTableLiftoverIntegration:
+    def test_refine_feeds_liftover_table(self, tmp_path):
+        """`refine` -> `prepare` table -> `liftover --table` (t2g + g2t).
+
+        Regression guard that the refined GTF stays a drop-in reference for the
+        new `liftover --table` sites converter on top of the shared pipeline.
+        """
+        from coralsnake.gtf2tx import parse_file
+        from coralsnake.refine import refine_genome_references
+        from coralsnake.table_liftover import run_liftover_table
+
+        gtf = tmp_path / "in.gtf"
+        gtf.write_text(_gtf1_gene())
+        prefix = refine_genome_references(
+            input_gtf=str(gtf), outdir=str(tmp_path), name="test"
+        )
+        table = tmp_path / "prepared.tsv"
+        parse_file(prefix + ".annotation.gtf", None, str(table))
+
+        # t2g: (gene, 1-based tx pos) -> (GenomeChrom, GenomePos)
+        t2g_in = tmp_path / "t2g.tsv"
+        t2g_in.write_text("Chrom\tPos\ng1\t10\ng1\t1\n")
+        t2g_out = tmp_path / "t2g.out.tsv"
+        run_liftover_table(str(t2g_in), str(t2g_out), str(table), "t2g")
+        out = t2g_out.read_text().strip().split("\n")
+        assert out[1].split("\t") == ["g1", "10", "chr1", "109"]
+        assert out[2].split("\t") == ["g1", "1", "chr1", "100"]
+
+        # g2t round-trip: (GenomeChrom, Pos, Strand) -> (Gene, GenePos)
+        g2t_in = tmp_path / "g2t.tsv"
+        g2t_in.write_text("Chrom\tPos\tStrand\nchr1\t109\t+\n")
+        g2t_out = tmp_path / "g2t.out.tsv"
+        run_liftover_table(str(g2t_in), str(g2t_out), str(table), "g2t")
+        row = g2t_out.read_text().strip().split("\n")[1].split("\t")
+        assert row == ["chr1", "109", "+", "g1", "10"]
+
+
+def _gtf1_gene():
+    """A single-exon + strand gene spanning chr1:100-300 (1-based)."""
+    return (
+        'chr1\tens\tgene\t100\t300\t.\t+\t.\tgene_id "g1"; gene_name "Foo"; gene_type "protein_coding";\n'
+        'chr1\tens\ttranscript\t100\t300\t.\t+\t.\tgene_id "g1"; transcript_id "t1"; gene_type "protein_coding"; transcript_type "protein_coding";\n'
+        'chr1\tens\texon\t100\t300\t.\t+\t.\tgene_id "g1"; transcript_id "t1"; exon_number "1";\n'
+    )
+
+
+class TestRefineCli:
+    def test_neither_input_is_an_error(self):
+        from click.testing import CliRunner
+
+        from coralsnake.cli import cli
+
+        res = CliRunner().invoke(cli, ["refine", "-o", "outdir"])
+        assert res.exit_code != 0
+        assert "Nothing to refine" in res.output
