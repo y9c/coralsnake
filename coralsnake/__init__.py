@@ -6,7 +6,7 @@
 #
 # coralsnake - exon-aware RNA analysis pipeline.
 
-__version__ = "0.0.222"
+__version__ = "0.2.0"
 
 
 def __getattr__(name):
