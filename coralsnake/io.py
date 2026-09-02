@@ -78,11 +78,35 @@ def load_sites(
 
 def parse_feature_file(feature_file_name: str) -> pl.DataFrame:
     """
-    Parse feature file (BED or Parquet format) using Polars only.
+    Parse a reference file (Parquet) using Polars.
+
+    The reference schema is validated so a corrupt or incompatible cached
+    file fails fast with an actionable message instead of a cryptic
+    KeyError deep in the analysis.
+
     Returns:
         Polars DataFrame with processed feature information
     """
     df = pl.read_parquet(feature_file_name)
+    required = (
+        "Chromosome",
+        "Start",
+        "End",
+        "Strand",
+        "gene_id",
+        "transcript_id",
+        "transcript_length",
+        "Start_exon",
+        "End_exon",
+    )
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"Reference file {feature_file_name} is missing required columns "
+            f"{missing}; the file may be corrupt or from an incompatible "
+            "version. Delete it and re-download it "
+            "(coralsnake reference download <ref>)."
+        )
     return df
 
 

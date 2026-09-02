@@ -6,15 +6,21 @@
 #
 # Reference file download functionality
 
-import urllib.request
-import urllib.error
 import os
+import shutil
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from rich.console import Console
 
 from .utils import setup_logger, get_cache_dir, get_file_size, format_file_size
-from .config import BUILTIN_REFERENCES, GITHUB_DOWNLOAD_BASE
+from .config import (
+    BUILTIN_REFERENCES,
+    GITHUB_DOWNLOAD_BASE,
+    REFERENCE_GROUPS,
+    REFERENCE_SIZES_KB,
+)
 
 # Set up logger
 logger = setup_logger(__name__)
@@ -107,7 +113,11 @@ def list_references(console) -> None:
         if species not in species_groups:
             species_groups[species] = []
         species_groups[species].append(
-            (ref_name, ref_info["description"], status_emoji)
+            (
+                ref_name,
+                ref_info["description"] + _size_text(ref_name, cache_dir, cached_files),
+                status_emoji,
+            )
         )
 
     # Calculate the padding for alignment
@@ -149,6 +159,55 @@ def list_references(console) -> None:
     )
 
 
+def _resolve_references(request: str) -> list[str]:
+    """Resolve a download request: a reference name, a group, or 'all'."""
+    key = request.lower()
+    if key == "all":
+        return list(BUILTIN_REFERENCES.keys())
+    if key in REFERENCE_GROUPS:
+        return list(REFERENCE_GROUPS[key])
+    if request in BUILTIN_REFERENCES:
+        return [request]
+    raise ValueError(
+        f"Reference '{request}' not available. "
+        f"Available references: {', '.join(BUILTIN_REFERENCES)}; "
+        f"groups: {', '.join(REFERENCE_GROUPS)} or 'all'.\n"
+        "Use `coralsnake reference list` to see all options."
+    )
+
+
+def _download_with_progress(url: str, tmp_path: Path, silent: bool = False) -> None:
+    """Stream ``url`` to ``tmp_path`` with a progress display (unless silent)."""
+    with urllib.request.urlopen(url) as response:
+        if silent:
+            with open(tmp_path, "wb") as f:
+                shutil.copyfileobj(response, f)
+            return
+        from rich.progress import Progress
+
+        total = int(response.headers.get("Content-Length") or 0)
+        with Progress(transient=True) as progress:
+            task = progress.add_task("download", total=total or None)
+            with open(tmp_path, "wb") as f:
+                while True:
+                    chunk = response.read(1 << 20)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    progress.update(task, advance=len(chunk))
+
+
+def _size_text(ref_name: str, cache_dir: Path, cached_files: set) -> str:
+    """Size hint for `--list`: the cached size, or the known download size."""
+    fname = f"{ref_name}.parquet"
+    if fname in cached_files:
+        return f" ({format_file_size(os.path.getsize(cache_dir / fname))})"
+    kb = REFERENCE_SIZES_KB.get(ref_name)
+    if kb:
+        return f" (~{format_file_size(kb * 1024)})"
+    return ""
+
+
 def download_references(species: str, silent: bool = False) -> None:
     """
     Download reference file(s) for the specified species.
@@ -156,70 +215,50 @@ def download_references(species: str, silent: bool = False) -> None:
     Args:
         species: Species name or 'all' to download all references
     """
-    if species not in BUILTIN_REFERENCES and species.lower() != "all":
-        raise ValueError(f"Unknown species: {species}")
-
     # Get cache directory
     cache_dir = get_cache_dir()
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
-    # Determine which species to download
-    species_to_download = (
-        BUILTIN_REFERENCES.keys() if species.lower() == "all" else [species]
-    )
+    # Determine which references to download: a reference name, a named
+    # group (human/mouse), or "all".
+    species_to_download = _resolve_references(species)
 
-    # Download and process the release
-    logger.info("Downloading reference files...")
+    if not silent:
+        logger.info(f"Downloading {len(species_to_download)} reference file(s)...")
     try:
-        for species in species_to_download:
-            info = BUILTIN_REFERENCES[species]
+        for ref in species_to_download:
+            info = BUILTIN_REFERENCES[ref]
             target_path = cache_dir / Path(info["parquet_file"]).name
 
             if target_path.exists():
-                logger.info(f"Reference for {species} already exists in cache.")
+                if not silent:
+                    logger.info(f"Reference '{ref}' already exists in cache, skipping.")
                 continue
 
             # Construct the download URL using the base URL from config
             download_url = f"{GITHUB_DOWNLOAD_BASE}/{Path(info['parquet_file']).name}"
 
-            # Prompt user to download if file doesn't exist
-            if not target_path.exists():
-                if silent:
-                    # Silent mode - just download without prompting
-                    pass
-                else:
-                    # Interactive mode - prompt user via rich console
-                    console.print(
-                        f"\n{Emojis.DNA} [bold cyan]Reference: {species}[/bold cyan]"
-                    )
-                    console.print(
-                        f"{Emojis.INFO} [yellow]Description:[/yellow] {info['description']}"
-                    )
-                    console.print(
-                        f"{Emojis.DOWNLOAD} [yellow]Source:[/yellow] {info['source_file']}"
-                    )
-                    response = console.input(
-                        f"{Emojis.DOWNLOAD} Reference file not found in cache. "
-                        "Download it? (Y/n): "
-                    )
-                    if response.strip().lower() in ["n", "no"]:
-                        logger.info(f"Skipping download for {species}.")
-                        continue
+            if not silent:
+                console.print(f"\n{Emojis.DNA} [bold cyan]Reference: {ref}[/bold cyan]")
+                console.print(
+                    f"{Emojis.INFO} [yellow]Description:[/yellow] {info['description']}"
+                )
 
-            # Download the file (to a temp path, then atomically rename, so an
-            # interrupted transfer can never leave a corrupt file in the cache)
+            # Download to a temp path with progress, then atomically rename,
+            # so an interrupted transfer can never leave a corrupt file in
+            # the cache.
             logger.info(f"Downloading {Path(info['parquet_file']).name}...")
             tmp_path = target_path.with_name(target_path.name + ".tmp")
             try:
-                urllib.request.urlretrieve(download_url, tmp_path)
+                _download_with_progress(download_url, tmp_path, silent=silent)
             except Exception:
                 if tmp_path.exists():
                     tmp_path.unlink()
                 raise
             os.replace(tmp_path, target_path)
-            size = format_file_size(get_file_size(target_path))
-            logger.info(
-                f"{Emojis.CHECK} Successfully downloaded {Path(info['parquet_file']).name} ({size})"
-            )
+            if not silent:
+                size = format_file_size(get_file_size(target_path))
+                logger.info(f"{Emojis.CHECK} Successfully downloaded {ref} ({size})")
 
     except urllib.error.URLError as e:
         raise RuntimeError(

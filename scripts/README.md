@@ -27,11 +27,12 @@ against.
 # List the expected source files (and whether they are present)
 python scripts/build_references.py --list
 
-# Build everything (source GTFs under <source-dir>, layout = source_file)
-python scripts/build_references.py --all --source-dir ./sources --out data/parquet
+# Build everything (source GTFs under <source-dir>, layout = source_file;
+# --fetch downloads any missing sources from the recorded source_url)
+python scripts/build_references.py --all --fetch --source-dir ./sources --out data/parquet
 
 # Build one
-python scripts/build_references.py --single sources/Homo_sapiens/raw/GRCh38.release110.gtf.gz GRCh38
+python scripts/build_references.py --single sources/Homo_sapiens/raw/Homo_sapiens.GRCh38.110.gtf.gz GRCh38
 ```
 
 Every build runs a schema check (column set of `prepare_exon_ref`) and an
@@ -42,17 +43,26 @@ corrupt reference.
 ## Source GTFs
 
 Place the raw GTFs under `<source-dir>` with the relative layout recorded in
-`BUILTIN_REFERENCES[ref]["source_file"]`, e.g.
-`Homo_sapiens/raw/GRCh38.release110.gtf.gz`. Typical upstream locations:
+`BUILTIN_REFERENCES[ref]["source_file"]` (e.g.
+`Homo_sapiens/raw/Homo_sapiens.GRCh38.110.gtf.gz`) — or simply run the build
+with `--fetch`: every reference carries a verified `source_url` in
+`coralsnake/config.py`, and the script downloads whatever is missing.
 
-- Ensembl: `https://ftp.ensembl.org/pub/release-<N>/gtf/<species>/<Species>.<assembly>.release<N>.gtf.gz`
-- UCSC:    `https://hgdownload.soe.ucsc.edu/goldenPath/<asm>/genes/<asm>.<date>.gtf.gz`
+Upstream locations (verified 2026-09-02; Ensembl is now at release 116):
 
-Note: the currently hosted files were generated from the source GTFs used in
-the original `y9c/metagene` build (that repo is no longer maintained). A
-rebuild from a fresh Ensembl/UCSC download of the same release is normally
-identical, but verify per reference (row count + spot-checked gene IDs)
-before publishing an update release.
+- Ensembl (animals + *S. cerevisiae*):
+  `https://ftp.ensembl.org/pub/release-<N>/gtf/<species>/<file>.gtf.gz`
+- Ensembl Genomes (plants + *S. pombe*; `current` is frozen at release 63):
+  `https://ftp.ebi.ac.uk/ensemblgenomes/pub/<plants|fungi>/current/gtf/<species>/<file>.gtf.gz`
+- UCSC (gene GTFs moved under `bigZips/genes/`; the old top-level `genes/`
+  dirs and dated combined GTFs are gone):
+  `https://hgdownload.soe.ucsc.edu/goldenPath/<asm>/bigZips/genes/<file>.gtf.gz`
+
+Note: v1's UCSC references were built from dated combined GTFs (e.g.
+`hg38.20221028.gtf.gz`) that are no longer served; the v2 build uses the
+per-track `knownGene` (GENCODE) GTF for vertebrates and the best available
+curated set (refGene / ncbiRefSeq) for model organisms. Ensembl-based
+references are rebuilt from the same releases as v1.
 
 ## Publishing an update
 

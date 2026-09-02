@@ -74,6 +74,8 @@ def prepare_exon_ref(gtf_file: str) -> pl.DataFrame:
                     "exon_number",
                     "transcript_support_level",
                     "tag",
+                    "gene_name",
+                    "gene_biotype",
                 ]
             )
         )
@@ -265,6 +267,13 @@ def prepare_exon_ref(gtf_file: str) -> pl.DataFrame:
     # annotation column contract.
     if "exon_number" not in pl_tx.columns:
         pl_tx = pl_tx.with_columns(pl.lit(None, dtype=pl.Utf8).alias("exon_number"))
+
+    # Same for the v2 identity columns: a GTF without gene_name /
+    # gene_biotype attributes (e.g. minimal UCSC exports) still yields the
+    # full schema (null-filled).
+    for name in ("gene_name", "gene_biotype"):
+        if name not in pl_tx.columns:
+            pl_tx = pl_tx.with_columns(pl.lit(None, dtype=pl.Utf8).alias(name))
 
     return pl_tx
 

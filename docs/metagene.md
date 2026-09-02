@@ -23,11 +23,12 @@ coralsnake metagene -i sites.bed -g custom.gtf.gz -m 1,2,3 -w 5 \
                     -o output.tsv -s scores.tsv -p plot.png
 ```
 
-List or download the built-in references:
+List or download the built-in references (use the `reference` command; the
+`metagene --list` / `--download` flags still work but are deprecated):
 
 ```bash
-coralsnake metagene --list
-coralsnake metagene --download GRCh38
+coralsnake reference list
+coralsnake reference download GRCh38
 ```
 
 ## Key options

@@ -3,7 +3,7 @@
 """
 Build (or update) the built-in reference parquet files for coralsnake.
 
-These are the files that ``coralsnake metagene --download <ref>`` fetches from
+These are the files that ``coralsnake reference download <ref>`` fetches from
 the ``data`` GitHub release of this repository (see ``coralsnake/config.py``).
 Migrated from the standalone ``y9c/metagene`` repo (``scripts/
 process_gtf_to_parquet.py``); the reference list, source GTF paths and output
@@ -15,10 +15,22 @@ Workflow
 1. Place the raw GTF files under ``--source-dir`` following the layout recorded
    in ``BUILTIN_REFERENCES[ref]["source_file"]``, e.g.::
 
-       Homo_sapiens/raw/GRCh38.release110.gtf.gz
+       Homo_sapiens/raw/Homo_sapiens.GRCh38.110.gtf.gz
 
-   (Ensembl: ``https://ftp.ensembl.org/pub/release-<N>/gtf/<species>/...``
-    UCSC:    ``https://hgdownload.soe.ucsc.edu/goldenPath/<asm>/...``)
+   or let the script download them (``--fetch``) from the ``source_url``
+   recorded per reference (all URLs verified 2026-09-02). Upstream layout:
+   Ensembl (animals + S. cerevisiae)::
+
+       https://ftp.ensembl.org/pub/release-<N>/gtf/<species>/<file>.gtf.gz
+
+   Ensembl Genomes (plants + S. pombe, frozen at release 63)::
+
+       https://ftp.ebi.ac.uk/ensemblgenomes/pub/<plants|fungi>/current/gtf/<species>/
+
+   UCSC (gene GTFs moved to ``bigZips/genes/``; the old dated combined
+   GTFs and top-level ``genes/`` dirs are gone)::
+
+       https://hgdownload.soe.ucsc.edu/goldenPath/<asm>/bigZips/genes/<file>.gtf.gz
 
 2. Build::
 
@@ -63,6 +75,8 @@ EXPECTED_COLUMNS = [
     "Strand",
     "gene_id",
     "transcript_id",
+    "gene_name",
+    "gene_biotype",
     "exon_number",
     "transcript_length",
     "transcript_level",
@@ -71,6 +85,12 @@ EXPECTED_COLUMNS = [
     "start_codon_pos",
     "stop_codon_pos",
 ]
+
+# Parquet key-value metadata marker so tools can identify the reference
+# schema version of a hosted file (v2 adds gene_name / gene_biotype).
+# (Not currently written into the parquet - see the note in build_one -
+# but kept so the version can be stamped once polars supports metadata.)
+SCHEMA_VERSION = b"2"
 
 
 def log(msg: str) -> None:
@@ -137,6 +157,10 @@ def build_one(gtf_path: str, out_path: str, compression_level: int) -> Path:
     check_invariants(df, gtf_path_obj.name)
 
     tmp = Path(out_path).with_name(Path(out_path).name + ".tmp")
+    # NOTE: polars' write_parquet(metadata=...) is broken (ComputeError:
+    # "TypeError: 'list' object is not callable"), so no parquet KV metadata
+    # is written. The reference schema version is tracked via the release
+    # tag (data / data-v2 / ...) instead.
     df.write_parquet(tmp, compression="zstd", compression_level=compression_level)
     os.replace(tmp, out_path)
     out_mb = os.path.getsize(out_path) / (1024 * 1024)
@@ -200,7 +224,29 @@ def parse_args(argv=None) -> argparse.Namespace:
         action="store_true",
         help="allow overwriting assets on an existing (fixed) release",
     )
+    p.add_argument(
+        "--fetch",
+        action="store_true",
+        help="download missing source GTFs from the source_url in config first",
+    )
     return p.parse_args(argv)
+
+
+def fetch_missing(source_dir: Path) -> None:
+    """Download any missing source GTFs from their recorded ``source_url``."""
+    import urllib.request
+
+    for name, info in BUILTIN_REFERENCES.items():
+        dest = source_dir / info["source_file"]
+        if dest.exists():
+            continue
+        url = info["source_url"]
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        log(f"  Fetching {name} from {url} ...")
+        tmp = dest.with_name(dest.name + ".part")
+        urllib.request.urlretrieve(url, str(tmp))
+        os.replace(tmp, dest)
+        log(f"  OK {dest} ({os.path.getsize(dest) // (1024 * 1024)} MB)")
 
 
 def existing_release(repo: str, tag: str) -> bool:
@@ -268,6 +314,10 @@ def main(argv=None) -> None:
     args = parse_args(argv)
     source_dir = Path(args.source_dir)
 
+    if args.fetch:
+        log("Fetching missing source GTFs ...")
+        fetch_missing(source_dir)
+
     if args.list:
         log(f"{'#':>2}  reference / source file")
         for i, (name, info) in enumerate(BUILTIN_REFERENCES.items(), 1):
@@ -293,11 +343,12 @@ def main(argv=None) -> None:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    built, failed = [], []
+    built: list[tuple[Path, str]] = []  # (parquet path, label)
+    failed = []
     for gtf, out_name, label in jobs:
         try:
             built.append(
-                build_one(gtf, str(out_dir / out_name), args.compression_level)
+                (build_one(gtf, str(out_dir / out_name), args.compression_level), label)
             )
         except Exception as e:
             log(f"  FAILED {label}: {e}")
@@ -307,12 +358,15 @@ def main(argv=None) -> None:
         if failed:
             sys.exit(f"{len(failed)} reference(s) failed: {[f[0] for f in failed]}")
         log(f"\nBuilt {len(built)} parquet file(s) into {out_dir}/")
+        log("\nSizes for coralsnake.config.REFERENCE_SIZES_KB (KB):")
+        for p, label in built:
+            log(f'    "{label}": {os.path.getsize(str(p)) // 1024},')
         return
 
     # publish only if the full set is present
     if failed:
         sys.exit(f"Refusing to publish: {len(failed)} reference(s) failed")
-    publish(built, args.repo, args.tag, args.force)
+    publish([p for p, _ in built], args.repo, args.tag, args.force)
     log("\nDone. Users pick up the files on next `coralsnake metagene --download`.")
 
 

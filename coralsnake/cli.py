@@ -12,6 +12,10 @@ click.rich_click.COMMAND_GROUPS = {
             "commands": ["refine", "prepare"],
         },
         {
+            "name": "Reference Data",
+            "commands": ["reference"],
+        },
+        {
             "name": "Read Mapping",
             "commands": ["liftover"],
         },
@@ -117,6 +121,97 @@ class CoralsnakeGroup(click.RichGroup):
 @click.pass_context
 def cli(ctx):
     pass
+
+
+# ---------------------------------------------------------------------------
+# Built-in reference management: `coralsnake reference <list|download|export>`
+# ---------------------------------------------------------------------------
+
+
+@cli.group(
+    "reference",
+    help="Manage the built-in exon references (list, download, export).",
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+def reference():
+    """Manage the built-in exon references.
+
+    The references are exon-level parquets built from canonical GTFs (the
+    same schema ``coralsnake prepare`` produces locally). One download
+    serves every tool: ``metagene -r`` uses the parquet directly, and
+    ``reference export`` converts it to the ``prepare`` annotation table
+    (feeds ``liftover -a`` / ``liftover --table`` / ``annotate
+    --annotation``) or a GTF (feeds ``annotate --reference-gtf``).
+    """
+
+
+@reference.command(
+    "list",
+    no_args_is_help=False,
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+def reference_list():
+    """List the built-in references with their download sizes."""
+    from rich.console import Console
+
+    from .download import list_references
+
+    list_references(Console())
+
+
+@reference.command(
+    "download",
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+@click.argument("ref", metavar="REF|GROUP|all")
+def reference_download(ref):
+    """Download reference parquet(s) into the local cache.
+
+    REF is a reference name (e.g. GRCh38), a group (human, mouse),
+    or 'all'.
+    """
+    from .download import download_references
+
+    download_references(ref)
+
+
+@reference.command(
+    "export",
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+@click.argument("ref", metavar="REF")
+@click.option(
+    "--table",
+    "table_path",
+    type=click.Path(),
+    default=None,
+    help=(
+        "Write the `prepare` annotation table (TSV); feeds `liftover -a`, "
+        "`liftover --table`, `annotate --annotation`"
+    ),
+)
+@click.option(
+    "--gtf",
+    "gtf_path",
+    type=click.Path(),
+    default=None,
+    help="Write a GTF; feeds `annotate --reference-gtf`",
+)
+def reference_export(ref, table_path, gtf_path):
+    """Export a reference as an annotation table and/or GTF.
+
+    The reference is downloaded first if it is not in the cache.
+    """
+    if not table_path and not gtf_path:
+        raise click.ClickException("nothing to export: give --table and/or --gtf")
+    from .io import load_reference
+    from .ref_export import export_gtf, export_table
+
+    df = load_reference(ref)
+    if table_path:
+        export_table(df, table_path)
+    if gtf_path:
+        export_gtf(df, gtf_path)
 
 
 @cli.command(
@@ -285,7 +380,9 @@ def prepare(
     )
 
 
-def _run_convert(direction, input_bam, output_bam, annotation_file, faidx_file, threads, sort):
+def _run_convert(
+    direction, input_bam, output_bam, annotation_file, faidx_file, threads, sort
+):
     """Dispatch a BAM coordinate conversion by direction.
 
     ``t2g`` = transcript -> genome; ``g2t`` = genome -> transcript.
@@ -327,18 +424,39 @@ def _run_convert(direction, input_bam, output_bam, annotation_file, faidx_file, 
     "--annotation-file", "-a", "annotation_file", help="Annotation file.", required=True
 )
 @click.option(
-    "--table", "table_mode", is_flag=True,
-    help="Convert a sites TABLE between transcript(gene) and genome coordinates" )
-@click.option("--gene-col", "gene_col", default="Chrom", help="gene column (t2g) / chrom column (g2t)")
+    "--table",
+    "table_mode",
+    is_flag=True,
+    help="Convert a sites TABLE between transcript(gene) and genome coordinates",
+)
+@click.option(
+    "--gene-col",
+    "gene_col",
+    default="Chrom",
+    help="gene column (t2g) / chrom column (g2t)",
+)
 @click.option("--pos-col", "pos_col", default="Pos", help="position column (1-based)")
-@click.option("--strand-col", "strand_col", default="Strand", help="strand column (g2t)")
+@click.option(
+    "--strand-col", "strand_col", default="Strand", help="strand column (g2t)"
+)
 @click.option(
     "--faidx-file", "-f", "faidx_file", help="Faidx file (required for 't2g')."
 )
 @click.option("--threads", "-t", "threads", help="Threads.", default=8)
 @click.option("--sort", "-s", "sort", help="Sort.", is_flag=True)
-def liftover(direction, input_bam, output_bam, annotation_file, faidx_file,
-             threads, sort, table_mode, gene_col, pos_col, strand_col):
+def liftover(
+    direction,
+    input_bam,
+    output_bam,
+    annotation_file,
+    faidx_file,
+    threads,
+    sort,
+    table_mode,
+    gene_col,
+    pos_col,
+    strand_col,
+):
     """Convert reads (BAM) or a sites TABLE between genome and transcript
     coordinates (choose --direction).
 
@@ -355,11 +473,20 @@ def liftover(direction, input_bam, output_bam, annotation_file, faidx_file,
     """
     if table_mode:
         from .table_liftover import run_liftover_table
-        run_liftover_table(input_bam, output_bam, annotation_file, direction,
-                           gene_col=gene_col, pos_col=pos_col,
-                           strand_col=strand_col)
+
+        run_liftover_table(
+            input_bam,
+            output_bam,
+            annotation_file,
+            direction,
+            gene_col=gene_col,
+            pos_col=pos_col,
+            strand_col=strand_col,
+        )
         return
-    _run_convert(direction, input_bam, output_bam, annotation_file, faidx_file, threads, sort)
+    _run_convert(
+        direction, input_bam, output_bam, annotation_file, faidx_file, threads, sort
+    )
 
 
 @cli.command(
@@ -629,7 +756,31 @@ def group(
     "--download",
     "download_ref",
     type=str,
-    help="Download a specific reference (e.g., GRCh38) or 'all' for all references",
+    help=(
+        "Download a reference (e.g., GRCh38), a group (human/mouse), "
+        "or 'all' for every reference"
+    ),
+)
+@click.option(
+    "--export-table",
+    "export_table",
+    type=click.Path(),
+    default=None,
+    help=(
+        "Export the reference as the `prepare` annotation table (TSV) and exit "
+        "(use with -r/--reference); feeds `liftover -a`, `liftover --table` "
+        "and `annotate --annotation`"
+    ),
+)
+@click.option(
+    "--export-gtf",
+    "export_gtf",
+    type=click.Path(),
+    default=None,
+    help=(
+        "Export the reference as a GTF and exit (use with -r/--reference); "
+        "feeds `annotate --reference-gtf`"
+    ),
 )
 def metagene(
     input_file,
@@ -650,6 +801,8 @@ def metagene(
     normalize,
     list_references_flag,
     download_ref,
+    export_table,
+    export_gtf,
 ):
     """Run metagene profiling analysis on genomic sites.
 
@@ -665,15 +818,51 @@ def metagene(
     from .io import load_reference, load_sites
     from .plotting import plot_profile
 
-    # Handle list references option
+    # Handle list references option (deprecated: `coralsnake reference list`)
     if list_references_flag:
+        click.echo(
+            "Warning: 'metagene --list' is deprecated - "
+            "use 'coralsnake reference list' instead.",
+            err=True,
+        )
         from rich.console import Console
 
         list_references(Console())
         return
 
-    # Handle download option
+    # Handle export options (deprecated: `coralsnake reference export`)
+    if export_table or export_gtf:
+        click.echo(
+            "Warning: 'metagene --export-table/--export-gtf' is deprecated - "
+            "use 'coralsnake reference export' instead.",
+            err=True,
+        )
+        if not reference:
+            raise click.ClickException(
+                "--export-table/--export-gtf require -r/--reference"
+            )
+        if gtf:
+            raise click.ClickException(
+                "--export-table/--export-gtf export a built-in reference "
+                "(-r/--reference), not a custom GTF"
+            )
+        from .ref_export import export_gtf as _export_gtf
+        from .ref_export import export_table as _export_table
+
+        ref_df = load_reference(reference)
+        if export_table:
+            _export_table(ref_df, export_table)
+        if export_gtf:
+            _export_gtf(ref_df, export_gtf)
+        return
+
+    # Handle download option (deprecated: `coralsnake reference download`)
     if download_ref:
+        click.echo(
+            "Warning: 'metagene --download' is deprecated - "
+            "use 'coralsnake reference download' instead.",
+            err=True,
+        )
         try:
             click.echo(f"Downloading {download_ref}...")
             download_references(download_ref, silent=True)
@@ -766,7 +955,9 @@ def metagene(
             annotated_df = annotated_df.with_columns(expr.alias(wc))
     if weight_names:
         if len(weight_names) != len(weight_cols):
-            raise click.ClickException("--weight-names count must match --weight-columns")
+            raise click.ClickException(
+                "--weight-names count must match --weight-columns"
+            )
         for old, new in zip(weight_cols, weight_names):
             annotated_df = annotated_df.rename({old: new})
         # rename() preserves column positions, so re-locate the (renamed)
@@ -776,10 +967,13 @@ def metagene(
         target = {"5utr": "5UTR", "cds": "CDS", "3utr": "3UTR"}[region]
         annotated_df = (
             annotated_df.with_columns(
-                transcript_pos=(pl.col("transcript_start") + pl.col("transcript_end")) // 2
+                transcript_pos=(pl.col("transcript_start") + pl.col("transcript_end"))
+                // 2
             )
             .with_columns(
-                feature_type=pl.when(pl.col("transcript_pos") < pl.col("start_codon_pos"))
+                feature_type=pl.when(
+                    pl.col("transcript_pos") < pl.col("start_codon_pos")
+                )
                 .then(pl.lit("5UTR"))
                 .when(pl.col("transcript_pos") > pl.col("stop_codon_pos"))
                 .then(pl.lit("3UTR"))
@@ -965,7 +1159,9 @@ def logo(motifs, input_file, output_file, weights, t2u, to2bit, normed, matrix_f
             fh.write("position\t" + "\t".join(all_bases) + "\n")
             for i, col in enumerate(mlogo.scores, start=1):
                 d = {b: v for b, v in col}
-                fh.write(f"{i}\t" + "\t".join(str(d.get(b, 0.0)) for b in all_bases) + "\n")
+                fh.write(
+                    f"{i}\t" + "\t".join(str(d.get(b, 0.0)) for b in all_bases) + "\n"
+                )
         click.echo(f"✓ Saved logo matrix to: {matrix_file}")
 
     if output_file:
@@ -1133,7 +1329,13 @@ def coordinate(
 @click.option(
     "--npad", "-n", "npad", default=10, type=int, help="Padding bases for motif."
 )
-@click.option("--all-effects", "-a", "all_effects", is_flag=True, help="Output all overlapping effects.")
+@click.option(
+    "--all-effects",
+    "-a",
+    "all_effects",
+    is_flag=True,
+    help="Output all overlapping effects.",
+)
 @click.option("--with-header", "-H", is_flag=True, help="Input file has a header line.")
 @click.option(
     "--columns",

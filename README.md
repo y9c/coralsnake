@@ -197,11 +197,21 @@ coralsnake metagene -i sites.bed -g custom.gtf.gz -m 1,2,3 -w 5 \
                     -o output.tsv -s scores.tsv -p plot.png
 ```
 
-List or download the built-in references:
+Manage the built-in references (groups `human` / `mouse` are supported;
+`reference list` shows sizes — the `metagene --list/--download/--export-*`
+flags are deprecated aliases):
 
 ```bash
-coralsnake metagene --list
-coralsnake metagene --download GRCh38
+coralsnake reference list
+coralsnake reference download GRCh38        # or: human / mouse / all
+```
+
+One reference download can serve the other tools — convert the cached
+reference into the `prepare` annotation table or a GTF:
+
+```bash
+coralsnake reference export GRCh38 --table ref_table.tsv   # feeds liftover -a / liftover --table / annotate --annotation
+coralsnake reference export GRCh38 --gtf ref.gtf           # feeds annotate --reference-gtf
 ```
 
 The reference files are served from this repo's fixed `data` release and

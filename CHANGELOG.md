@@ -7,11 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`coralsnake reference`** — top-level command group for the built-in exon
+  references: `reference list` (with download sizes), `reference download
+  <ref|human|mouse|all>` (groups, streaming progress, atomic cache writes),
+  and `reference export <ref> --table FILE --gtf FILE`, which converts a
+  cached reference into the `prepare` annotation table (TSV) or a GTF so a
+  single reference download can feed `liftover -a` / `liftover --table` /
+  `annotate --annotation` (table) and `annotate --reference-gtf` (GTF).
+  Exports round-trip the full reference schema, including re-derived codon
+  positions (verified on both strands).
+- **v2 reference schema**: reference parquets now carry nullable
+  `gene_name` / `gene_biotype` (extracted from the source GTF; null when the
+  source lacks the attributes), in addition to the v1 core columns. The
+  rebuilt set **replaces the `data` release in place** (single data
+  release; the v1 assets were removed). `REFERENCE_SIZES_KB` in
+  `coralsnake/config.py` tracks the current asset sizes.
+- **`scripts/build_references.py --fetch`**: downloads missing source GTFs
+  from the per-reference `source_url` recorded in `config.py` (all 23 URLs
+  verified 2026-09-02 after the Ensembl release-116 upgrade: animals +
+  *S. cerevisiae* on `ftp.ensembl.org`, plants + *S. pombe* on
+  `ftp.ebi.ac.uk/ensemblgenomes` (Ensembl Genomes, frozen at r63), UCSC gene
+  GTFs under `goldenPath/<asm>/bigZips/genes/` — the old `genes/` dirs and
+  dated combined GTFs are gone).
 - **`scripts/build_references.py`** — builds the built-in metagene reference
   parquets from source GTFs (driven by `coralsnake.config.BUILTIN_REFERENCES`,
   using `prepare_exon_ref` + ZSTD) and can publish them to a GitHub data
   release (`--publish`). See `scripts/README.md` for the fixed-release
   convention and source GTF locations.
+
+### Deprecated
+- `metagene --list`, `--download`, `--export-table`, `--export-gtf` are
+  deprecated aliases for `coralsnake reference list/download/export` (still
+  functional; they print a deprecation warning).
+- The old UCSC source GTFs (dated combined files, e.g. `hg38.20221028.gtf.gz`)
+  are no longer served by UCSC; the v2 UCSC references use the per-track
+  `knownGene` (GENCODE) / curated `refGene` / `ncbiRefSeq` GTFs.
+
+### Changed
+- `load_reference` fails fast with an actionable message when the cached
+  parquet is missing required schema columns (corrupt / incompatible file)
+  instead of a cryptic `KeyError` deep in the analysis.
+- `metagene --list` shows the approximate download size of each reference.
 
 ### Changed
 - **Built-in reference data now hosted in this repo**: `coralsnake metagene

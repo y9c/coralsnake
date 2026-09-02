@@ -165,8 +165,10 @@ FASTA and ref/alt were supplied.
 Run metagene profiling: the distribution of genomic sites relative to gene
 regions (5'UTR / CDS / 3'UTR), with optional binned score statistics and a
 publication-ready profile plot (requires `coralsnake[plot]`). Use a built-in
-reference (`-r GRCh38`) or a custom GTF (`-g file.gtf`); `--list` shows the
-built-in references and `--download <name|all>` fetches them.
+reference (`-r GRCh38`) or a custom GTF (`-g file.gtf`). Reference
+management lives under the top-level [`reference`](#reference) command; the
+`--list` / `--download` / `--export-table` / `--export-gtf` flags on
+`metagene` are deprecated aliases kept for backward compatibility.
 
 ```
 coralsnake metagene -i sites.tsv.gz -r GRCh38 -H -m 1,2,3 -w 5 \
@@ -191,8 +193,10 @@ coralsnake metagene -i sites.bed -g custom.gtf.gz -m 1,2,3,6 -o out.tsv
 | `-n, --weight-names` | Names for the weight columns.   |
 | `--score-transform` | `none` (default) / `log2` / `log10`. |
 | `--normalize` | Normalize scores by transcript length. |
-| `--list` | List built-in references and exit.  |
-| `--download` | Download a reference (`<name>` or `all`). |
+| `--list` | Deprecated: use `reference list`. List built-in references and exit. |
+| `--download` | Deprecated: use `reference download`. Download a reference (`<name>`), a group (`human`, `mouse`), or `all`. |
+| `--export-table FILE` | Deprecated: use `reference export --table`. Export the reference (with `-r`) as the `prepare` annotation table (TSV) and exit. |
+| `--export-gtf FILE` | Deprecated: use `reference export --gtf`. Export the reference (with `-r`) as a GTF and exit. |
 
 ---
 
