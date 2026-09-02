@@ -11,11 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   references: `reference list` (with download sizes), `reference download
   <ref|human|mouse|all>` (groups, streaming progress, atomic cache writes),
   and `reference export <ref> --table FILE --gtf FILE`, which converts a
-  cached reference into the `prepare` annotation table (TSV) or a GTF so a
-  single reference download can feed `liftover -a` / `liftover --table` /
-  `annotate --annotation` (table) and `annotate --reference-gtf` (GTF).
+  cached reference into the `prepare` annotation table (TSV) or a GTF.
   Exports round-trip the full reference schema, including re-derived codon
   positions (verified on both strands).
+- **Linked genome FASTAs** — `reference genome <ref>` and
+  `reference download <ref> --with-genome` fetch the genome sequence on
+  demand from a verified upstream URL (`config.GENOME_URLS`; all 23 checked
+  2026-09-02) instead of shipping it: genomes are far too large for the fixed
+  `data` release (human ≈ 900 MB compressed / ~3 GB). The FASTA is streamed
+  to `~/.cache/coralsnake/genomes/<ref>.fa`, decompressed, `.fa.fai`-indexed
+  (pysam), and cross-checked against the reference's contig names (hard error
+  on zero overlap, warning when contigs lack sequence). Note the BDGP6.32
+  DNA is linked from Ensembl release-109 — the last release still on that
+  assembly (release-110 moved D. melanogaster to BDGP6.46).
+- **Reference names in the analysis tools** — `metagene -r` (existing),
+  `liftover -a/--annotation-file`, `liftover -f/--faidx-file`,
+  `annotate -g/--reference-gtf`, `annotate --annotation`,
+  `annotate -f/--reference-transcript` and `motif -f/--fasta` now also accept
+  a built-in reference name (e.g. `GRCh38`). The name resolves to the shared
+  cached object: the parquet is auto-downloaded if missing, the table/GTF is
+  derived and cached next to it (re-exported when the parquet is newer), and
+  the genome FASTA is fetched via the link above. Explicit file paths keep
+  working unchanged and take precedence over names.
 - **v2 reference schema**: reference parquets now carry nullable
   `gene_name` / `gene_biotype` (extracted from the source GTF; null when the
   source lacks the attributes), in addition to the v1 core columns. The

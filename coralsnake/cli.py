@@ -128,9 +128,66 @@ def cli(ctx):
 # ---------------------------------------------------------------------------
 
 
+def _resolve_reference_artifact(value, kind: str):
+    """Click callback: resolve a file argument that may be a reference name.
+
+    kind: "table" (prepare-style TSV), "gtf", "fasta" (genome FASTA), or
+    "faidx" (.fai index). A known reference name resolves to the cached
+    artifact (downloading/deriving on first use); anything else passes
+    through unchanged (existing file paths keep working as before).
+    """
+    from pathlib import Path
+
+    from .config import BUILTIN_REFERENCES
+
+    if value is None:
+        return None
+
+    def one(v: str) -> str:
+        if v in BUILTIN_REFERENCES and not Path(v).exists():
+            from .download import (
+                download_genome,
+                ensure_reference_gtf,
+                ensure_reference_table,
+            )
+
+            if kind == "table":
+                return str(ensure_reference_table(v))
+            if kind == "gtf":
+                return str(ensure_reference_gtf(v))
+            fa = download_genome(v)
+            return str(fa.with_name(fa.name + ".fai") if kind == "faidx" else fa)
+        if not Path(v).exists():
+            raise click.ClickException(
+                f"{v!r} is not an existing file and not a built-in reference "
+                f"name (see `coralsnake reference list`)."
+            )
+        return v
+
+    if isinstance(value, (list, tuple)):
+        return tuple(one(v) for v in value)
+    return one(value)
+
+
+def _ref_table_callback(ctx, param, value):
+    return _resolve_reference_artifact(value, "table")
+
+
+def _ref_gtf_callback(ctx, param, value):
+    return _resolve_reference_artifact(value, "gtf")
+
+
+def _ref_fasta_callback(ctx, param, value):
+    return _resolve_reference_artifact(value, "fasta")
+
+
+def _ref_faidx_callback(ctx, param, value):
+    return _resolve_reference_artifact(value, "faidx")
+
+
 @cli.group(
     "reference",
-    help="Manage the built-in exon references (list, download, export).",
+    help="Manage the built-in exon references (list, download, export, genome).",
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
 def reference():
@@ -139,9 +196,11 @@ def reference():
     The references are exon-level parquets built from canonical GTFs (the
     same schema ``coralsnake prepare`` produces locally). One download
     serves every tool: ``metagene -r`` uses the parquet directly, and
-    ``reference export`` converts it to the ``prepare`` annotation table
-    (feeds ``liftover -a`` / ``liftover --table`` / ``annotate
-    --annotation``) or a GTF (feeds ``annotate --reference-gtf``).
+    ``liftover`` / ``annotate`` / ``motif`` also accept a reference name
+    (they reuse the cached object, deriving the table/GTF on demand; see
+    ``reference export`` for the explicit text views). Genome FASTAs are
+    too large to ship, so they are linked: ``reference genome <ref>``
+    fetches the verified upstream genome on demand.
     """
 
 
@@ -164,7 +223,13 @@ def reference_list():
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
 @click.argument("ref", metavar="REF|GROUP|all")
-def reference_download(ref):
+@click.option(
+    "--with-genome",
+    is_flag=True,
+    help="Also fetch the linked genome FASTA(s) (large files, ~300-950 MB "
+    "compressed for human; not part of the data release).",
+)
+def reference_download(ref, with_genome):
     """Download reference parquet(s) into the local cache.
 
     REF is a reference name (e.g. GRCh38), a group (human, mouse),
@@ -172,7 +237,31 @@ def reference_download(ref):
     """
     from .download import download_references
 
-    download_references(ref)
+    try:
+        download_references(ref, with_genome=with_genome)
+    except (ValueError, RuntimeError) as e:
+        raise click.ClickException(str(e))
+
+
+@reference.command(
+    "genome",
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+@click.argument("ref", metavar="REF")
+def reference_genome(ref):
+    """Download the linked genome FASTA for REF (+ .fa.fai index) into the cache.
+
+    Genome FASTAs are too large to ship in the data release; they are
+    fetched on demand from the verified upstream URL recorded for each
+    reference (config.GENOME_URLS), decompressed, indexed, and
+    cross-checked against the reference annotation's contig names.
+    """
+    from .download import download_genome
+
+    try:
+        download_genome(ref)
+    except (ValueError, RuntimeError) as e:
+        raise click.ClickException(str(e))
 
 
 @reference.command(
@@ -421,7 +510,13 @@ def _run_convert(
     "--output-bam", "-o", "output_bam", help="Output bam file.", required=True
 )
 @click.option(
-    "--annotation-file", "-a", "annotation_file", help="Annotation file.", required=True
+    "--annotation-file",
+    "-a",
+    "annotation_file",
+    callback=_ref_table_callback,
+    help="Annotation file (prepare-style table), or a built-in reference "
+    "name (e.g. GRCh38) for the cached table.",
+    required=True,
 )
 @click.option(
     "--table",
@@ -440,7 +535,12 @@ def _run_convert(
     "--strand-col", "strand_col", default="Strand", help="strand column (g2t)"
 )
 @click.option(
-    "--faidx-file", "-f", "faidx_file", help="Faidx file (required for 't2g')."
+    "--faidx-file",
+    "-f",
+    "faidx_file",
+    callback=_ref_faidx_callback,
+    help="Faidx file (required for 't2g'). A built-in reference name "
+    "(e.g. GRCh38) resolves to the linked genome index.",
 )
 @click.option("--threads", "-t", "threads", help="Threads.", default=8)
 @click.option("--sort", "-s", "sort", help="Sort.", is_flag=True)
@@ -1188,9 +1288,10 @@ def logo(motifs, input_file, output_file, weights, t2u, to2bit, normed, matrix_f
     "--fasta",
     "-f",
     "fasta",
-    type=click.Path(exists=True),
     required=True,
-    help="Reference fasta file.",
+    callback=_ref_fasta_callback,
+    help="Reference fasta file, or a built-in reference name (e.g. GRCh38): "
+    "resolves to the linked genome FASTA (fetched on demand).",
 )
 @click.option(
     "--npad",
@@ -1309,21 +1410,26 @@ def coordinate(
     "--reference-gtf",
     "-g",
     "reference_gtf",
-    type=click.Path(exists=True),
-    help="Reference GTF file (GTF mode).",
+    callback=_ref_gtf_callback,
+    help="Reference GTF file, or a built-in reference name (e.g. GRCh38): "
+    "uses the cached reference, deriving/caching the GTF on demand.",
 )
 @click.option(
     "--annotation",
     "annotation_table",
-    type=click.Path(exists=True),
-    help="Precomputed annotation table from `prepare` (fast table mode).",
+    callback=_ref_table_callback,
+    help="Precomputed annotation table from `prepare` (fast table mode), "
+    "or a built-in reference name for the cached table.",
 )
 @click.option(
     "--reference-transcript",
     "-f",
     "reference_transcript",
     multiple=True,
-    help="Reference genome FASTA (needed for motif / codon / amino-acid).",
+    callback=_ref_fasta_callback,
+    help="Reference genome FASTA (needed for motif / codon / amino-acid). "
+    "A built-in reference name resolves to the linked genome FASTA "
+    "(fetched on demand, e.g. `annotate ... -f GRCh38`).",
 )
 @click.option("--strandness", "-s", is_flag=True, help="Use strand information.")
 @click.option(

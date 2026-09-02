@@ -206,15 +206,25 @@ coralsnake reference list
 coralsnake reference download GRCh38        # or: human / mouse / all
 ```
 
-One reference download can serve the other tools — convert the cached
-reference into the `prepare` annotation table or a GTF:
+One reference download serves every tool — the tools accept the reference
+**by name** and reuse the cached parquet (auto-downloading it if missing);
+`reference export` converts it to text views for external tools:
 
 ```bash
-coralsnake reference export GRCh38 --table ref_table.tsv   # feeds liftover -a / liftover --table / annotate --annotation
-coralsnake reference export GRCh38 --gtf ref.gtf           # feeds annotate --reference-gtf
+coralsnake metagene -i sites.tsv -r GRCh38 ...              # uses the parquet directly
+coralsnake annotate -i sites.tsv -g GRCh38 -f GRCh38 ...    # cached GTF + linked genome
+coralsnake liftover -i tx.bam -o genome.bam -a GRCh38 -f GRCh38 --sort
+coralsnake motif -i sites.tsv -f GRCh38 ...
+coralsnake reference export GRCh38 --table ref_table.tsv --gtf ref.gtf  # explicit text views
 ```
 
-The reference files are served from this repo's fixed `data` release and
+Genome FASTAs are too large to ship in the release, so they are **linked**:
+`reference genome <ref>` (or `reference download <ref> --with-genome`)
+streams the verified upstream genome (Ensembl/UCSC), decompresses and
+indexes it under `~/.cache/coralsnake/genomes/`, and cross-checks the FASTA
+headers against the reference's contig names.
+
+The reference parquets are served from this repo's fixed `data` release and
 cached in `~/.cache/coralsnake/`; rebuild or update them with
 [`scripts/build_references.py`](scripts/build_references.py)
 (see [scripts/README.md](scripts/README.md)).

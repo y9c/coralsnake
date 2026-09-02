@@ -14,6 +14,7 @@ Usage: coralsnake [OPTIONS] COMMAND [ARGS]...
 
 | Command    | Description                                            |
 | ---------- | ------------------------------------------------------ |
+| `reference`| Manage built-in references (list/download/export/genome). |
 | `prepare`  | Extract primary transcript from GTF/GFF file.          |
 | `liftover` | Bidirectional BAM liftover (`--direction t2g` default / `g2t`). |
 | `annotate` | Unified site/variant annotation (region + gene/effect).|
@@ -28,6 +29,32 @@ Run `coralsnake <command> --help` for the full option list of any command.
 > **Mapping is out of scope:** `coralsnake map` was removed. Align reads with
 > `bwamem map` (plain) or `prismalign map` (nucleotide-conversion / two-color),
 > then `prepare` + `liftover` for the exon-aware steps.
+
+---
+
+## `reference`
+
+Manage the built-in exon references (exon-level parquets built from canonical
+GTFs). **One download serves every tool**: `metagene -r`, `liftover
+-a/--annotation-file`, `annotate --annotation` / `--reference-gtf`,
+`motif -f` and `annotate -f` all accept a built-in reference **name** (e.g.
+`GRCh38`) and reuse the cached object, auto-downloading the parquet and
+deriving/caching the table or GTF on first use.
+
+```
+coralsnake reference list
+coralsnake reference download GRCh38            # or: human / mouse / all
+coralsnake reference download GRCh38 --with-genome
+coralsnake reference genome GRCh38
+coralsnake reference export GRCh38 --table ref_table.tsv --gtf ref.gtf
+```
+
+| Subcommand | Description |
+| ---------- | ----------- |
+| `list` | List the built-in references with their download sizes. |
+| `download <ref\|human\|mouse\|all>` | Download reference parquet(s) into the cache (atomic writes, streaming progress). `--with-genome` also fetches the linked genome FASTA(s). |
+| `genome <ref>` | Download the linked genome FASTA (+ `.fa.fai` index) into `~/.cache/coralsnake/genomes/<ref>.fa`. Genome sequences are too large to ship in the `data` release (human ≈ 900 MB compressed), so each reference records a verified upstream URL (`config.GENOME_URLS`); the FASTA is decompressed, indexed and cross-checked against the reference's contig names (hard error on zero overlap). |
+| `export <ref> --table FILE --gtf FILE` | Export the cached reference as the `prepare` annotation table (feeds `liftover -a` / `liftover --table` / `annotate --annotation`) and/or a GTF (feeds `annotate --reference-gtf`), for use by external tools. |
 
 ---
 
@@ -111,6 +138,7 @@ Remap a BAM between transcript and genome coordinates, **both directions**:
 ```
 coralsnake liftover -i tx.bam -o genome.bam -a annot.tsv -f faidx.fai --sort
 coralsnake liftover -d g2t -i genome.bam -o tx.bam -a annot.tsv --sort
+coralsnake liftover -i tx.bam -o genome.bam -a GRCh38 -f GRCh38 --sort
 ```
 
 | Option | Description                                  |
@@ -118,8 +146,8 @@ coralsnake liftover -d g2t -i genome.bam -o tx.bam -a annot.tsv --sort
 | `-d, --direction` | `t2g` (default) or `g2t`.             |
 | `-i, --input-bam` | Input BAM (**required**).               |
 | `-o, --output-bam` | Output BAM (**required**).              |
-| `-a, --annotation-file` | Annotation TSV (**required**).         |
-| `-f, --faidx-file` | Reference `.fai` (required for `t2g`).   |
+| `-a, --annotation-file` | Annotation TSV, or a built-in reference name (cached table) (**required**). |
+| `-f, --faidx-file` | Reference `.fai`, or a built-in reference name (required for `t2g`). |
 | `-t, --threads` | Threads.                                   |
 | `-s, --sort` | Sort output by coordinate.                    |
 
@@ -139,15 +167,16 @@ coralsnake annotate -i variants.tsv -o effects.tsv \
                     --reference-gtf annotation.gtf \
                     --reference-transcript genome.fa -s -a
 coralsnake annotate -i sites.tsv -o out.tsv --annotation prepared_table.tsv
+coralsnake annotate -i variants.tsv -o effects.tsv -g GRCh38 -f GRCh38 -s -a
 ```
 
 | Option | Description                                  |
 | ------ | -------------------------------------------- |
 | `-i, --input` | Input site/variant file (default `-` = stdin; **1-based** positions, like `motif`). |
 | `-o, --output` | Output file (default `-` = stdout).       |
-| `-g, --reference-gtf` | Reference GTF (GTF mode).          |
-| `--annotation` | Precomputed `prepare` table (fast table mode). |
-| `-f, --reference-transcript` | Genome FASTA (needed for motif/codon/AA). |
+| `-g, --reference-gtf` | Reference GTF, or a built-in reference name (cached GTF) (GTF mode). |
+| `--annotation` | Precomputed `prepare` table, or a built-in reference name (fast table mode). |
+| `-f, --reference-transcript` | Genome FASTA, or a built-in reference name (linked genome, fetched on demand) — needed for motif/codon/AA. |
 | `-s, --strandness` | Use strand information.                |
 | `-n, --npad` | Padding bases for motif (default 10).        |
 | `-a, --all-effects` | Output all overlapping effects (not just top). |
@@ -253,13 +282,14 @@ package; the old `pyfaidx` dependency is gone (uses `pysam.FastaFile`).
 
 ```
 coralsnake motif -i sites.tsv -o motifs.tsv -f genome.fa -n 10 -c 1,2,3 -u -w
+coralsnake motif -i sites.tsv -o motifs.tsv -f GRCh38 -n 10 -c 1,2,3
 ```
 
 | Option | Description                                      |
 | ------ | ------------------------------------------------ |
 | `-i, --input` | Input position file (default `-` = stdin).|
 | `-o, --output` | Output file (default `-` = stdout).     |
-| `-f, --fasta` | Reference FASTA (**required**).          |
+| `-f, --fasta` | Reference FASTA, or a built-in reference name (linked genome, fetched on demand) (**required**). |
 | `-n, --npad` | Padding bases (default `10`; use `2,3` for L,R). |
 | `-H, --with-header` | Input has a header line.            |
 | `-c, --columns` | Site columns Chrom,Pos,Strand (default `1,2,3`). |

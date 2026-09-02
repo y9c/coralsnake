@@ -17,6 +17,8 @@ from rich.console import Console
 from .utils import setup_logger, get_cache_dir, get_file_size, format_file_size
 from .config import (
     BUILTIN_REFERENCES,
+    GENOME_SIZES_MB,
+    GENOME_URLS,
     GITHUB_DOWNLOAD_BASE,
     REFERENCE_GROUPS,
     REFERENCE_SIZES_KB,
@@ -208,12 +210,16 @@ def _size_text(ref_name: str, cache_dir: Path, cached_files: set) -> str:
     return ""
 
 
-def download_references(species: str, silent: bool = False) -> None:
+def download_references(
+    species: str, silent: bool = False, with_genome: bool = False
+) -> None:
     """
     Download reference file(s) for the specified species.
 
     Args:
         species: Species name or 'all' to download all references
+        with_genome: Also fetch the linked genome FASTA for each reference
+            (large - see config.GENOME_URLS for sources and sizes).
     """
     # Get cache directory
     cache_dir = get_cache_dir()
@@ -267,4 +273,217 @@ def download_references(species: str, silent: bool = False) -> None:
     except Exception as e:
         raise RuntimeError(f"{Emojis.CROSS} Error processing reference files: {str(e)}")
 
+    if with_genome:
+        if not silent:
+            logger.info(
+                "Also downloading the linked genome FASTA(s) (large files; "
+                "see the printed sizes)..."
+            )
+        for ref in species_to_download:
+            download_genome(ref, silent=silent)
+
     logger.info(f"{Emojis.CHECK} Reference files download completed!")
+
+
+# ---------------------------------------------------------------------------
+# Genome FASTAs (linked, fetched on demand)
+#
+# Genome sequences are far too large to ship in the fixed `data` release
+# (human genomes are ~3 GB uncompressed). Each reference records a stable
+# upstream URL (config.GENOME_URLS). `download_genome` streams the .fa.gz
+# into the cache, decompresses it, builds a .fa.fai index, and cross-checks
+# the headers against the reference annotation's contig names.
+# ---------------------------------------------------------------------------
+
+
+def genome_cache_dir() -> Path:
+    """Directory for cached genome FASTAs (kept separate from the parquets)."""
+    d = get_cache_dir() / "genomes"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _genome_paths(ref_name: str) -> tuple[Path, Path, Path]:
+    """(compressed, decompressed, index) cache paths for a reference genome."""
+    gz = genome_cache_dir() / f"{ref_name}.fa.gz"
+    fa = genome_cache_dir() / f"{ref_name}.fa"
+    return gz, fa, fa.with_name(fa.name + ".fai")
+
+
+def _gunzip_to(src: Path, dst: Path) -> None:
+    """Decompress ``src`` (.gz) to ``dst`` via a temp file (atomic rename)."""
+    import gzip
+
+    tmp = dst.with_name(dst.name + ".tmp")
+    with gzip.open(src, "rb") as fin, open(tmp, "wb") as fout:
+        shutil.copyfileobj(fin, fout)
+    os.replace(tmp, dst)
+
+
+def _check_genome_headers(ref_name: str, fa_path: Path) -> set[str] | None:
+    """Cross-check genome FASTA headers against the reference's contigs.
+
+    Raises RuntimeError if there is no overlap at all (wrong genome / naming
+    scheme); returns the set of contigs without sequence (None if the
+    reference parquet is not cached and the check was skipped).
+    """
+    import polars as pl
+
+    cache_dir = get_cache_dir()
+    info = BUILTIN_REFERENCES[ref_name]
+    pq = cache_dir / Path(info["parquet_file"]).name
+    if not pq.exists():
+        logger.info(f"{ref_name}: reference parquet not cached; skipping header check.")
+        return None
+
+    chroms = set(
+        pl.scan_parquet(pq)
+        .select("Chromosome")
+        .unique()
+        .collect()["Chromosome"]
+        .to_list()
+    )
+    headers = set()
+    with open(fa_path, "r", errors="replace") as fh:
+        for line in fh:
+            if line.startswith(">"):
+                headers.add(line[1:].split(None, 1)[0])
+
+    if not chroms & headers:
+        raise RuntimeError(
+            f"Genome FASTA for '{ref_name}' shares no contig names with the "
+            f"reference annotation ({len(chroms)} contigs, e.g. "
+            f"{', '.join(sorted(chroms)[:3])}); the linked FASTA "
+            f"({GENOME_URLS[ref_name]}) does not match this annotation."
+        )
+    missing = chroms - headers
+    if missing:
+        sample = ", ".join(sorted(missing)[:5])
+        more = f" (+{len(missing) - 5} more)" if len(missing) > 5 else ""
+        logger.warning(
+            f"{ref_name}: {len(missing)} annotated contig(s) have no sequence "
+            f"in the linked genome FASTA (e.g. {sample}{more})"
+        )
+    return missing
+
+
+def download_genome(ref_name: str, silent: bool = False) -> Path:
+    """Fetch (and cache) the linked genome FASTA for a built-in reference.
+
+    Returns the path to the decompressed FASTA (the ``.fa.fai`` index is
+    built alongside). Each step is idempotent: download, decompress and
+    indexing only run when their artifact is missing.
+    """
+    info = BUILTIN_REFERENCES.get(ref_name)
+    if info is None:
+        raise ValueError(
+            f"Unknown reference '{ref_name}'. "
+            f"Available: {', '.join(BUILTIN_REFERENCES)}."
+        )
+    if ref_name not in GENOME_URLS:
+        raise ValueError(f"No genome FASTA link recorded for '{ref_name}'.")
+
+    gz, fa, fai = _genome_paths(ref_name)
+
+    if not silent:
+        console.print(f"\n{Emojis.DNA} [bold cyan]Genome: {ref_name}[/bold cyan]")
+        console.print(
+            f"{Emojis.INFO} [yellow]Description:[/yellow] {info['description']}"
+        )
+        mb = GENOME_SIZES_MB.get(ref_name)
+        if mb:
+            console.print(f"{Emojis.DOWNLOAD} [yellow]~{mb} MB compressed[/yellow]")
+        console.print(f"{Emojis.INFO} [dim]{GENOME_URLS[ref_name]}[/dim]")
+
+    if not gz.exists():
+        logger.info(f"Downloading genome FASTA for '{ref_name}'...")
+        tmp = gz.with_name(gz.name + ".tmp")
+        try:
+            _download_with_progress(GENOME_URLS[ref_name], tmp, silent=silent)
+        except Exception:
+            if tmp.exists():
+                tmp.unlink()
+            raise
+        os.replace(tmp, gz)
+
+    if not fa.exists():
+        logger.info(f"Decompressing {gz.name} (this can take a minute)...")
+        _gunzip_to(gz, fa)
+
+    if not fai.exists():
+        import pysam
+
+        logger.info("Building FASTA index (.fai)...")
+        pysam.faidx(str(fa))
+
+    _check_genome_headers(ref_name, fa)
+
+    if not silent:
+        logger.info(f"{Emojis.CHECK} Genome '{ref_name}' ready: {fa}")
+    return fa
+
+
+# ---------------------------------------------------------------------------
+# Reference name -> cached artifact (parquet / derived table / derived GTF)
+#
+# Lets the analysis tools take a reference NAME instead of a file path: the
+# name resolves to the shared cached object, downloading the parquet (or
+# deriving the table/GTF) on first use. Derived files sit next to the
+# parquet in the cache and are re-exported when the parquet is newer.
+# ---------------------------------------------------------------------------
+
+
+def ensure_reference(ref_name: str, silent: bool = False) -> Path:
+    """Return the cached parquet path for a built-in reference, downloading
+    it first if it is missing."""
+    info = BUILTIN_REFERENCES.get(ref_name)
+    if info is None:
+        raise ValueError(
+            f"Unknown reference '{ref_name}'. "
+            f"Available: {', '.join(BUILTIN_REFERENCES)}."
+        )
+    cache_dir = get_cache_dir()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    target = cache_dir / Path(info["parquet_file"]).name
+    if not target.exists():
+        download_references(ref_name, silent=silent)
+    if not target.exists():
+        raise RuntimeError(
+            f"Reference parquet {target.name} is still missing after the "
+            "download attempt."
+        )
+    return target
+
+
+def _derived_artifact(ref_name: str, suffix: str) -> Path:
+    return get_cache_dir() / f"{ref_name}.{suffix}"
+
+
+def _ensure_derived(ref_name: str, suffix: str, export, silent: bool) -> Path:
+    from .io import parse_feature_file
+
+    pq = ensure_reference(ref_name, silent=silent)
+    out = _derived_artifact(ref_name, suffix)
+    if out.exists() and out.stat().st_mtime >= pq.stat().st_mtime:
+        return out
+    df = parse_feature_file(str(pq))
+    tmp = out.with_name(out.name + ".tmp")
+    export(df, str(tmp))
+    os.replace(tmp, out)
+    return out
+
+
+def ensure_reference_table(ref_name: str, silent: bool = False) -> Path:
+    """Cached ``prepare``-style annotation table (TSV) derived from the
+    reference parquet; feeds ``liftover -a`` and ``annotate --annotation``."""
+    from .ref_export import export_table
+
+    return _ensure_derived(ref_name, "table.tsv", export_table, silent)
+
+
+def ensure_reference_gtf(ref_name: str, silent: bool = False) -> Path:
+    """Cached GTF derived from the reference parquet; feeds
+    ``annotate --reference-gtf``."""
+    from .ref_export import export_gtf
+
+    return _ensure_derived(ref_name, "gtf", export_gtf, silent)

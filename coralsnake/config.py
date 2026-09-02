@@ -62,6 +62,69 @@ REFERENCE_SIZES_KB: dict[str, int] = {
     "ASM294v2": 232,
 }
 
+# Genome FASTA links (NOT shipped in the data release - far too large to
+# host; human genomes are ~3 GB uncompressed each). ``reference genome <ref>``
+# (or ``reference download <ref> --with-genome``) streams the file into the
+# cache on demand, decompresses it, builds a .fa.fai index and cross-checks
+# the headers against the reference's contig names. URLs verified
+# 2026-09-02 (HTTP 200); headers match each reference parquet's Chromosome
+# values. Note the BDGP6.32 DNA is taken from release-109: release-110 moved
+# D. melanogaster to assembly BDGP6.46, and the genome sequence of a given
+# assembly is identical across releases.
+GENOME_URLS: dict[str, str] = {
+    "GRCh38": "https://ftp.ensembl.org/pub/release-110/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.primary_assembly.fa.gz",
+    "GRCh37": "https://ftp.ensembl.org/pub/release-75/fasta/homo_sapiens/dna/Homo_sapiens.GRCh37.75.dna.primary_assembly.fa.gz",
+    "GRCm39": "https://ftp.ensembl.org/pub/release-110/fasta/mus_musculus/dna/Mus_musculus.GRCm39.dna.primary_assembly.fa.gz",
+    "GRCm38": "https://ftp.ensembl.org/pub/release-102/fasta/mus_musculus/dna/Mus_musculus.GRCm38.dna.primary_assembly.fa.gz",
+    "NCBIM37": "https://ftp.ensembl.org/pub/release-67/fasta/mus_musculus/dna/Mus_musculus.NCBIM37.67.dna.toplevel.fa.gz",
+    "TAIR10": "https://ftp.ebi.ac.uk/ensemblgenomes/pub/plants/current/fasta/arabidopsis_thaliana/dna/Arabidopsis_thaliana.TAIR10.dna.toplevel.fa.gz",
+    "IRGSP-1.0": "https://ftp.ebi.ac.uk/ensemblgenomes/pub/plants/current/fasta/oryza_sativa/dna/Oryza_sativa.IRGSP-1.0.dna.toplevel.fa.gz",
+    "WBcel235": "https://ftp.ensembl.org/pub/release-110/fasta/caenorhabditis_elegans/dna/Caenorhabditis_elegans.WBcel235.dna.toplevel.fa.gz",
+    "BDGP6.32": "https://ftp.ensembl.org/pub/release-109/fasta/drosophila_melanogaster/dna/Drosophila_melanogaster.BDGP6.32.dna.toplevel.fa.gz",
+    "GRCz11": "https://ftp.ensembl.org/pub/release-110/fasta/danio_rerio/dna/Danio_rerio.GRCz11.dna.primary_assembly.fa.gz",
+    "GRCz10": "https://ftp.ensembl.org/pub/release-91/fasta/danio_rerio/dna/Danio_rerio.GRCz10.dna.toplevel.fa.gz",
+    "bGalGal1": "https://ftp.ensembl.org/pub/release-110/fasta/gallus_gallus/dna/Gallus_gallus.bGalGal1.mat.broiler.GRCg7b.dna.toplevel.fa.gz",
+    "Glycine_max_v2.1": "https://ftp.ebi.ac.uk/ensemblgenomes/pub/plants/current/fasta/glycine_max/dna/Glycine_max.Glycine_max_v2.1.dna.toplevel.fa.gz",
+    "R64-1-1": "https://ftp.ensembl.org/pub/release-57/fasta/saccharomyces_cerevisiae/dna/Saccharomyces_cerevisiae.SGD1.01.57.dna.toplevel.fa.gz",
+    "ASM294v2": "https://ftp.ebi.ac.uk/ensemblgenomes/pub/fungi/current/fasta/schizosaccharomyces_pombe/dna/Schizosaccharomyces_pombe.ASM294v2.dna.toplevel.fa.gz",
+    "hg38": "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz",
+    "hg19": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/hg19.fa.gz",
+    "mm39": "https://hgdownload.soe.ucsc.edu/goldenPath/mm39/bigZips/mm39.fa.gz",
+    "mm10": "https://hgdownload.soe.ucsc.edu/goldenPath/mm10/bigZips/mm10.fa.gz",
+    "mm9": "https://hgdownload.soe.ucsc.edu/goldenPath/mm9/bigZips/mm9.fa.gz",
+    "ce11": "https://hgdownload.soe.ucsc.edu/goldenPath/ce11/bigZips/ce11.fa.gz",
+    "dm6": "https://hgdownload.soe.ucsc.edu/goldenPath/dm6/bigZips/dm6.fa.gz",
+    "sacCer3": "https://hgdownload.soe.ucsc.edu/goldenPath/sacCer3/bigZips/sacCer3.fa.gz",
+}
+
+# Approximate COMPRESSED download size of each linked genome FASTA (MB),
+# shown before a genome download. Measured 2026-09-02 (Content-Length).
+GENOME_SIZES_MB: dict[str, int] = {
+    "GRCh38": 842,
+    "GRCh37": 830,
+    "GRCm39": 769,
+    "GRCm38": 769,
+    "NCBIM37": 729,
+    "TAIR10": 35,
+    "IRGSP-1.0": 109,
+    "WBcel235": 29,
+    "BDGP6.32": 41,
+    "GRCz11": 391,
+    "GRCz10": 391,
+    "bGalGal1": 304,
+    "Glycine_max_v2.1": 274,
+    "R64-1-1": 4,
+    "ASM294v2": 4,
+    "hg38": 939,
+    "hg19": 904,
+    "mm39": 831,
+    "mm10": 830,
+    "mm9": 821,
+    "ce11": 30,
+    "dm6": 43,
+    "sacCer3": 4,
+}
+
 # Built-in reference mappings with source information
 #
 # source_file: local layout (relative to the source dir used by
