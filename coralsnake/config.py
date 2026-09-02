@@ -15,8 +15,13 @@ class ReferenceInfo(TypedDict):
     description: str
 
 
-# GitHub repository information
-GITHUB_REPO = "y9c/metagene"
+# GitHub repository information.
+#
+# The reference parquets are served from this repository's `data` release
+# (prerelease). That release is FIXED: its assets are immutable, so a data
+# update is published under a new tag (e.g. `data-v2`) together with a bump of
+# GITHUB_DOWNLOAD_BASE here. Files are (re)built by scripts/build_references.py.
+GITHUB_REPO = "y9c/coralsnake"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_DOWNLOAD_BASE = f"https://github.com/{GITHUB_REPO}/releases/download/data"
 

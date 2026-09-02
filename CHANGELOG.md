@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`scripts/build_references.py`** — builds the built-in metagene reference
+  parquets from source GTFs (driven by `coralsnake.config.BUILTIN_REFERENCES`,
+  using `prepare_exon_ref` + ZSTD) and can publish them to a GitHub data
+  release (`--publish`). See `scripts/README.md` for the fixed-release
+  convention and source GTF locations.
+
+### Changed
+- **Built-in reference data now hosted in this repo**: `coralsnake metagene
+  --download` fetches from the `data` release of `y9c/coralsnake` instead of
+  the no-longer-maintained `y9c/metagene` repo. File contents are byte-identical
+  to the previous release (SHA-256 verified at migration).
+
+### Added
 - **`logo --matrix FILE`**: export the position × base score matrix as a TSV
   (rows = motif positions, columns = `A C G T U` + any other symbol present,
   values = per-base score from `Mlogo.scores`). Machine-readable interchange for

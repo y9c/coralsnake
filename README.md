@@ -204,6 +204,11 @@ coralsnake metagene --list
 coralsnake metagene --download GRCh38
 ```
 
+The reference files are served from this repo's fixed `data` release and
+cached in `~/.cache/coralsnake/`; rebuild or update them with
+[`scripts/build_references.py`](scripts/build_references.py)
+(see [scripts/README.md](scripts/README.md)).
+
 **Python API** — the functions are importable from the flat modules:
 
 ```python
