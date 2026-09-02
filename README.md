@@ -18,8 +18,7 @@ are assembled from exons, so a transcript does not line up with its genomic
 locus). Coralsnake is an **exon-aware RNA analysis pipeline** built around
 exactly these properties: it cleans and normalizes the reference inputs
 (`refine`), turns a GTF/GFF into spliced transcript references (`prepare`),
-**splices and joins** reads between
-transcript and genome coordinates in both
+**splices and joins** reads between transcript and genome coordinates in both
 directions (`liftover`), and runs the analyses you do on the results —
 **annotate** places sites/variants on the RNA hierarchy (5'UTR / CDS / 3'UTR /
 intronic / intergenic) and calls the variant effect, **metagene** profiles how
@@ -29,6 +28,8 @@ reference motif around each site, and **logo** renders a DNA/RNA sequence logo.
 <img src="https://coralsnake.yech.science/coralsnake_overview.svg?v=2" alt="Coralsnake pipeline overview" style="width: 720px; max-width: 100%;" />
 
 ## Installation
+
+Requires Python ≥ 3.12.
 
 ```bash
 pip install coralsnake
@@ -45,7 +46,7 @@ pip install "coralsnake[plot]"
 
 | Command      | What it does                                                        |
 | ------------ | ------------------------------------------------------------------- |
-| `refine`     | Clean/normalize genome FASTA and GTF before `prepare` (seqname renaming, name/type normalization, canonical-transcript flagging). |
+| `refine`     | Clean/normalize the genome FASTA + GTF before `prepare` (rename seqnames, normalize names/biotypes, flag canonical transcripts). |
 | `prepare`    | Extract the spliced primary transcript reference from GTF/GFF.      |
 | `liftover`   | Splice/join reads between genome/transcript BAMs (`-d t2g` default, `-d g2t` inverts). |
 | `annotate`   | Unified site/variant annotation: region on the RNA hierarchy + gene/transcript + variant effect. |
@@ -67,11 +68,15 @@ A typical end-to-end run (read alignment is done by any external mapper, e.g.
 
 ```bash
 # 0. (Optional) Clean/normalize the FASTA + GTF first (rename seqnames,
-#    normalize names/biotypes, flag the canonical transcript)
+#    normalize names/biotypes, flag the canonical transcript). When you run
+#    this, feed outdir/ref.annotation.gtf / outdir/ref.genome.fasta into the
+#    steps below instead of annotation.gtf / genome.fa.
 coralsnake refine -f genome.fa -g annotation.gtf -o outdir -n ref
 
-# 1. Build the spliced transcript reference from the annotation
-coralsnake prepare -g annotation.gtf -f genome.fa -o transcript.fa --with-txpos
+# 1. Build the spliced transcript reference: FASTA to align to (-s) and the
+#    annotation table (-o) used by liftover and annotate
+coralsnake prepare -g annotation.gtf -f genome.fa \
+                   -s transcript.fa -o annotation.tsv --with-codon
 
 # 2. Align reads to transcript.fa with an external mapper  →  tx.bam
 
@@ -110,28 +115,44 @@ coralsnake refine -f genome.fa -g annotation.gtf -o outdir -n hg38 \
                   -m chrom_map.tsv -c canonical.tsv
 ```
 
+- `-f/--fasta-file` — the genome FASTA to clean: seqnames are renamed/filtered,
+  headers rewritten as `>new_name old_name`, and a `.fai` + `.genome.sizes`
+  index is rebuilt with pysam.
+- `-g/--gtf-file` — the GTF to normalize (the GeneModel pipeline above).
+- `-o/--outdir` — output directory (default `./`).
+- `-n/--name` — output name prefix (default: the outdir's basename).
 - `-m/--rename-mapper` — TSV mapping old seqname → new seqname.
 - `-p/--seqname-pattern` — keep only seqnames matching this regex.
 - `-c/--canonical-transcripts` — TSV of canonical transcript IDs (1st column).
-- At least one of `-f`/`-g` is required. Outputs land under
-  `<outdir>/<name>.{genome.fasta,annotation.gtf}` (+ `.gz`, `.fai`, `.genome.sizes`,
-  tabix index), plus `.skip.gtf` (genes that failed checks) and
-  `.gene_features_summary.txt`.
+- At least one of `-f`/`-g` is required. Pass both to keep the FASTA and the
+  annotation seqnames in sync — the same `-m`/`-p` apply to both. Outputs land
+  under `<outdir>/<name>.{genome.fasta,annotation.gtf}` (+ `.gz`, `.fai`,
+  `.genome.sizes`, tabix index), plus `.skip.gtf` (genes that failed checks)
+  and `.gene_features_summary.txt`.
 
 ### `prepare` — spliced transcript reference
 
-Build the spliced transcript reference (the target that reads are aligned to)
-from a GTF/GFF and a genome FASTA:
+Build the spliced transcript reference from a GTF/GFF and a genome FASTA.
+Two outputs:
+
+- `-s/--seq-file` — the spliced transcript **FASTA**, the target that reads
+  are aligned to (requires `-f`).
+- `-o/--output-file` — the annotation **table** (TSV: gene/transcript, chrom,
+  strand, spliced exon spans, plus optional codon/genename/biotype/txpos
+  columns), consumed by `liftover -a`, `liftover --table`, and
+  `annotate --annotation`.
 
 ```bash
-coralsnake prepare -g annotation.gtf -f genome.fa -o transcript.fa \
+coralsnake prepare -g annotation.gtf -f genome.fa \
+                   -s transcript.fa -o annotation.tsv \
                    --with-codon --with-genename --filter-biotype protein_coding
 ```
 
 ### `liftover` — splice-aware BAM conversion
 
 `prepare` builds the transcript reference; `liftover` round-trips a BAM between
-transcript and genome coordinates, splicing reads at exon boundaries:
+transcript and genome coordinates, splicing reads at exon boundaries. `-a`
+takes the `prepare` annotation table; `-f` (a `.fai`) is required for `t2g`:
 
 - `coralsnake liftover -d t2g` (default) — transcript BAM → genome BAM (splices
   reads at exon boundaries, inserts introns).
@@ -154,6 +175,8 @@ coralsnake annotate -i sites.tsv -o out.tsv --reference-gtf annotation.gtf -c 1,
 coralsnake annotate -i variants.tsv -o effects.tsv \
                     --reference-gtf annotation.gtf \
                     --reference-transcript genome.fa -s -a
+# or fast table mode, with the `prepare` annotation table (-o output)
+coralsnake annotate -i sites.tsv -o out.tsv --annotation annotation.tsv
 ```
 
 ### `metagene` — exon-aware metagene profiling
@@ -161,9 +184,9 @@ coralsnake annotate -i variants.tsv -o effects.tsv \
 Built on the high-performance `polars` + `ruranges` stack. Computes the
 distribution of sites relative to gene regions (5'UTR, CDS, 3'UTR) and can emit
 binned statistics and a publication-ready profile plot. The `-p` profile plot
-needs the `plot` extra; the tabular outputs (`-o`, `-s`) work without it.
-Add `--export-profile FILE` to write the machine-readable profile matrix TSV
-(`feature_type`, `feature_midpoint`, `count_*`) for downstream tools.
+needs the `plot` extra; the tabular outputs (`-o`, `-s`, `--export-profile`)
+work without it. `--export-profile FILE` writes the machine-readable profile
+matrix TSV (`feature_type`, `feature_midpoint`, `count_*`) for downstream tools.
 
 ```bash
 # Using a built-in reference (GRCh38) or a custom GTF:
@@ -204,9 +227,13 @@ local = map_to_local(sites, ref, ref_id_col="transcript_id")
 
 ### `motif` & `coordinate`
 
-A migration of the standalone `variant` package — fused into the top-level CLI
-with the old `pyfaidx` / `urllib3` dependencies removed and coralsnake's
-`pysam` + `ruranges` stack used instead. Naming and output format are unchanged.
+- `motif` — fetch the strand-aware genomic sequence around each site, padded
+  with `N` (`-n left,right` for asymmetric padding).
+- `coordinate` — rename chromosome names between reference coordinate systems
+  (built-in UCSC↔Ensembl mappings for hg38/mm39, or a custom `-m` TSV).
+
+Both migrated from the standalone `variant` package with unchanged naming and
+output format.
 
 ```bash
 # Motif fetch (strand-aware, padded with N)
@@ -233,11 +260,12 @@ coralsnake group -f genes.fa -g genes.gtf -o grouped.tsv \
 
 ### `logo` — sequence logo
 
-Plots a DNA/RNA sequence logo from a set of motif sequences. The scoring engine
-is pure numpy; the renderer needs matplotlib (`plot` extra). A
-machine-readable score matrix can be exported with `--matrix FILE`
-(rows = motif positions, columns = bases) — pure numpy, so it works without the
-`plot` extra, and the figure is optional when a matrix is requested.
+Builds a DNA/RNA sequence logo from a set of motif sequences. The scoring
+engine is pure numpy; only the figure renderer needs matplotlib (`plot`
+extra). `--matrix FILE` exports the position × base score matrix as TSV
+(rows = motif positions, columns = `A C G T U` + any other symbol present) —
+pure numpy, so it works without the `plot` extra, and the figure is optional
+when a matrix is requested.
 
 ```bash
 coralsnake logo -m ACGT -m ACGG -m CCGT -o logo.png
