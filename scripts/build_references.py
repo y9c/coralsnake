@@ -329,11 +329,22 @@ def main(argv=None) -> None:
     jobs: list[tuple[str, str, str]] = []  # (gtf path, out name, label)
     if args.single:
         gtf, name = args.single
+        # accept the GTF path as given, or resolve it against the recorded
+        # source layout (source_dir / source_file) for known references
+        gtf_path = Path(gtf)
+        if not gtf_path.exists():
+            known = BUILTIN_REFERENCES.get(name)
+            if known:
+                cand = source_dir / known["source_file"]
+            else:
+                cand = source_dir / gtf
+            if cand.exists():
+                gtf_path = cand
         if name in BUILTIN_REFERENCES:
             out_name = BUILTIN_REFERENCES[name]["parquet_file"]
         else:
             out_name = f"{name}.parquet"
-        jobs.append((gtf, out_name, name))
+        jobs.append((str(gtf_path), out_name, name))
     else:  # --all
         for name, info in BUILTIN_REFERENCES.items():
             jobs.append(
