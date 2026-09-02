@@ -16,8 +16,9 @@ hierarchy** (ribosomal rRNA is orders of magnitude more abundant than
 mRNA), **strand orientation** (sense vs. antisense), and **splicing** (mRNAs
 are assembled from exons, so a transcript does not line up with its genomic
 locus). Coralsnake is an **exon-aware RNA analysis pipeline** built around
-exactly these properties: it turns a GTF/GFF into spliced
-transcript references (`prepare`), **splices and joins** reads between
+exactly these properties: it cleans and normalizes the reference inputs
+(`refine`), turns a GTF/GFF into spliced transcript references (`prepare`),
+**splices and joins** reads between
 transcript and genome coordinates in both
 directions (`liftover`), and runs the analyses you do on the results —
 **annotate** places sites/variants on the RNA hierarchy (5'UTR / CDS / 3'UTR /
@@ -44,6 +45,7 @@ pip install "coralsnake[plot]"
 
 | Command      | What it does                                                        |
 | ------------ | ------------------------------------------------------------------- |
+| `refine`     | Clean/normalize genome FASTA and GTF before `prepare` (seqname renaming, name/type normalization, canonical-transcript flagging). |
 | `prepare`    | Extract the spliced primary transcript reference from GTF/GFF.      |
 | `liftover`   | Splice/join reads between genome/transcript BAMs (`-d t2g` default, `-d g2t` inverts). |
 | `annotate`   | Unified site/variant annotation: region on the RNA hierarchy + gene/transcript + variant effect. |
@@ -51,7 +53,7 @@ pip install "coralsnake[plot]"
 | `motif`      | Strand-aware genomic motif fetch around variant sites.              |
 | `coordinate` | Map chromosome names between coordinate systems (UCSC↔Ensembl).    |
 | `group`      | Group genes and build a consensus sequence.                         |
-| `logo`       | Plot a DNA/RNA sequence logo (needs `coralsnake[plot]`).            |
+| `logo`       | Plot a DNA/RNA sequence logo, or export its score matrix via `--matrix` (plotting needs `coralsnake[plot]`). |
 
 > **`annotate` is the single annotation tool** — one command, one schema, two
 > input modes: `--reference-gtf` (region + gene/transcript, and the full variant
@@ -64,6 +66,10 @@ A typical end-to-end run (read alignment is done by any external mapper, e.g.
 `bwa` / `prismalign`):
 
 ```bash
+# 0. (Optional) Clean/normalize the FASTA + GTF first (rename seqnames,
+#    normalize names/biotypes, flag the canonical transcript)
+coralsnake refine -f genome.fa -g annotation.gtf -o outdir -n ref
+
 # 1. Build the spliced transcript reference from the annotation
 coralsnake prepare -g annotation.gtf -f genome.fa -o transcript.fa --with-txpos
 
@@ -82,6 +88,35 @@ coralsnake metagene -i sites.tsv -g annotation.gtf -o profile.tsv -p profile.png
 ```
 
 ## Subcommands
+
+### `refine` — reference cleaning (pre-`prepare`)
+
+Clean and normalize a genome FASTA and/or GTF before building the spliced
+reference: seqname renaming/filtering, gene/transcript name and type
+normalization, missing gene/transcript/exon row creation, overlapping-exon
+merge, canonical-transcript flagging, and coordinate checks. Codon and UTR
+features are preserved, so the output stays usable for `metagene` and
+`annotate`. Indexing uses pysam — no external samtools/bgzip/tabix.
+
+The GTF side is built on the shared `coralsnake.genemodel.GeneModel` object —
+the same read/serialize layer `prepare` uses — so a refined GTF is a drop-in
+replacement for the input: both GENCODE-style (`*_type`) and Ensembl-style
+(`*_biotype`) biotype attributes are written, and the selected canonical
+transcript is tagged `Ensembl_canonical` so `prepare`'s ranking picks the
+transcript `refine` selected.
+
+```bash
+coralsnake refine -f genome.fa -g annotation.gtf -o outdir -n hg38 \
+                  -m chrom_map.tsv -c canonical.tsv
+```
+
+- `-m/--rename-mapper` — TSV mapping old seqname → new seqname.
+- `-p/--seqname-pattern` — keep only seqnames matching this regex.
+- `-c/--canonical-transcripts` — TSV of canonical transcript IDs (1st column).
+- At least one of `-f`/`-g` is required. Outputs land under
+  `<outdir>/<name>.{genome.fasta,annotation.gtf}` (+ `.gz`, `.fai`, `.genome.sizes`,
+  tabix index), plus `.skip.gtf` (genes that failed checks) and
+  `.gene_features_summary.txt`.
 
 ### `prepare` — spliced transcript reference
 
@@ -102,6 +137,10 @@ transcript and genome coordinates, splicing reads at exon boundaries:
   reads at exon boundaries, inserts introns).
 - `coralsnake liftover -d g2t` — genome BAM → transcript BAM (clips to exons,
   joins spliced reads contiguously on the transcript).
+- `--table` mode converts a tab-separated sites table (instead of a BAM): `t2g`
+  reads a gene column + 1-based transcript position and appends
+  `GenomeChrom`/`GenomePos`; `g2t` reads chrom/position/strand and appends
+  `Gene`/`GenePos`.
 
 ### `annotate` — exon-aware annotation
 
@@ -123,6 +162,8 @@ Built on the high-performance `polars` + `ruranges` stack. Computes the
 distribution of sites relative to gene regions (5'UTR, CDS, 3'UTR) and can emit
 binned statistics and a publication-ready profile plot. The `-p` profile plot
 needs the `plot` extra; the tabular outputs (`-o`, `-s`) work without it.
+Add `--export-profile FILE` to write the machine-readable profile matrix TSV
+(`feature_type`, `feature_midpoint`, `count_*`) for downstream tools.
 
 ```bash
 # Using a built-in reference (GRCh38) or a custom GTF:
@@ -193,12 +234,17 @@ coralsnake group -f genes.fa -g genes.gtf -o grouped.tsv \
 ### `logo` — sequence logo
 
 Plots a DNA/RNA sequence logo from a set of motif sequences. The scoring engine
-is pure numpy; the renderer needs matplotlib (`plot` extra).
+is pure numpy; the renderer needs matplotlib (`plot` extra). A
+machine-readable score matrix can be exported with `--matrix FILE`
+(rows = motif positions, columns = bases) — pure numpy, so it works without the
+`plot` extra, and the figure is optional when a matrix is requested.
 
 ```bash
 coralsnake logo -m ACGT -m ACGG -m CCGT -o logo.png
 # or with per-motif weights from a file (seq\tcount)
 coralsnake logo -i motifs.tsv -o logo.svg
+# or export just the position x base score matrix as TSV (no plotting needed)
+coralsnake logo -i motifs.tsv --matrix logo_scores.tsv
 ```
 
 ```python
