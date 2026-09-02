@@ -195,6 +195,56 @@ class TestAnnotateRegressions:
         d = dict(zip(header, row))
         assert d["region"] == "CDS"
 
+    def test_metagene_stop_codon_bases_are_cds(self):
+        """Metagene feature_type keeps the 3 stop-codon bases as CDS (matches
+        test_stop_codon_bases_are_cds / effect._classify_exonic). CDS runs
+        [start_codon_pos, stop_codon_pos + 3), so offsets stop+1 / stop+2 are
+        CDS and the 3'UTR begins at stop+3."""
+        import polars as pl
+        from coralsnake.annotation import normalize_positions
+
+        def _site(pos):
+            return {
+                "transcript_id": "t1",
+                "transcript_length": 100,
+                "start_codon_pos": 30,
+                "stop_codon_pos": 60,  # first base of the stop codon -> CDS [30, 63)
+                "transcript_start": pos,
+                "transcript_end": pos + 1,
+                "record_id": f"r{pos}",
+            }
+
+        df = pl.DataFrame([_site(61), _site(62), _site(63), _site(29)])
+        _, stats, _ = normalize_positions(df, split_strategy="median", bin_number=100)
+        assert stats.get("CDS") == 2          # 61, 62 = 2nd/3rd stop-codon bases
+        assert stats.get("3UTR") == 1         # 63 = first base after the stop codon
+        assert stats.get("5UTR") == 1         # 29 = just before the start codon
+
+    def test_metagene_noncoding_excluded(self):
+        """Sites on a noncoding transcript (no start/stop codon) are 'None',
+        not CDS, and never contribute to the metagene profile bins."""
+        import polars as pl
+        from coralsnake.annotation import normalize_positions
+
+        def _site(pos, start, stop):
+            return {
+                "transcript_id": "t1",
+                "transcript_length": 100,
+                "start_codon_pos": start,
+                "stop_codon_pos": stop,
+                "transcript_start": pos,
+                "transcript_end": pos + 1,
+                "record_id": f"r{pos}",
+            }
+
+        df = pl.DataFrame([_site(45, 30, 60), _site(70, None, None)])
+        gene_bins, stats, _ = normalize_positions(
+            df, split_strategy="median", bin_number=100
+        )
+        assert stats == {"CDS": 1.0, "None": 1.0}
+        # only the coding site lands in a bin (total == 1.0, not 2.0)
+        assert gene_bins["count"].sum() == 1.0
+
     def test_placeholder_ref_alt_not_a_variant(self, tmp_path):
         """'.' ref/alt placeholders must not fabricate a CDS effect."""
         from coralsnake.annotate import run_annotate

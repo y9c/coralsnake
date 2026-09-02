@@ -46,6 +46,11 @@ def cluster_sequences(alignment_array, threshold):
         mask = (u == 45) & (v == 45)
         u1 = u[~mask]
         v1 = v[~mask]
+        # Two rows that are all-gap at every compared column are identical:
+        # distance 0, and avoid a divide-by-zero that would inject NaN into
+        # the pdist / linkage machinery.
+        if len(u1) == 0:
+            return 0.0
         return np.sum(u1 != v1) / len(u1)
 
     distance_matrix = pdist(alignment_array, metric=hamming)

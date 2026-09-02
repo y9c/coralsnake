@@ -189,8 +189,8 @@ def calculate_gene_splits(
         ).item()
 
         len_5utr = float(start_mean or 0)
-        len_cds = float(stop_mean or 0) - float(start_mean or 0)
-        len_3utr = float(length_mean or 0) - float(stop_mean or 0)
+        len_cds = float(stop_mean or 0) + 3 - float(start_mean or 0)
+        len_3utr = float(length_mean or 0) - (float(stop_mean or 0) + 3)
     elif split_strategy == "median":
         # Cast to numeric first to ensure we get numeric types
         start_median = df.select(
@@ -204,8 +204,8 @@ def calculate_gene_splits(
         ).item()
 
         len_5utr = float(start_median or 0)
-        len_cds = float(stop_median or 0) - float(start_median or 0)
-        len_3utr = float(length_median or 0) - float(stop_median or 0)
+        len_cds = float(stop_median or 0) + 3 - float(start_median or 0)
+        len_3utr = float(length_median or 0) - (float(stop_median or 0) + 3)
     else:
         raise ValueError(f"Unknown split_strategy: {split_strategy}")
 
@@ -236,9 +236,17 @@ def normalize_positions(
         .with_columns(
             feature_type=pl.when(pl.col("transcript_pos").is_null())
             .then(pl.lit("None"))
+            # noncoding transcript (no CDS start/stop): exclude from 5'UTR/CDS/3'UTR
+            .when(
+                pl.col("start_codon_pos").is_null()
+                | pl.col("stop_codon_pos").is_null()
+            )
+            .then(pl.lit("None"))
             .when(pl.col("transcript_pos") < pl.col("start_codon_pos"))
             .then(pl.lit("5UTR"))
-            .when(pl.col("transcript_pos") > pl.col("stop_codon_pos"))
+            # stop codon (stop_codon_pos .. stop_codon_pos+2) is part of the CDS;
+            # 3'UTR starts at the first base after it (matches effect.py/_classify_exonic)
+            .when(pl.col("transcript_pos") >= pl.col("stop_codon_pos") + 3)
             .then(pl.lit("3UTR"))
             .otherwise(pl.lit("CDS"))
         )
@@ -255,22 +263,27 @@ def normalize_positions(
         annotated_sites.with_columns(
             transcript_pos=(pl.col("transcript_start") + pl.col("transcript_end")) // 2
         )
-        .filter(pl.col("transcript_pos").is_not_null())
+        .filter(
+            pl.col("transcript_pos").is_not_null()
+            & pl.col("start_codon_pos").is_not_null()
+            & pl.col("stop_codon_pos").is_not_null()
+        )
         .with_columns(
             feature_pos=pl.when(pl.col("transcript_pos") < pl.col("start_codon_pos"))
             .then(pl.col("transcript_pos") / pl.col("start_codon_pos") * gene_splits[0])
-            .when(pl.col("transcript_pos") > pl.col("stop_codon_pos"))
+            # CDS = [start_codon_pos, stop_codon_pos + 3) (stop codon is CDS)
+            .when(pl.col("transcript_pos") >= pl.col("stop_codon_pos") + 3)
             .then(
                 gene_splits[0]
                 + gene_splits[1]
-                + (pl.col("transcript_pos") - pl.col("stop_codon_pos"))
-                / (pl.col("transcript_length") - pl.col("stop_codon_pos"))
+                + (pl.col("transcript_pos") - (pl.col("stop_codon_pos") + 3))
+                / (pl.col("transcript_length") - (pl.col("stop_codon_pos") + 3))
                 * gene_splits[2]
             )
             .otherwise(
                 gene_splits[0]
                 + (pl.col("transcript_pos") - pl.col("start_codon_pos"))
-                / (pl.col("stop_codon_pos") - pl.col("start_codon_pos"))
+                / (pl.col("stop_codon_pos") + 3 - pl.col("start_codon_pos"))
                 * gene_splits[1]
             )
         )

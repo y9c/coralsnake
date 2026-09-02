@@ -1079,7 +1079,8 @@ def metagene(
                     pl.col("transcript_pos") < pl.col("start_codon_pos")
                 )
                 .then(pl.lit("5UTR"))
-                .when(pl.col("transcript_pos") > pl.col("stop_codon_pos"))
+                # stop codon is part of the CDS; 3'UTR starts at stop_codon_pos + 3
+                .when(pl.col("transcript_pos") >= pl.col("stop_codon_pos") + 3)
                 .then(pl.lit("3UTR"))
                 .otherwise(pl.lit("CDS"))
             )

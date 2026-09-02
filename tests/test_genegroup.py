@@ -1,6 +1,8 @@
 """Tests for coralsnake.genegroup – rename helpers and reassignment logic."""
 
-from coralsnake.genegroup import rename_snRNA, rename_snoRNA
+import numpy as np
+
+from coralsnake.genegroup import cluster_sequences, rename_snRNA, rename_snoRNA
 
 
 # ---------------------------------------------------------------------------
@@ -42,6 +44,21 @@ class TestRenameSnoRNA:
 
     def test_Z6(self):
         assert rename_snoRNA("Z6") == "Z6"
+
+
+# ---------------------------------------------------------------------------
+# cluster_sequences / hamming distance
+# ---------------------------------------------------------------------------
+class TestClusterSequences:
+    def test_all_gap_pair_does_not_produce_nan(self):
+        """A pair that is all-gap at every compared column must yield distance
+        0 (not NaN), so scipy pdist/linkage stays finite."""
+        # '-' == ascii 45; two rows all-gap over 6 columns
+        arr = np.full((2, 6), 45, dtype=int)
+        clusters = cluster_sequences(arr, threshold=0.5)
+        assert clusters.shape == (2,)
+        assert np.isfinite(clusters).all()
+        assert clusters.tolist() == [1, 1]
 
 
 # ---------------------------------------------------------------------------
