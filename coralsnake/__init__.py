@@ -6,7 +6,13 @@
 #
 # coralsnake - exon-aware RNA analysis pipeline.
 
-__version__ = "0.2.0"
+# Single source of truth is pyproject.toml; never hardcode here.
+try:
+    from importlib.metadata import version as _pkg_version
+
+    __version__ = _pkg_version("coralsnake")
+except Exception:  # running from a source checkout that is not installed
+    __version__ = "0.0.0+source"
 
 
 def __getattr__(name):
