@@ -861,8 +861,9 @@ def metagene(
     "--input",
     "-i",
     "input_file",
-    type=click.Path(exists=True),
-    help="Input file, one motif sequence per line (optionally 'seq<TAB>count' for weights)",
+    type=click.File("r"),
+    help="Input file, one motif sequence per line (optionally 'seq<TAB>count' for weights). "
+    "Use '-' to read from stdin (e.g. when piped from `coralsnake motif`).",
 )
 @click.option(
     "--output",
@@ -908,24 +909,26 @@ def logo(motifs, input_file, output_file, weights, t2u, to2bit, normed, matrix_f
 
     motifs_list = []
     motif_weights = []
-    if input_file:
-        with open(input_file) as f:
-            for raw in f:
-                raw = raw.strip()
-                if not raw or raw.startswith("#"):
-                    continue
-                parts = raw.split("\t")
-                motifs_list.append(parts[0])
-                # One weight per line (default 1.0) so motif_weights stays
-                # aligned with motifs_list even when some lines carry no
-                # explicit weight.
-                if len(parts) > 1:
-                    try:
-                        motif_weights.append(float(parts[1]))
-                    except ValueError:
-                        motif_weights.append(1.0)
-                else:
+    if input_file is not None:
+        # click.File already opened the path (or wired '-' to stdin)
+        for raw in input_file:
+            raw = raw.strip()
+            if not raw or raw.startswith("#"):
+                continue
+            parts = raw.split("\t")
+            motifs_list.append(parts[0])
+            # One weight per line (default 1.0) so motif_weights stays
+            # aligned with motifs_list even when some lines carry no
+            # explicit weight.
+            if len(parts) > 1:
+                try:
+                    motif_weights.append(float(parts[1]))
+                except ValueError:
                     motif_weights.append(1.0)
+            else:
+                motif_weights.append(1.0)
+        if getattr(input_file, "name", "") != "-":
+            input_file.close()
     for m in motifs:
         motifs_list.extend([x.strip() for x in m.split(",") if x.strip()])
 
