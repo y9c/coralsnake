@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`coralsnake qc`** — RNA-seq quality control from a genome-aligned BAM + a
+  gene annotation, porting the *core* of rnaseqc 2 (getzlab): mapping / unique /
+  duplicate rates, base mismatch, end 1/2 rates, the exonic / intronic /
+  intergenic / ambiguous / intragenic read classification, high-quality rates,
+  rRNA rate, sense rates, gene read counts, TPM and genes detected. It reuses
+  coralsnake's `GeneModel` (GTF → genes/exons), `ruranges` vectorized interval
+  overlap and `pysam`, so it needs only `-i <bam>` and `-g <gtf|reference>`. Writes
+  `{sample}.metrics.tsv` (+ `gene_reads.tsv` / `gene_tpm.tsv` / `exon_reads.tsv`,
+  and `fragmentSizes.txt` when paired reads are present). 3′ bias and
+  fragment-size statistics are computed from the GTF exons + reads (no `--bed`
+  needed); only per-gene/per-exon base coverage + CV, GC content (both need a
+  FASTA) and the `--legacy` counting rules are left out.
 - **`coralsnake reference`** — top-level command group for the built-in exon
   references: `reference list` (with download sizes), `reference download
   <ref|human|mouse|all>` (groups, streaming progress, atomic cache writes),

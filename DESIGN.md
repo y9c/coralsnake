@@ -26,6 +26,7 @@ developers extending it. (A web-friendly version lives in
 | `gtf2tx.py` | GTF/GFF → transcript FASTA | pysam |
 | `tbam2gbam.py` / `gbam2tbam.py` | BAM liftover | pysam, ruranges |
 | `genegroup.py` | gene clustering / consensus | numpy, scipy |
+| `rnaseqc.py` | RNA-seq QC metrics (mapping + exon classification + counts) | pysam, ruranges, polars, xopen |
 | `annot.py` | site → gene/transcript annotation | ruranges, polars-free I/O |
 | `utils.py` | `Span`, `Transcript`, helpers | pysam, numpy |
 | `logo.py` | sequence logo (numpy scoring) | numpy, (matplotlib opt.) |

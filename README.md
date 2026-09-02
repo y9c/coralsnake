@@ -50,6 +50,7 @@ pip install "coralsnake[plot]"
 | `prepare`    | Extract the spliced primary transcript reference from GTF/GFF.      |
 | `liftover`   | Splice/join reads between genome/transcript BAMs (`-d t2g` default, `-d g2t` inverts). |
 | `annotate`   | Unified site/variant annotation: region on the RNA hierarchy + gene/transcript + variant effect. |
+| `qc`         | RNA-seq QC from a genome-aligned BAM + GTF: mapping stats + exonic/intronic/intergenic rates + gene counts/TPM (rnaseqc-style). |
 | `metagene`   | Exon-aware metagene profiling across 5'UTR/CDS/3'UTR (profile plot needs `coralsnake[plot]`). |
 | `motif`      | Strand-aware genomic motif fetch around variant sites.              |
 | `coordinate` | Map chromosome names between coordinate systems (UCSC↔Ensembl).    |
@@ -249,6 +250,51 @@ plot_profile(gene_bins, gene_splits, "metagene_plot.png")
 # Map global coordinates to local transcript coordinates (strand-aware):
 local = map_to_local(sites, ref, ref_id_col="transcript_id")
 ```
+
+### `qc` — RNA-seq quality control
+
+Run the core RNA-seq QC metrics from a genome-aligned BAM + a gene annotation
+(ported to lean on coralsnake's `GeneModel` + `ruranges` overlap + `pysam`):
+mapping statistics, the exonic / intronic / intergenic / ambiguous / intragenic
+read rates, base mismatch, high-quality rates, rRNA rate, sense rates, gene read
+counts, TPM, genes detected, 3′ bias, and fragment-size statistics — the last
+two derived from the GTF exons + reads, so **no BED file is needed**.
+
+```bash
+coralsnake qc -i sample.bam -g GRCh38 -o qc/ -s sample1
+# or a custom annotation:
+coralsnake qc -i sample.bam -g annotation.gtf -o qc/ -u --stranded RF
+```
+
+- `-i/--bam` — coordinate-sorted SAM/BAM/CRAM.
+- `-g/--gtf` — gene annotation GTF/GFF, or a built-in reference name (e.g.
+  `GRCh38`) for the cached GTF.
+- `-o/--outdir` — output directory; `-s/--sample` sets the sample name
+  (default: the BAM filename).
+- `-u/--unpaired` — single-end library (do not require proper pairs).
+- `-q/--mapping-quality`, `--base-mismatch`, `-d/--detection-threshold` —
+  high-quality / detection thresholds (defaults: 255 / 6 / 5, as rnaseqc).
+- `--stranded RF|FR` — restrict features to the read's strand (strand-specific
+  libraries).
+- `--bias-offset/--bias-window/--bias-gene-length` — 3′ bias windows
+  (defaults 150 / 100 / 600 bp).
+- `--fragment-samples` — max fragment-size samples (default 1 000 000).
+- `--no-counts` — skip the gene/exon count tables.
+
+It writes `{sample}.metrics.tsv` (Statistic, Value) plus, by default,
+`{sample}.gene_reads.tsv`, `{sample}.gene_tpm.tsv`, `{sample}.exon_reads.tsv`,
+and — when pairs/mates are present — `{sample}.fragmentSizes.txt`.
+
+```python
+from coralsnake.rnaseqc import run_rnaseqc
+
+metrics = run_rnaseqc("sample.bam", "annotation.gtf", "qc/", sample="s1")
+```
+
+> Metrics follow the standard RNA-seq QC definitions. Not ported here:
+> per-gene/per-exon base coverage + CV and GC content (need a FASTA), and the
+> legacy counting rules. 3′ bias and fragment-size statistics are computed
+> from the GTF exons + reads (no BED required).
 
 ### `motif` & `coordinate`
 

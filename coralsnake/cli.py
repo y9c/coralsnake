@@ -20,6 +20,10 @@ click.rich_click.COMMAND_GROUPS = {
             "commands": ["liftover"],
         },
         {
+            "name": "RNA-Seq Quality Control",
+            "commands": ["qc"],
+        },
+        {
             "name": "Site & Variant Annotation",
             "commands": ["annotate", "motif", "coordinate"],
         },
@@ -1275,6 +1279,172 @@ def logo(motifs, input_file, output_file, weights, t2u, to2bit, normed, matrix_f
         click.echo(f"✓ Saved motif logo to: {output_file}")
     elif not matrix_file:
         raise click.ClickException("Provide --output and/or --matrix")
+
+
+@cli.command(
+    help=(
+        "Compute core RNA-seq QC metrics from a genome-aligned BAM + GTF "
+        "(rnaseqc-style)."
+    ),
+    no_args_is_help=True,
+    context_settings=dict(help_option_names=["-h", "--help"]),
+)
+@click.option(
+    "--bam",
+    "-i",
+    "bam",
+    required=True,
+    help="Input coordinate-sorted SAM/BAM/CRAM.",
+)
+@click.option(
+    "--gtf",
+    "-g",
+    "gtf",
+    required=True,
+    callback=_ref_gtf_callback,
+    help="Gene annotation GTF/GFF, or a built-in reference name (e.g. GRCh38) "
+    "for the cached GTF.",
+)
+@click.option(
+    "--outdir",
+    "-o",
+    "outdir",
+    default="./",
+    help="Output directory (default: ./).",
+)
+@click.option(
+    "--sample",
+    "-s",
+    "sample",
+    default=None,
+    help="Sample name (default: the BAM filename).",
+)
+@click.option(
+    "--unpaired",
+    "-u",
+    "unpaired",
+    is_flag=True,
+    help="Single-end library (do not require proper pairs for high quality).",
+)
+@click.option(
+    "--mapping-quality",
+    "-q",
+    "mapping_quality",
+    default=255,
+    type=int,
+    show_default=True,
+    help="Minimum mapping quality for a read to be 'high quality'.",
+)
+@click.option(
+    "--base-mismatch",
+    "base_mismatch",
+    default=6,
+    type=int,
+    show_default=True,
+    help="Maximum allowed NM mismatches for a read to be 'high quality'.",
+)
+@click.option(
+    "--detection-threshold",
+    "-d",
+    "detection_threshold",
+    default=5,
+    type=int,
+    show_default=True,
+    help="Gene reads (unique) for a gene to be 'detected'.",
+)
+@click.option(
+    "--stranded",
+    "stranded",
+    default=None,
+    type=click.Choice(["RF", "FR", "rf", "fr"]),
+    help="Restrict features to the read's strand (strand-specific libraries).",
+)
+@click.option(
+    "--bias-offset",
+    "bias_offset",
+    default=150,
+    type=int,
+    show_default=True,
+    help="3' bias: offset (bp) of the 5'/3' windows into each gene.",
+)
+@click.option(
+    "--bias-window",
+    "bias_window",
+    default=100,
+    type=int,
+    show_default=True,
+    help="3' bias: window size (bp) at each gene end.",
+)
+@click.option(
+    "--bias-gene-length",
+    "bias_gene_length",
+    default=600,
+    type=int,
+    show_default=True,
+    help="3' bias: minimum exon-total gene length (bp).",
+)
+@click.option(
+    "--fragment-samples",
+    "fragment_samples",
+    default=1_000_000,
+    type=int,
+    show_default=True,
+    help="Max fragment-size samples (pairs aligning to the same GTF exon).",
+)
+@click.option(
+    "--no-counts",
+    "write_counts",
+    is_flag=True,
+    help="Do not write the gene/exon count tables.",
+)
+def qc(
+    bam,
+    gtf,
+    outdir,
+    sample,
+    unpaired,
+    mapping_quality,
+    base_mismatch,
+    detection_threshold,
+    stranded,
+    bias_offset,
+    bias_window,
+    bias_gene_length,
+    fragment_samples,
+    write_counts,
+):
+    """Run the core RNA-seq QC metrics (mapping + exon classification + counts).
+
+    Uses a genome-aligned BAM and a gene annotation (GTF/GFF, or a built-in
+    reference name like GRCh38).  Writes ``{sample}.metrics.tsv`` and, by
+    default, ``{sample}.gene_reads.tsv`` / ``.gene_tpm.tsv`` / ``.exon_reads.tsv``.
+
+    Metrics follow rnaseqc 2 (getzlab): mapping/unique/duplicate rates, base
+    mismatch, end 1/2 rates, the exonic / intronic / intergenic / ambiguous /
+    intragenic read rates, high-quality rates, rRNA rate, sense rates, gene
+    counts, TPM and genes detected.
+    """
+    from .rnaseqc import run_rnaseqc
+
+    try:
+        run_rnaseqc(
+            bam,
+            gtf,
+            outdir,
+            sample=sample,
+            unpaired=unpaired,
+            mapping_quality=mapping_quality,
+            base_mismatch=base_mismatch,
+            detection_threshold=detection_threshold,
+            stranded=stranded,
+            bias_offset=bias_offset,
+            bias_window=bias_window,
+            bias_gene_length=bias_gene_length,
+            fragment_samples=fragment_samples,
+            write_counts=not write_counts,
+        )
+    except ValueError as e:
+        raise click.ClickException(str(e))
 
 
 @cli.command(
