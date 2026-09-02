@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`logo --matrix FILE`**: export the position × base score matrix as a TSV
+  (rows = motif positions, columns = `A C G T U` + any other symbol present,
+  values = per-base score from `Mlogo.scores`). Machine-readable interchange for
+  downstream tools/report renderers; the figure is now optional, and matplotlib
+  is no longer required when only the matrix is requested.
+- **`metagene --export-profile FILE`**: write the metagene profile matrix TSV
+  (`feature_type`, `feature_midpoint`, `count_*`) for downstream tools; the
+  profile is computed whenever any of `-o`, `-s`, `-p` or `--export-profile` is
+  requested (previously `-o` was mandatory).
+
 ## [Unreleased] (cont.) — `refine` command (from PR #2, reworked)
 
 New `coralsnake refine` command (genome FASTA + GTF cleaning before `prepare`),
@@ -11,8 +24,7 @@ contributed by Zonggui Chen and reworked onto the package infrastructure:
 
 - **Attribute parsing reuses the hardened `gtf2tx.parse_gtf_annot`** (handles
   quoted `;` inside values and a missing trailing `;`) instead of a hand-rolled
-  parser.
-- **Codon/UTR features are preserved** (the PR dropped start/stop_codon and UTR
+  parser.- **Codon/UTR features are preserved** (the PR dropped start/stop_codon and UTR
   rows, which would have broken `metagene` gene splits and `annotate` CDS
   effects).
 - **Indexing via pysam** (`faidx`, `tabix_compress`/`tabix_index`) — no external
