@@ -534,6 +534,13 @@ def group(
     help="Output file for metagene plot (requires 'coralsnake[plot]')",
 )
 @click.option(
+    "--export-profile",
+    "export_profile",
+    type=click.Path(),
+    help="Export the metagene profile matrix TSV (feature_type, feature_midpoint, "
+    "count_*) - machine-readable input for downstream tools / report renderers.",
+)
+@click.option(
     "--reference",
     "-r",
     "reference",
@@ -629,6 +636,7 @@ def metagene(
     output_file,
     output_score,
     output_figure,
+    export_profile,
     reference,
     gtf,
     region,
@@ -679,9 +687,10 @@ def metagene(
         raise click.ClickException(
             "Input file is required for analysis (use -i/--input)"
         )
-    if not output_file:
+    if not output_file and not output_score and not export_profile:
         raise click.ClickException(
-            "Output file is required for analysis (use -o/--output)"
+            "Output file is required for analysis (use -o/--output, "
+            "-s/--output-score or --export-profile)"
         )
 
     if reference and gtf:
@@ -780,7 +789,7 @@ def metagene(
             .drop(["feature_type", "transcript_pos"])
         )
 
-    if output_score or output_figure:
+    if output_score or output_figure or export_profile:
         gene_bins, gene_stats, gene_splits = normalize_positions(
             annotated_df,
             split_strategy="median",
@@ -816,6 +825,19 @@ def metagene(
         ).write_csv(output_score, separator=separator)
         click.echo(f"✓ Saved binned statistics to: {output_score}")
 
+    # Save metagene profile matrix (machine-readable; same layout as output_score)
+    if export_profile:
+        gene_bins.insert_column(
+            0,
+            pl.when(pl.col("feature_midpoint") < gene_splits[0])
+            .then(pl.lit("5UTR"))
+            .when((pl.col("feature_midpoint") > gene_splits[0] + gene_splits[1]))
+            .then(pl.lit("3UTR"))
+            .otherwise(pl.lit("CDS"))
+            .alias("feature_type"),
+        ).write_csv(export_profile, separator=separator)
+        click.echo(f"✓ Saved metagene profile to: {export_profile}")
+
     # Generate plot (optional matplotlib)
     if output_figure:
         plot_profile(gene_bins, gene_splits, output_figure)
@@ -847,8 +869,7 @@ def metagene(
     "-o",
     "output_file",
     type=click.Path(),
-    required=True,
-    help="Output image file (e.g. logo.png, logo.svg)",
+    help="Output image file (e.g. logo.png, logo.svg). Optional if --matrix is given.",
 )
 @click.option(
     "--weights",
@@ -864,7 +885,14 @@ def metagene(
     "--2bit/--no-2bit", "to2bit", default=True, help="Use 2-bit logo (default)"
 )
 @click.option("--normed", is_flag=True, default=False, help="Normalize letter heights")
-def logo(motifs, input_file, output_file, weights, t2u, to2bit, normed):
+@click.option(
+    "--matrix",
+    "matrix_file",
+    type=click.Path(),
+    help="Export the position x base score-matrix TSV (from Mlogo.scores) "
+    "instead of / in addition to the figure (machine-readable output).",
+)
+def logo(motifs, input_file, output_file, weights, t2u, to2bit, normed, matrix_file):
     """Plot a sequence logo from a set of motif sequences.
 
     Uses the Mlogo engine migrated from the standalone `motiflogo` package.
@@ -874,8 +902,9 @@ def logo(motifs, input_file, output_file, weights, t2u, to2bit, normed):
     from .logo import _require_plotting
 
     # This raises a helpful error if matplotlib (optional 'plot' extra) is missing
-    _require_plotting()
-    import matplotlib.pyplot as plt
+    # - only needed when actually drawing the figure; the matrix export is pure numpy.
+    if output_file:
+        _require_plotting()
 
     motifs_list = []
     motif_weights = []
@@ -920,12 +949,33 @@ def logo(motifs, input_file, output_file, weights, t2u, to2bit, normed):
         normed=normed,
     )
 
-    fig = plt.figure(figsize=(0.75 * len(mlogo.scores), 2.5))
-    ax = fig.gca()
-    mlogo.plot(ax=ax)
-    plt.savefig(output_file, dpi=300, bbox_inches="tight")
-    plt.close()
-    click.echo(f"✓ Saved motif logo to: {output_file}")
+    # machine-readable matrix export (preferred for downstream tools)
+    if matrix_file:
+        bases = ["A", "C", "G", "T", "U"]
+        extra = []
+        for col in mlogo.scores:
+            for b, _ in col:
+                if b not in bases and b not in extra:
+                    extra.append(b)
+        all_bases = bases + extra
+        with open(matrix_file, "w") as fh:
+            fh.write("position\t" + "\t".join(all_bases) + "\n")
+            for i, col in enumerate(mlogo.scores, start=1):
+                d = {b: v for b, v in col}
+                fh.write(f"{i}\t" + "\t".join(str(d.get(b, 0.0)) for b in all_bases) + "\n")
+        click.echo(f"✓ Saved logo matrix to: {matrix_file}")
+
+    if output_file:
+        import matplotlib.pyplot as plt
+
+        fig = plt.figure(figsize=(0.75 * len(mlogo.scores), 2.5))
+        ax = fig.gca()
+        mlogo.plot(ax=ax)
+        plt.savefig(output_file, dpi=300, bbox_inches="tight")
+        plt.close()
+        click.echo(f"✓ Saved motif logo to: {output_file}")
+    elif not matrix_file:
+        raise click.ClickException("Provide --output and/or --matrix")
 
 
 @cli.command(
