@@ -1,6 +1,6 @@
 [project]
 name = "coralsnake"
-version = "0.2.1"
+version = "0.2.2"
 description = "Exon-aware RNA pipeline: splicing-aware liftover (tbam2gbam/gbam2tbam), metagene, annotation"
 authors = [{ name = "Chang Ye", email = "yech1990@gmail.com" }]
 requires-python = ">=3.12"
