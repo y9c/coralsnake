@@ -862,6 +862,19 @@ def group(
     ),
 )
 @click.option(
+    "--smooth",
+    "-k",
+    "smooth",
+    type=int,
+    default=1,
+    metavar="N",
+    help=(
+        "Centered rolling-mean window applied to the metagene profile to reduce "
+        "bin-to-bin noise when using many bins (e.g. -b 250 -k 5). "
+        "1 = no smoothing. Default: 1"
+    ),
+)
+@click.option(
     "--list",
     "list_references_flag",
     is_flag=True,
@@ -915,6 +928,7 @@ def metagene(
     score_transform,
     normalize,
     metric,
+    smooth,
     list_references_flag,
     download_ref,
     export_table,
@@ -1155,6 +1169,18 @@ def metagene(
             .then(pl.lit("3UTR"))
             .otherwise(pl.lit("CDS"))
             .alias("feature_type"),
+        )
+
+    # Optional noise reduction: a centered rolling mean across bins. Useful when
+    # using many bins (--bins high) where each bin holds fewer sites and the
+    # profile jitters. min_samples=1 keeps the region edges finite.
+    if smooth > 1:
+        smooth_cols = [c for c in gene_bins.columns if c != "feature_midpoint"]
+        gene_bins = gene_bins.with_columns(
+            [
+                pl.col(c).rolling_mean(window_size=smooth, center=True)
+                for c in smooth_cols
+            ]
         )
 
     # Save score statistics (if requested)
