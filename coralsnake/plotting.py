@@ -151,3 +151,53 @@ def plot_profile(
 
     plt.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close()
+
+
+def plot_profile_point(
+    gene_bins: pl.DataFrame,
+    output_path: str,
+    span_before: int,
+    span_after: int,
+    figsize: tuple[float, float] = (6.4, 4.2),
+    metric: str = "sum",
+):
+    """
+    Create the reference-point metagene profile plot (DeepTools
+    ``computeMatrix`` reference-point style).
+
+    A single panel whose x-axis is the signed bp distance from the chosen
+    reference feature (``distance_bp`` column, 0 = the feature), drawn with a
+    dashed center line at 0. No gene-model schematic / region shading.
+
+    Args:
+        gene_bins: DataFrame with ``distance_bp`` and ``count_*``/``mean_*``
+            columns (output of :func:`normalize_point_positions`).
+        output_path: Destination file (PNG/SVG/PDF are supported).
+        span_before: bp upstream of the feature (used for the x limits).
+        span_after: bp downstream of the feature.
+        figsize: Figure size in inches.
+        metric: ``"sum"`` or ``"mean"`` selects the ``count_*``/``mean_*`` family.
+    """
+    plt = _require_plotting()
+
+    prefix = {"sum": "count", "mean": "mean"}[metric]
+    metric_cols = [c for c in gene_bins.columns if c.startswith(prefix)]
+    fig, ax = plt.subplots(figsize=figsize)
+
+    x = gene_bins["distance_bp"]
+    for col in metric_cols:
+        y = gene_bins[col]
+        ax.plot(x, y, linewidth=2.0, label=col.removeprefix(prefix + "_"))
+        if len(metric_cols) == 1:
+            ax.fill_between(x, 0, y, alpha=0.22)
+    if len(metric_cols) == 1:
+        ax.legend(frameon=False, loc="upper right")
+
+    ax.axvline(0, color="k", ls="--", lw=1.0, alpha=0.6)
+    ax.set_xlim(-span_before, span_after)
+    ax.set_xlabel("Distance from reference (bp)", fontsize=11)
+    ax.set_ylabel("Density", fontsize=11)
+    ax.grid(alpha=0.2)
+
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()

@@ -430,6 +430,180 @@ def normalize_positions(
     return gene_bins, gene_stats, gene_splits
 
 
+def reference_point_positions(reference_df: pl.DataFrame, point: str) -> pl.DataFrame:
+    """
+    Build the per-transcript reference-feature positions for the reference-point
+    metagene, in transcript-relative 5'->3' 0-based coordinates.
+
+    Args:
+        reference_df: the exon-level reference frame (from ``load_gtf`` /
+            ``load_reference``), carrying per-exon ``transcript_id``,
+            ``Start_exon``, ``transcript_length``, ``start_codon_pos`` and
+            ``stop_codon_pos``.
+        point: one of ``tss``, ``tes``, ``start_codon``, ``stop_codon``,
+            ``last_exon_start``, ``exon_junction``.
+
+    Returns:
+        * single-point types: one row per transcript with an Int64 ``ref_pos``.
+        * ``exon_junction``: one row per transcript with ``junctions`` = the
+          sorted list of *internal* splice-junction positions (every exon 5'
+          boundary except the transcript 5' end / TSS; the last exon's 5' boundary
+          is the final splice junction). Single-exon transcripts have no internal
+          junction and are omitted.
+    """
+    if point == "tss":
+        return reference_df.group_by("transcript_id").agg(
+            ref_pos=pl.lit(0, dtype=pl.Int64)
+        )
+    if point == "tes":
+        return reference_df.group_by("transcript_id").agg(
+            ref_pos=pl.col("transcript_length").first().cast(pl.Int64)
+        )
+    if point == "start_codon":
+        return reference_df.group_by("transcript_id").agg(
+            ref_pos=pl.col("start_codon_pos").first().cast(pl.Int64)
+        )
+    if point == "stop_codon":
+        return reference_df.group_by("transcript_id").agg(
+            ref_pos=pl.col("stop_codon_pos").first().cast(pl.Int64)
+        )
+    if point == "last_exon_start":
+        # 5' boundary of the 3'-most exon (= last in 5'->3' order).
+        return reference_df.group_by("transcript_id").agg(
+            ref_pos=pl.col("Start_exon").max().cast(pl.Int64)
+        )
+    if point == "exon_junction":
+        return (
+            reference_df.group_by("transcript_id")
+            .agg(_starts=pl.col("Start_exon").sort())
+            .with_columns(junctions=pl.col("_starts").list.slice(1))
+            .select("transcript_id", "junctions")
+        )
+    raise ValueError(f"Unknown reference point: {point}")
+
+
+def _assign_nearest_junction(
+    sites: pl.DataFrame, junctions_by_tx: pl.DataFrame
+) -> pl.DataFrame:
+    """Assign each mapped site to its nearest internal splice junction.
+
+    Adds an Int64 ``ref_pos`` column = the transcript coordinate of the closest
+    internal junction (by abs distance), vectorized per-transcript via
+    ``searchsorted`` so we avoid a site x junction Cartesian blow-up. Sites whose
+    transcript has no internal junction are dropped.
+
+    Args:
+        sites: annotated sites with ``transcript_id`` and ``transcript_pos``.
+        junctions_by_tx: output of :func:`reference_point_positions` for
+            ``point="exon_junction"`` (``transcript_id`` + ``junctions`` list).
+    """
+    jmap: dict = {}
+    for row in junctions_by_tx.iter_rows(named=True):
+        arr = np.sort(np.asarray(row["junctions"], dtype=np.int64))
+        if arr.size:
+            jmap[row["transcript_id"]] = arr
+
+    parts = sites.partition_by("transcript_id")
+    pieces = []
+    for df in parts:
+        tid = df["transcript_id"][0]
+        jarr = jmap.get(tid)
+        if jarr is None:
+            continue
+        pos = df["transcript_pos"].to_numpy().astype(np.int64)
+        idx = np.clip(np.searchsorted(jarr, pos, side="left"), 0, len(jarr))
+        lo = np.where(idx > 0, jarr[np.maximum(idx - 1, 0)], -(10**15))
+        hi = np.where(idx < len(jarr), jarr[np.minimum(idx, len(jarr) - 1)], 10**15)
+        best = np.where(np.abs(pos - lo) <= np.abs(pos - hi), lo, hi)
+        pieces.append(df.with_columns(pl.Series("ref_pos", best, dtype=pl.Int64)))
+    if not pieces:
+        return sites.with_columns(pl.lit(None, dtype=pl.Int64).alias("ref_pos"))
+    return pl.concat(pieces)
+
+
+def normalize_point_positions(
+    annotated_sites: pl.DataFrame,
+    reference_points: pl.DataFrame,
+    point: str,
+    span_before: int,
+    span_after: int,
+    bin_number: int = 100,
+    weight_col_index: list[int] | None = None,
+    metric: str = "sum",
+) -> tuple[pl.DataFrame, int]:
+    """
+    Reference-point metagene binning (DeepTools ``computeMatrix`` reference-point).
+
+    Each mapped site is placed by its bp distance to the per-transcript reference
+    feature (``transcript_pos - ref_pos``) and aggregated over
+    ``[-span_before, +span_after]`` into ``bin_number`` uniform bins (region
+    boundaries are not used here, so breaks are uniform over ``[0, 1]``). Sites
+    whose distance is outside the span, or that have no reference feature, are
+    dropped.
+
+    Returns ``(gene_bins, n_dropped)``. ``gene_bins`` carries ``feature_midpoint``
+    (normalized ``[0, 1]``), ``distance_bp`` (signed bp, 0 = reference feature)
+    and ``count_*`` / ``mean_*`` columns, matching ``normalize_positions``.
+    """
+    sites = annotated_sites.with_columns(
+        transcript_pos=(pl.col("transcript_start") + pl.col("transcript_end")) // 2
+    ).filter(pl.col("transcript_pos").is_not_null())
+
+    if point == "exon_junction":
+        sites = _assign_nearest_junction(sites, reference_points)
+    else:
+        sites = sites.join(reference_points, on="transcript_id", how="inner")
+        sites = sites.filter(pl.col("ref_pos").is_not_null())
+
+    total_span = span_before + span_after
+    n_total = sites.height
+    sites = (
+        sites.with_columns(distance=pl.col("transcript_pos") - pl.col("ref_pos"))
+        .filter(
+            (pl.col("distance") >= -span_before) & (pl.col("distance") <= span_after)
+        )
+        .with_columns(
+            feature_pos=(pl.col("distance") + span_before) / total_span,
+            feature_weight=pl.lit(1.0),
+        )
+    )
+    n_dropped = n_total - sites.height
+
+    breaks = np.linspace(0, 1, bin_number + 1)
+    n2c: dict = {}
+    if weight_col_index is None or len(weight_col_index) == 0:
+        counts, _ = np.histogram(
+            sites["feature_pos"], weights=sites["feature_weight"], bins=breaks
+        )
+        n2c["count"] = counts
+    else:
+        site_counts, _ = np.histogram(sites["feature_pos"], bins=breaks)
+        for col_index in weight_col_index:
+            col_name = annotated_sites.columns[col_index]
+            weight = sites[col_name].cast(pl.Float64, strict=False).fill_null(0.0)
+            counts, _ = np.histogram(
+                sites["feature_pos"],
+                weights=sites["feature_weight"] * weight,
+                bins=breaks,
+            )
+            n2c[f"count_{col_name}"] = counts
+            n2c[f"mean_{col_name}"] = np.divide(
+                counts,
+                site_counts,
+                out=np.zeros_like(counts, dtype=float),
+                where=site_counts > 0,
+            )
+    midpoints = (breaks[:-1] + breaks[1:]) / 2
+    gene_bins = pl.DataFrame(
+        {
+            "feature_midpoint": midpoints,
+            "distance_bp": (midpoints * total_span) - span_before,
+            **n2c,
+        }
+    )
+    return gene_bins, n_dropped
+
+
 def show_summary_stats(df: pl.DataFrame) -> str:
     """
     Generate summary statistics of the analysis.

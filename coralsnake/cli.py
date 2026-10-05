@@ -1200,6 +1200,328 @@ def metagene(
 
 
 @cli.command(
+    "metagene-point",
+    context_settings=dict(help_option_names=["-h", "--help"]),
+    help=(
+        "Reference-point metagene profile (DeepTools computeMatrix reference-point): "
+        "center the profile on a chosen transcript feature (start_codon, stop_codon, "
+        "tss, tes, last_exon_start, exon_junction) and aggregate sites by bp distance "
+        "over a [-span_before, +span_after] window, instead of across the whole gene."
+    ),
+)
+@click.option(
+    "--input",
+    "-i",
+    "input_file",
+    type=click.Path(exists=True),
+    required=True,
+    help="Input genomic sites file",
+)
+@click.option(
+    "--output",
+    "-o",
+    "output_file",
+    type=click.Path(),
+    help="Output file for annotated intervals",
+)
+@click.option(
+    "--output-score",
+    "-s",
+    "output_score",
+    type=click.Path(),
+    help="Output file for binned score statistics",
+)
+@click.option(
+    "--output-figure",
+    "-p",
+    "output_figure",
+    type=click.Path(),
+    help="Output file for metagene plot",
+)
+@click.option(
+    "--export-profile",
+    "export_profile",
+    type=click.Path(),
+    help="Export the metagene profile matrix TSV (feature_midpoint, distance_bp, count_*/mean_*)",
+)
+@click.option(
+    "--reference",
+    "-r",
+    "reference",
+    type=str,
+    help="Built-in reference genome (e.g., GRCh38, GRCm39)",
+)
+@click.option(
+    "--gtf",
+    "-g",
+    "gtf",
+    type=click.Path(exists=True),
+    help="GTF file path for custom reference",
+)
+@click.option(
+    "--bins",
+    "-b",
+    "bins",
+    type=int,
+    default=100,
+    help="Number of bins over the span (default: 100)",
+)
+@click.option(
+    "--with-header",
+    "-H",
+    "with_header",
+    is_flag=True,
+    help="Input has a header line",
+)
+@click.option(
+    "--separator",
+    "-S",
+    "separator",
+    type=str,
+    default="\t",
+    help="Input separator (default: tab)",
+)
+@click.option(
+    "--meta-columns",
+    "-m",
+    "meta_columns",
+    type=str,
+    default="1,2,3,6",
+    callback=_metagene_parse_ints,
+    help="Genomic coordinate column indices (1-based)",
+)
+@click.option(
+    "--weight-columns",
+    "-w",
+    "weight_columns",
+    type=str,
+    default="",
+    callback=_metagene_parse_ints,
+    help="Weight/score column indices (1-based)",
+)
+@click.option(
+    "--weight-names",
+    "-n",
+    "weight_names",
+    type=str,
+    default="",
+    callback=_metagene_parse_strings,
+    help="Names for weight columns",
+)
+@click.option(
+    "--score-transform",
+    "score_transform",
+    type=click.Choice(["none", "log2", "log10"]),
+    default="none",
+    help="Transform to apply to scores",
+)
+@click.option(
+    "--normalize",
+    is_flag=True,
+    help="Normalize scores by transcript length",
+)
+@click.option(
+    "--metric",
+    "metric",
+    type=click.Choice(["sum", "mean"]),
+    default="sum",
+    help="Bin aggregation: 'sum' (count_*) or 'mean' (mean_*; per site)",
+)
+@click.option(
+    "--smooth",
+    "-k",
+    "smooth",
+    type=int,
+    default=1,
+    metavar="N",
+    help="Centered rolling-mean window to reduce bin-to-bin noise (e.g. -b 250 -k 5)",
+)
+@click.option(
+    "--reference-point",
+    "-P",
+    "reference_point",
+    type=click.Choice(
+        ["tss", "tes", "start_codon", "stop_codon", "last_exon_start", "exon_junction"]
+    ),
+    required=True,
+    help="Reference feature to center on",
+)
+@click.option(
+    "--span-before",
+    "span_before",
+    type=int,
+    default=1000,
+    help="bp upstream (5') of the feature",
+)
+@click.option(
+    "--span-after",
+    "span_after",
+    type=int,
+    default=1000,
+    help="bp downstream (3') of the feature",
+)
+def metagene_point(
+    input_file,
+    output_file,
+    output_score,
+    output_figure,
+    export_profile,
+    reference,
+    gtf,
+    bins,
+    with_header,
+    separator,
+    meta_columns,
+    weight_columns,
+    weight_names,
+    score_transform,
+    normalize,
+    metric,
+    smooth,
+    reference_point,
+    span_before,
+    span_after,
+):
+    """Reference-point metagene profiling.
+
+    Places each mapped site by its bp distance to a per-transcript reference
+    feature and aggregates over a [+-span] window. The x-axis of the exported
+    profile and plot is the signed bp distance (0 = the feature), unlike
+    metagene's whole-gene normalized position.
+    """
+    from .annotation import (
+        map_to_transcripts,
+        normalize_point_positions,
+        reference_point_positions,
+    )
+    from .config import BUILTIN_REFERENCES
+    from .gtf import load_gtf
+    from .io import load_reference, load_sites
+    from .plotting import plot_profile_point
+
+    import polars as pl
+
+    if not input_file:
+        raise click.ClickException("Input file is required (use -i/--input)")
+    if not output_file and not output_score and not export_profile:
+        raise click.ClickException(
+            "Output file is required (use -o/--output, -s/--output-score or --export-profile)"
+        )
+    if reference and gtf:
+        raise click.ClickException("Cannot specify both --reference and --gtf options")
+    if not reference and not gtf:
+        raise click.ClickException("Must specify either --reference or --gtf option")
+    if bins <= 0:
+        raise click.ClickException("--bins must be a positive integer")
+    if span_before < 0 or span_after < 0 or span_before + span_after < 1:
+        raise click.ClickException(
+            "--span-before/--span-after must be >= 0 and sum to at least 1"
+        )
+
+    if reference:
+        if reference not in BUILTIN_REFERENCES:
+            raise click.ClickException(
+                f"Unknown built-in reference: {reference}. "
+                f"Available: {list(BUILTIN_REFERENCES.keys())}"
+            )
+        click.echo(f"Loading reference '{reference}'...")
+        exon_ref = load_reference(reference)
+    else:
+        click.echo(f"Loading GTF file '{gtf}'...")
+        exon_ref = load_gtf(gtf)
+        click.echo("✓ GTF file loaded")
+
+    meta_col_index = [col - 1 for col in meta_columns]
+    if meta_columns == [1, 2, 3, 6]:
+        ncols = _count_input_columns(input_file, with_header, separator)
+        if ncols == 3:
+            meta_col_index = [0, 1, 2]
+            click.echo(
+                "Note: input has 3 columns; using meta-columns 1,2,3 "
+                "(Chrom,Site,Strand) instead of the default 1,2,3,6."
+            )
+    weight_col_index = [col - 1 for col in weight_columns]
+
+    input_df = load_sites(
+        input_file,
+        with_header=with_header,
+        meta_col_index=meta_col_index,
+        separator=separator,
+    )
+    click.echo(f"Loaded {len(input_df)} input sites")
+
+    if weight_col_index and max(weight_col_index) >= len(input_df.columns):
+        raise click.ClickException(
+            f"--weight-columns references column {max(weight_col_index) + 1} but the "
+            f"input has only {len(input_df.columns)} column(s)"
+        )
+
+    annotated_df = map_to_transcripts(input_df, exon_ref)
+    click.echo("✓ Annotated transcripts")
+
+    weight_cols = [input_df.columns[i] for i in weight_col_index]
+    for wc in weight_cols:
+        expr = pl.col(wc).cast(pl.Float64, strict=False)
+        if normalize:
+            expr = expr / pl.col("transcript_length")
+        if score_transform == "log2":
+            expr = expr.log(2.0)
+        elif score_transform == "log10":
+            expr = expr.log(10.0)
+        annotated_df = annotated_df.with_columns(expr.alias(wc))
+    if weight_names:
+        if len(weight_names) != len(weight_cols):
+            raise click.ClickException(
+                "--weight-names count must match --weight-columns"
+            )
+        for old, new in zip(weight_cols, weight_names):
+            annotated_df = annotated_df.rename({old: new})
+        weight_col_index = [annotated_df.columns.index(n) for n in weight_names]
+
+    reference_points = reference_point_positions(exon_ref, reference_point)
+    gene_bins, n_dropped = normalize_point_positions(
+        annotated_df,
+        reference_points,
+        reference_point,
+        span_before,
+        span_after,
+        bin_number=bins,
+        weight_col_index=weight_col_index,
+        metric=metric,
+    )
+    click.echo(
+        f"✓ Reference point '{reference_point}' [{span_before:+d}, +{span_after}]: "
+        f"{n_dropped} sites dropped (outside span / no feature)"
+    )
+
+    if smooth > 1:
+        smooth_cols = [
+            c for c in gene_bins.columns if c not in ("feature_midpoint", "distance_bp")
+        ]
+        gene_bins = gene_bins.with_columns(
+            [
+                pl.col(c).rolling_mean(window_size=smooth, center=True)
+                for c in smooth_cols
+            ]
+        )
+
+    if output_file:
+        annotated_df.write_csv(output_file, separator=separator)
+        click.echo(f"✓ Saved annotated intervals to: {output_file}")
+    if output_score:
+        gene_bins.write_csv(output_score, separator=separator)
+        click.echo(f"✓ Saved binned statistics to: {output_score}")
+    if export_profile:
+        gene_bins.write_csv(export_profile, separator=separator)
+        click.echo(f"✓ Saved metagene profile to: {export_profile}")
+    if output_figure:
+        plot_profile_point(
+            gene_bins, output_figure, span_before, span_after, metric=metric
+        )
+        click.echo(f"✓ Saved plot to: {output_figure}")
+
+
+@cli.command(
     help="Plot a DNA/RNA sequence-logo (requires 'coralsnake[plot]').",
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
