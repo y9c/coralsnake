@@ -134,6 +134,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   site × isoform blow-up. Peak memory at scale is down ~40% and the output is
   unchanged.
 
+### Fixed (0.2.6)
+- `load_sites` (metagene/liftover inputs) reads header files robustly: columns
+  are read as strings so a non-meta column with heterogeneous values (e.g. a
+  semicolon-joined gene position like `114;14`) can no longer abort the run
+  with a `ComputeError`.
+- `normalize_positions` no longer yields `NaN` (and thus an empty profile) on
+  a zero-length 5′UTR/CDS/3′UTR (division-by-zero guarded), e.g. when a
+  transcript ends exactly at its stop codon.
+
+### Changed
+- **Refined `metagene -p` plot**: a single-panel metagene with region shading,
+  an area fill and a centred gene-feature schematic under the x-axis
+  (whole gene = narrow bar, CDS = wider bar, `CDS` labelled in white), with the
+  tick labels and axis label below it.
+
 ## [Unreleased] (cont.) — `refine` command (from PR #2, reworked)
 
 New `coralsnake refine` command (genome FASTA + GTF cleaning before `prepare`),

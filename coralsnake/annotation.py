@@ -296,20 +296,28 @@ def normalize_positions(
         )
         .with_columns(
             feature_pos=pl.when(pl.col("transcript_pos") < pl.col("start_codon_pos"))
-            .then(pl.col("transcript_pos") / pl.col("start_codon_pos") * gene_splits[0])
+            .then(
+                pl.col("transcript_pos")
+                / pl.col("start_codon_pos").clip(1, None)
+                * gene_splits[0]
+            )
             # CDS = [start_codon_pos, stop_codon_pos + 3) (stop codon is CDS)
             .when(pl.col("transcript_pos") >= pl.col("stop_codon_pos") + 3)
             .then(
                 gene_splits[0]
                 + gene_splits[1]
                 + (pl.col("transcript_pos") - (pl.col("stop_codon_pos") + 3))
-                / (pl.col("transcript_length") - (pl.col("stop_codon_pos") + 3))
+                / (pl.col("transcript_length") - (pl.col("stop_codon_pos") + 3)).clip(
+                    1, None
+                )
                 * gene_splits[2]
             )
             .otherwise(
                 gene_splits[0]
                 + (pl.col("transcript_pos") - pl.col("start_codon_pos"))
-                / (pl.col("stop_codon_pos") + 3 - pl.col("start_codon_pos"))
+                / (pl.col("stop_codon_pos") + 3 - pl.col("start_codon_pos")).clip(
+                    1, None
+                )
                 * gene_splits[1]
             )
         )

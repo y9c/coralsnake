@@ -25,7 +25,16 @@ def load_sites(
         Polars DataFrame with processed site information (all input columns
         plus the aliased Chromosome/Start/End/Strand columns)
     """
-    df = pl.scan_csv(input_file_name, separator=separator, has_header=with_header)
+    # infer_schema_length=0 reads every column as Utf8 so a non-meta column
+    # with heterogeneous values (e.g. a semicolon-joined gene position like
+    # '114;14') cannot fail type inference and abort the run. Meta columns are
+    # cast explicitly (site -> Int64 below; chrom/strand are Utf8 anyway).
+    df = pl.scan_csv(
+        input_file_name,
+        separator=separator,
+        has_header=with_header,
+        infer_schema_length=0,
+    )
     colnames = list(df.collect_schema())
 
     if meta_col_index is None:
@@ -54,6 +63,7 @@ def load_sites(
         has_header=with_header,
         new_columns=newnames,
         schema_overrides={meta_col_names[0]: pl.Utf8, meta_col_names[-1]: pl.Utf8},
+        infer_schema_length=0,
     )
 
     if len(meta_col_names_renamed) == 4:
