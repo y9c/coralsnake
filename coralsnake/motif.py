@@ -68,7 +68,7 @@ def get_motif(
     #   right flank = indices (pos + 1) .. (pos + rpad)
     start = max(0, pos - lpad)
     end = min(chrom_len, pos + rpad + 1)
-    lfill = max(0, lpad - pos)            # leading bases that fall before 0
+    lfill = max(0, lpad - pos)  # leading bases that fall before 0
     rfill = max(0, rpad - (chrom_len - pos - 1))  # trailing bases past the end
 
     if start >= end:

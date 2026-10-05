@@ -61,16 +61,38 @@ def map_to_transcripts(
         }
     )
 
-    # Join with original dataframes
+    # The best transcript per gene (min transcript_level, then max
+    # transcript_length, then min transcript_id) is a property of the
+    # reference: those three attributes are constant across a transcript's
+    # exons. So it can be computed ONCE on the (small) reference instead of
+    # sorting the huge expanded site x transcript blow-up. Sorting the whole
+    # expanded frame was the pipeline bottleneck (and its peak memory).
+    best_tx = (
+        exon_ref.sort(
+            ["gene_id", "transcript_level", "transcript_length", "transcript_id"],
+            descending=[False, False, True, False],
+        )
+        .group_by("gene_id", maintain_order=True)
+        .first()
+        .select(["gene_id", "transcript_id"])
+    )
+
+    # Join with original dataframes, dropping any exon whose transcript is not
+    # the gene's best BEFORE the site join and coordinate math, so the working
+    # set stays near one row per site instead of the full cross-product.
     exon_indexed = exon_ref.with_row_index("exon_idx")
 
-    annot = overlaps_df.join(exon_indexed, on="exon_idx").join(
-        input_sites_indexed.select(
-            ["_tmp_row_index", "Chromosome", "Start", "End", "Strand"]
-        ),
-        left_on="input_idx",
-        right_on="_tmp_row_index",
-        suffix="_qry",
+    annot = (
+        overlaps_df.join(exon_indexed, on="exon_idx", how="inner")
+        .join(best_tx, on=["gene_id", "transcript_id"], how="inner")
+        .join(
+            input_sites_indexed.select(
+                ["_tmp_row_index", "Chromosome", "Start", "End", "Strand"]
+            ),
+            left_on="input_idx",
+            right_on="_tmp_row_index",
+            suffix="_qry",
+        )
     )
 
     # Add reference columns
@@ -114,22 +136,6 @@ def map_to_transcripts(
             .alias("transcript_end"),
         ]
     )
-
-    # Pick the best transcript per gene fully vectorized (replaces the old
-    # group_by().map_groups(python apply), which was the pipeline bottleneck).
-    # Priority: min transcript_level -> max transcript_length -> first transcript_id.
-    annot = annot.sort(
-        ["gene_id", "transcript_level", "transcript_length", "transcript_id"],
-        descending=[False, False, True, False],
-    )
-    # The top row of each gene (in the priority order above) is the best
-    # transcript. Keep every site that belongs to that transcript.
-    best_tx = (
-        annot.group_by("gene_id", maintain_order=True)
-        .first()
-        .select(["gene_id", "transcript_id"])
-    )
-    annot = annot.join(best_tx, on=["gene_id", "transcript_id"])
 
     annotation_cols = [
         "gene_id",
@@ -232,14 +238,16 @@ def normalize_positions(
         annotated_sites.with_columns(
             transcript_pos=(pl.col("transcript_start") + pl.col("transcript_end")) // 2
         )
-        .with_columns(feature_weight=1 / pl.len().over("record_id"))
+        # record_id is a unique row index, so each site has weight 1.0;
+        # the previous `1 / pl.len().over("record_id")` was a no-op window
+        # pass over the whole frame.
+        .with_columns(feature_weight=pl.lit(1.0))
         .with_columns(
             feature_type=pl.when(pl.col("transcript_pos").is_null())
             .then(pl.lit("None"))
             # noncoding transcript (no CDS start/stop): exclude from 5'UTR/CDS/3'UTR
             .when(
-                pl.col("start_codon_pos").is_null()
-                | pl.col("stop_codon_pos").is_null()
+                pl.col("start_codon_pos").is_null() | pl.col("stop_codon_pos").is_null()
             )
             .then(pl.lit("None"))
             .when(pl.col("transcript_pos") < pl.col("start_codon_pos"))
@@ -287,7 +295,7 @@ def normalize_positions(
                 * gene_splits[1]
             )
         )
-        .with_columns(feature_weight=1 / pl.len().over("record_id"))
+        .with_columns(feature_weight=pl.lit(1.0))
         .with_columns(
             feature_bin=pl.col("feature_pos").cut(
                 breaks=np.linspace(0, 1, bin_number + 1).tolist()

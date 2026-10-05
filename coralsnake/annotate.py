@@ -197,9 +197,7 @@ def _chunk_overlaps(span_index, sites):
         lo = np.array([s[0] for s in spans], dtype=np.int64)
         hi = np.array([s[1] for s in spans], dtype=np.int64)
         pos = np.array([sites[q].pos for q in qis], dtype=np.int64)
-        idx_span, idx_site = overlaps(
-            starts=lo, ends=hi, starts2=pos, ends2=pos + 1
-        )
+        idx_span, idx_site = overlaps(starts=lo, ends=hi, starts2=pos, ends2=pos + 1)
         for s, q in zip(idx_span, idx_site):
             hits[qis[q]].append(spans[int(s)])
     for i, h in enumerate(hits):
@@ -332,9 +330,7 @@ def _pick_top(annotations):
     """Return the single most severe annotation (for --top / default mode)."""
     if not annotations:
         return None
-    return max(
-        annotations, key=lambda a: _REGION_RANK.get(a.mut_type or a.region, 0)
-    )
+    return max(annotations, key=lambda a: _REGION_RANK.get(a.mut_type or a.region, 0))
 
 
 # ---------------------------------------------------------------------------
@@ -410,9 +406,7 @@ def run_annotate(
 
     import pysam
 
-    fasta = (
-        pysam.FastaFile(reference_transcript[0]) if reference_transcript else None
-    )
+    fasta = pysam.FastaFile(reference_transcript[0]) if reference_transcript else None
     # Per-run cache of assembled transcript sequences (motif/codon path).
     seq_cache = {} if fasta is not None else None
 
@@ -436,7 +430,10 @@ def run_annotate(
     _CHUNK = 50_000
 
     try:
-        with xopen(output_file, "wt") as output_handle, xopen(input_file, "rt") as input_handle:
+        with (
+            xopen(output_file, "wt") as output_handle,
+            xopen(input_file, "rt") as input_handle,
+        ):
             first = input_handle.readline()
             if not first:
                 return  # empty input: nothing to annotate
@@ -540,16 +537,14 @@ def _site_from_cols(input_cols, columns_index_mapper, strandness):
                     # internal engine works on 0-based half-open coordinates
                     value = int(value) - 1
                 except ValueError:
-                    raise ValueError(
-                        f"Position column not an integer: {value!r}"
-                    )
+                    raise ValueError(f"Position column not an integer: {value!r}")
             setattr(site, name, value)
     # A usable site needs at least a chromosome and a position.
     if "chrom" not in columns_index_mapper or "pos" not in columns_index_mapper:
         raise ValueError("columns must identify 'chrom' and 'pos'")
-    if columns_index_mapper["chrom"] >= len(input_cols) or columns_index_mapper["pos"] >= len(
-        input_cols
-    ):
+    if columns_index_mapper["chrom"] >= len(input_cols) or columns_index_mapper[
+        "pos"
+    ] >= len(input_cols):
         raise ValueError("row is missing required chromosome/position columns")
     if site.ref and site.ref != "-":
         site.ref = site.ref.upper()

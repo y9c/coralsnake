@@ -99,17 +99,25 @@ def genome_to_transcript(annotation, chroms, genome_pos1, strands):
                     continue  # first match wins
                 # position within the transcript (which exon index holds p0)
                 off = int(p0[k]) - exon.start
-                tp = starts[exons.index(exon)] + (off if t.strand == "+" else
-                                                   (exon.end - 1 - int(p0[k])))
+                tp = starts[exons.index(exon)] + (
+                    off if t.strand == "+" else (exon.end - 1 - int(p0[k]))
+                )
                 genes[sel[k]] = gene
                 gpos[sel[k]] = tp + 1
         # keep per-site detection loop; flag not found -> empty
     return genes, gpos
 
 
-def run_liftover_table(input_table, output_table, annotation_file,
-                       direction, gene_col="Chrom", pos_col="Pos",
-                       strand_col="Strand", separator="\t"):
+def run_liftover_table(
+    input_table,
+    output_table,
+    annotation_file,
+    direction,
+    gene_col="Chrom",
+    pos_col="Pos",
+    strand_col="Strand",
+    separator="\t",
+):
     """Read a table (with header), convert positions, write back."""
     import xopen
 
@@ -132,7 +140,9 @@ def run_liftover_table(input_table, output_table, annotation_file,
         out_cols += ["GenomeChrom", "GenomePos"]
     elif direction == "g2t":
         if gene_col not in idx or strand_col not in idx:
-            raise ValueError("g2t input needs %r and %r columns" % (gene_col, strand_col))
+            raise ValueError(
+                "g2t input needs %r and %r columns" % (gene_col, strand_col)
+            )
         chr_arr = np.array([r[idx[gene_col]] for r in rows], dtype=object)
         st_arr = np.array([r[idx[strand_col]] for r in rows], dtype=object)
         genes, gpos = genome_to_transcript(annot, chr_arr, pos_arr, st_arr)

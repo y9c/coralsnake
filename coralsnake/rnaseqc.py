@@ -63,8 +63,18 @@ SECOND_IN_PAIR = 0x80
 # Genes treated as "globin" for the non-globin duplicate rate.
 BLACKLISTED_GLOBINS = frozenset(
     {
-        "HBA1", "HBA2", "HBB", "HBD", "HBG1", "HBG2", "HBE1", "HBM",
-        "HBQ1", "HBZ", "HBBP1", "HBZP1",
+        "HBA1",
+        "HBA2",
+        "HBB",
+        "HBD",
+        "HBG1",
+        "HBG2",
+        "HBE1",
+        "HBM",
+        "HBQ1",
+        "HBZ",
+        "HBBP1",
+        "HBZP1",
     }
 )
 
@@ -109,9 +119,16 @@ def _build_features(gtf: str, stranded: bool):
     model = GeneModel(gtf)
 
     e_start, e_end, e_label, e_strand, e_gene, e_name, e_xid, e_ribo = (
-        [], [], [], [], [], [], [], []
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
     )
-    gene_span: dict[str, tuple[int, int]] = {}   # gene row, 0-based half-open
+    gene_span: dict[str, tuple[int, int]] = {}  # gene row, 0-based half-open
     gene_ribo: dict[str, bool] = {}
     gene_len: dict[str, int] = defaultdict(int)
     gene_name: dict[str, str] = {}
@@ -155,7 +172,13 @@ def _build_features(gtf: str, stranded: bool):
 
     # gene-body intervals: gene row if present, else the exon bounding box
     g_start, g_end, g_label, g_strand, g_gene, g_name, g_ribo = (
-        [], [], [], [], [], [], []
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
     )
     gene_info = {}
     for gid, (s0, e0) in exon_bbox.items():
@@ -172,8 +195,13 @@ def _build_features(gtf: str, stranded: bool):
         g_gene.append(gid)
         g_name.append(gene_name.get(gid, gid))
         g_ribo.append(gene_ribo.get(gid, False))
-        gene_info[gid] = (g_name[-1], int(gene_len.get(gid, 0)), strand,
-                          seqname, gene_ribo.get(gid, False))
+        gene_info[gid] = (
+            g_name[-1],
+            int(gene_len.get(gid, 0)),
+            strand,
+            seqname,
+            gene_ribo.get(gid, False),
+        )
 
     def asarr(x, dtype):
         return np.asarray(x, dtype=dtype) if len(x) else np.empty(0, dtype=dtype)
@@ -259,8 +287,14 @@ def _stats(values):
     std is the population std (divides by n); MAD is scaled by 1.4826.
     """
     if not values:
-        return float("nan"), float("nan"), float("nan"), float("nan"), \
-            float("nan"), float("nan")
+        return (
+            float("nan"),
+            float("nan"),
+            float("nan"),
+            float("nan"),
+            float("nan"),
+            float("nan"),
+        )
     a = np.asarray(values, dtype=float)
     avg = float(a.mean())
     med = float(np.median(a))
@@ -271,8 +305,19 @@ def _stats(values):
     return avg, med, std, mad, p25, p75
 
 
-def _fragment_sizes(n_reads, b_read, fc_blk, fc_ex, ex_f, rec_paired, rec_hq,
-                    rec_qname, rec_tlen, per_read_total, limit):
+def _fragment_sizes(
+    n_reads,
+    b_read,
+    fc_blk,
+    fc_ex,
+    ex_f,
+    rec_paired,
+    rec_hq,
+    rec_qname,
+    rec_tlen,
+    per_read_total,
+    limit,
+):
     """Fragment sizes (insert sizes) of high-quality read pairs whose two mates
     align fully within a single common exon.
 
@@ -284,11 +329,13 @@ def _fragment_sizes(n_reads, b_read, fc_blk, fc_ex, ex_f, rec_paired, rec_hq,
     import polars as pl
 
     fc_read = b_read[fc_blk]
-    df = pl.DataFrame({
-        "read": fc_read,
-        "exon": ex_f["exon_id"][fc_ex],
-        "block": fc_blk,
-    })
+    df = pl.DataFrame(
+        {
+            "read": fc_read,
+            "exon": ex_f["exon_id"][fc_ex],
+            "block": fc_blk,
+        }
+    )
     grp = df.group_by("read").agg(
         n_exon=pl.col("exon").n_unique(),
         n_fc_block=pl.col("block").n_unique(),
@@ -300,11 +347,15 @@ def _fragment_sizes(n_reads, b_read, fc_blk, fc_ex, ex_f, rec_paired, rec_hq,
         .join(df, on="read")
         .unique(subset=["read"])
     )
-    ok = pl.DataFrame({
-        "read": np.arange(n_reads),
-        "paired": rec_paired, "hq": rec_hq,
-        "qname": rec_qname, "tlen": rec_tlen,
-    })
+    ok = pl.DataFrame(
+        {
+            "read": np.arange(n_reads),
+            "paired": rec_paired,
+            "hq": rec_hq,
+            "qname": rec_qname,
+            "tlen": rec_tlen,
+        }
+    )
     cand = (
         single.join(ok, on="read")
         .filter(pl.col("paired") & pl.col("hq"))
@@ -320,9 +371,23 @@ def _fragment_sizes(n_reads, b_read, fc_blk, fc_ex, ex_f, rec_paired, rec_hq,
     return sizes[:limit]
 
 
-def _three_prime_bias(b_start, b_end, b_read, fc_ex, fc_blk, ex_f, rec_hq,
-                      do_exon, gene_exons, gene_info, unique_gene_count,
-                      offset, window, gene_min_len, det_threshold):
+def _three_prime_bias(
+    b_start,
+    b_end,
+    b_read,
+    fc_ex,
+    fc_blk,
+    ex_f,
+    rec_hq,
+    do_exon,
+    gene_exons,
+    gene_info,
+    unique_gene_count,
+    offset,
+    window,
+    gene_min_len,
+    det_threshold,
+):
     """Per-gene 3' bias = cov3 / (cov3 + cov5), from GTF exons + read coverage.
 
     For each eligible gene (exon-total length >= gene_min_len and >= det_threshold
@@ -332,7 +397,8 @@ def _three_prime_bias(b_start, b_end, b_read, fc_ex, fc_blk, ex_f, rec_hq,
     ``offset`` bp into the gene) is compared.  Returns a list of biases.
     """
     eligible = {
-        g for g in gene_exons
+        g
+        for g in gene_exons
         if gene_info.get(g, (0, 0))[1] >= gene_min_len
         and unique_gene_count.get(g, 0) >= det_threshold
     }
@@ -377,8 +443,8 @@ def _three_prime_bias(b_start, b_end, b_read, fc_ex, fc_blk, ex_f, rec_hq,
         cov = np.cumsum(diff)[:length]
         if length < window or length <= 2 * offset:
             continue
-        cov5 = float(np.median(cov[offset: offset + window]))
-        cov3 = float(np.median(cov[length - offset - window: length - offset]))
+        cov5 = float(np.median(cov[offset : offset + window]))
+        cov3 = float(np.median(cov[length - offset - window : length - offset]))
         if cov5 + cov3 <= 0:
             continue
         biases.append(cov3 / (cov5 + cov3))
@@ -466,25 +532,47 @@ def run_rnaseqc(
         raise ValueError("BAM shares no contigs with the GTF annotation.")
 
     # ---- mapping-level counters -------------------------------------------
-    c = {n: 0 for n in (
-        "total", "secondary", "supplementary", "qcfail", "low_mapq",
-        "unique_pass", "unpaired_reads", "mapped", "mapped_dup",
-        "mapped_unique", "end1_mapped", "end2_mapped", "end1_mism",
-        "end2_mism", "end1_bases", "end2_bases", "mismatched_bases",
-        "total_bases", "total_pairs", "dup_pairs", "unique_frags",
-        "high_q", "low_q", "reads_used", "alignment_blocks",
-    )}
+    c = {
+        n: 0
+        for n in (
+            "total",
+            "secondary",
+            "supplementary",
+            "qcfail",
+            "low_mapq",
+            "unique_pass",
+            "unpaired_reads",
+            "mapped",
+            "mapped_dup",
+            "mapped_unique",
+            "end1_mapped",
+            "end2_mapped",
+            "end1_mism",
+            "end2_mism",
+            "end1_bases",
+            "end2_bases",
+            "mismatched_bases",
+            "total_bases",
+            "total_pairs",
+            "dup_pairs",
+            "unique_frags",
+            "high_q",
+            "low_q",
+            "reads_used",
+            "alignment_blocks",
+        )
+    }
 
     # per-read records for the deferred annotation classification
-    rec_aligned: list[int] = []   # aligned bases (M/=,X)
+    rec_aligned: list[int] = []  # aligned bases (M/=,X)
     rec_hq: list[bool] = []
     rec_dup: list[bool] = []
     rec_first: list[bool] = []
     rec_reverse: list[bool] = []
     rec_paired: list[bool] = []
-    rec_qname: list[str] = []      # for fragment-size pairing
-    rec_tlen: list[int] = []       # abs(insert size / TLEN)
-    rec_pos_end: list[int] = []    # alignment end (0-based half-open)
+    rec_qname: list[str] = []  # for fragment-size pairing
+    rec_tlen: list[int] = []  # abs(insert size / TLEN)
+    rec_pos_end: list[int] = []  # alignment end (0-based half-open)
     rec_mate_reverse: list[bool] = []
     rec_mate_pos: list[int] = []
     b_start: list[int] = []
@@ -598,8 +686,8 @@ def run_rnaseqc(
     rec_mate_pos = np.asarray(rec_mate_pos, dtype=np.int64)
 
     # ---- annotation classification (vectorized) ---------------------------
-    exonic_any = np.zeros(n_reads, dtype=bool)   # any exon overlap
-    intragenic = np.zeros(n_reads, dtype=bool)   # any gene-body overlap
+    exonic_any = np.zeros(n_reads, dtype=bool)  # any exon overlap
+    intragenic = np.zeros(n_reads, dtype=bool)  # any gene-body overlap
     plus = np.zeros(n_reads, dtype=bool)
     minus = np.zeros(n_reads, dtype=bool)
     ribosomal = np.zeros(n_reads, dtype=bool)
@@ -618,14 +706,18 @@ def run_rnaseqc(
     per_read_total = np.bincount(b_read, minlength=n_reads)
 
     if n_reads and len(b_start):
+
         def _overlap(feats):
             eg, bg = interval_groups(feats["label"], b_label)
             if not len(eg):
                 return np.empty(0, np.int64), np.empty(0, np.int64)
             return overlaps(
-                starts=feats["start"], ends=feats["end"],
-                starts2=b_start, ends2=b_end,
-                groups=eg.astype(np.uint32), groups2=bg.astype(np.uint32),
+                starts=feats["start"],
+                ends=feats["end"],
+                starts2=b_start,
+                ends2=b_end,
+                groups=eg.astype(np.uint32),
+                groups2=bg.astype(np.uint32),
             )
 
         # exon overlaps
@@ -650,21 +742,25 @@ def run_rnaseqc(
 
                     import polars as pl
 
-                    fc_df = pl.DataFrame({
-                        "read": fc_read,
-                        "block": fc_blk,
-                        "gene": fc_gene,
-                        "exon": fc_ex,
-                    })
+                    fc_df = pl.DataFrame(
+                        {
+                            "read": fc_read,
+                            "block": fc_blk,
+                            "gene": fc_gene,
+                            "exon": fc_ex,
+                        }
+                    )
                     # unambiguous = a gene whose exons fully cover EVERY block
                     unamb = (
                         fc_df.group_by(["read", "gene"])
                         .agg(n_fc=pl.col("block").n_unique())
                         .join(
-                            pl.DataFrame({
-                                "read": np.arange(n_reads),
-                                "total": per_read_total,
-                            }),
+                            pl.DataFrame(
+                                {
+                                    "read": np.arange(n_reads),
+                                    "total": per_read_total,
+                                }
+                            ),
                             on="read",
                         )
                         .filter(pl.col("n_fc") == pl.col("total"))
@@ -673,14 +769,20 @@ def run_rnaseqc(
                     do_exon[do_exon_reads] = True
 
                     # gene counts --- high-quality reads only
-                    hq = pl.DataFrame({
-                        "read": np.arange(n_reads), "hq": rec_hq, "dup": rec_dup,
-                    })
+                    hq = pl.DataFrame(
+                        {
+                            "read": np.arange(n_reads),
+                            "hq": rec_hq,
+                            "dup": rec_dup,
+                        }
+                    )
                     unamb_hq = unamb.join(hq, on="read").filter(pl.col("hq"))
                     for g, cnt in unamb_hq.group_by("gene").len().iter_rows():
                         gene_count[g] += cnt
                     for g, cnt in (
-                        unamb_hq.filter(~pl.col("dup")).group_by("gene").len()
+                        unamb_hq.filter(~pl.col("dup"))
+                        .group_by("gene")
+                        .len()
                         .iter_rows()
                     ):
                         unique_gene_count[g] += cnt
@@ -690,17 +792,21 @@ def run_rnaseqc(
                     hq_unamb_set = set(hq_unamb["read"].to_list())
                     if hq_unamb.height:
                         gn = np.array(
-                            [gene_info.get(g, (g,))[0]
-                             for g in unamb_hq["gene"].to_list()],
+                            [
+                                gene_info.get(g, (g,))[0]
+                                for g in unamb_hq["gene"].to_list()
+                            ],
                             dtype=object,
                         )
                         per_read_globin = (
-                            pl.DataFrame({
-                                "read": unamb_hq["read"],
-                                "globin": np.array(
-                                    [x in BLACKLISTED_GLOBINS for x in gn]
-                                ),
-                            })
+                            pl.DataFrame(
+                                {
+                                    "read": unamb_hq["read"],
+                                    "globin": np.array(
+                                        [x in BLACKLISTED_GLOBINS for x in gn]
+                                    ),
+                                }
+                            )
                             .group_by("read")
                             .agg(any_globin=pl.col("globin").any())
                         )
@@ -708,24 +814,23 @@ def run_rnaseqc(
                         non_globin = nong.height
                         non_globin_dup = int(
                             nong.join(
-                                pl.DataFrame({"read": np.arange(n_reads),
-                                              "dup": rec_dup}),
+                                pl.DataFrame(
+                                    {"read": np.arange(n_reads), "dup": rec_dup}
+                                ),
                                 on="read",
-                            ).filter(pl.col("dup")).height
+                            )
+                            .filter(pl.col("dup"))
+                            .height
                         )
 
-                    dose = fc_df.filter(
-                        pl.col("read").is_in(hq_unamb_set)
-                    )
+                    dose = fc_df.filter(pl.col("read").is_in(hq_unamb_set))
                     blk_arr = dose["block"].to_numpy()
                     dose = dose.with_columns(
                         alen=pl.Series(rec_aligned[dose["read"].to_numpy()])
-                    ).with_columns(
-                        d=pl.Series(b_len[blk_arr]) / pl.col("alen")
-                    )
-                    for ex, d in dose.group_by("exon").agg(
-                        pl.col("d").sum()
-                    ).iter_rows():
+                    ).with_columns(d=pl.Series(b_len[blk_arr]) / pl.col("alen"))
+                    for ex, d in (
+                        dose.group_by("exon").agg(pl.col("d").sum()).iter_rows()
+                    ):
                         exon_count[ex_f["exon_id"][ex]] += d
 
         # gene-body overlaps (intragenic) + rRNA
@@ -749,9 +854,7 @@ def run_rnaseqc(
     if n_reads:
         sense_ok = (plus ^ minus) & (rec_paired | True)
         for i in np.nonzero(sense_ok)[0]:
-            sense = (rec_reverse[i] and minus[i]) or (
-                (not rec_reverse[i]) and plus[i]
-            )
+            sense = (rec_reverse[i] and minus[i]) or ((not rec_reverse[i]) and plus[i])
             if rec_first[i]:
                 if sense:
                     end1_sense += 1
@@ -765,12 +868,35 @@ def run_rnaseqc(
 
     # ---- fragment sizes & 3' bias (from GTF exons + reads) ----------------
     frag_sizes = _fragment_sizes(
-        n_reads, b_read, fc_blk, fc_ex, ex_f, rec_paired, rec_hq, rec_qname,
-        rec_tlen, per_read_total, fragment_samples)
+        n_reads,
+        b_read,
+        fc_blk,
+        fc_ex,
+        ex_f,
+        rec_paired,
+        rec_hq,
+        rec_qname,
+        rec_tlen,
+        per_read_total,
+        fragment_samples,
+    )
     biases = _three_prime_bias(
-        b_start, b_end, b_read, fc_ex, fc_blk, ex_f, rec_hq, do_exon,
-        gene_exons, gene_info, unique_gene_count, bias_offset, bias_window,
-        bias_gene_length, detection_threshold)
+        b_start,
+        b_end,
+        b_read,
+        fc_ex,
+        fc_blk,
+        ex_f,
+        rec_hq,
+        do_exon,
+        gene_exons,
+        gene_info,
+        unique_gene_count,
+        bias_offset,
+        bias_window,
+        bias_gene_length,
+        detection_threshold,
+    )
 
     unique_pass = c["unique_pass"]
     mapped = c["mapped"]
@@ -781,7 +907,8 @@ def run_rnaseqc(
     metrics["Unique Rate of Mapped"] = _rate(c["mapped_unique"], mapped)
     metrics["Duplicate Rate of Mapped"] = _rate(c["mapped_dup"], mapped)
     metrics["Duplicate Rate of Mapped, excluding Globins"] = _rate(
-        non_globin_dup, non_globin)
+        non_globin_dup, non_globin
+    )
     metrics["Base Mismatch"] = _rate(c["mismatched_bases"], c["total_bases"])
     metrics["End 1 Mapping Rate"] = 2.0 * _rate(c["end1_mapped"], unique_pass)
     metrics["End 2 Mapping Rate"] = 2.0 * _rate(c["end2_mapped"], unique_pass)
@@ -795,19 +922,21 @@ def run_rnaseqc(
     metrics["Intragenic Rate"] = _rate(intragenic_ct, mapped)
     metrics["Ambiguous Alignment Rate"] = _rate(ambiguous_ct, mapped)
     metrics["High Quality Exonic Rate"] = _rate(
-        int((do_exon & rec_hq).sum()) if n_reads else 0, c["high_q"])
+        int((do_exon & rec_hq).sum()) if n_reads else 0, c["high_q"]
+    )
     metrics["High Quality Intronic Rate"] = _rate(
-        int((~exonic_any & intragenic & rec_hq).sum()) if n_reads else 0,
-        c["high_q"])
+        int((~exonic_any & intragenic & rec_hq).sum()) if n_reads else 0, c["high_q"]
+    )
     metrics["High Quality Intergenic Rate"] = _rate(
-        int((~exonic_any & ~intragenic & rec_hq).sum()) if n_reads else 0,
-        c["high_q"])
+        int((~exonic_any & ~intragenic & rec_hq).sum()) if n_reads else 0, c["high_q"]
+    )
     metrics["High Quality Intragenic Rate"] = _rate(
-        int(((do_exon | (~exonic_any & intragenic)) & rec_hq).sum())
-        if n_reads else 0, c["high_q"])
+        int(((do_exon | (~exonic_any & intragenic)) & rec_hq).sum()) if n_reads else 0,
+        c["high_q"],
+    )
     metrics["High Quality Ambiguous Alignment Rate"] = _rate(
-        int((exonic_any & ~do_exon & rec_hq).sum()) if n_reads else 0,
-        c["high_q"])
+        int((exonic_any & ~do_exon & rec_hq).sum()) if n_reads else 0, c["high_q"]
+    )
     metrics["Discard Rate"] = _rate(c["mapped"] - c["reads_used"], mapped)
     metrics["rRNA Rate"] = _rate(int(ribosomal.sum()), mapped)
     metrics["End 1 Sense Rate"] = _rate(end1_sense, end1_sense + end1_antisense)
@@ -817,11 +946,13 @@ def run_rnaseqc(
     )
 
     metrics["Read Length"] = read_length
-    detected = sum(1 for g, cnt in unique_gene_count.items()
-                   if cnt >= detection_threshold)
+    detected = sum(
+        1 for g, cnt in unique_gene_count.items() if cnt >= detection_threshold
+    )
     metrics["Genes Detected"] = detected
     metrics["Estimated Library Complexity"] = _estimate_library_complexity(
-        c["unique_frags"], c["dup_pairs"])
+        c["unique_frags"], c["dup_pairs"]
+    )
 
     # 3' bias (from the GTF exons + reads, no BED needed)
     if biases:
@@ -857,8 +988,9 @@ def run_rnaseqc(
     LOGGER.info("RNA-seq QC metrics written to %s", outdir)
 
     if write_counts:
-        _write_counts(outdir, sample, gene_count, unique_gene_count,
-                      exon_count, gene_info)
+        _write_counts(
+            outdir, sample, gene_count, unique_gene_count, exon_count, gene_info
+        )
 
     return metrics
 
@@ -932,8 +1064,7 @@ def _counts(values):
     return out
 
 
-def _write_counts(outdir, sample, gene_count, unique_gene_count, exon_count,
-                  gene_info):
+def _write_counts(outdir, sample, gene_count, unique_gene_count, exon_count, gene_info):
     from xopen import xopen
 
     with xopen(str(outdir / f"{sample}.gene_reads.tsv"), "wt") as fh:
@@ -945,7 +1076,7 @@ def _write_counts(outdir, sample, gene_count, unique_gene_count, exon_count,
     # TPM = (1000 * count / length), then scaled so the sum is 1e6.
     tpms = {}
     for g, cnt in gene_count.items():
-        length = (gene_info.get(g, (0, 1))[1] or 1)
+        length = gene_info.get(g, (0, 1))[1] or 1
         tpms[g] = 1000.0 * cnt / max(1, length)
     total = sum(tpms.values()) / 1e6
     with xopen(str(outdir / f"{sample}.gene_tpm.tsv"), "wt") as fh:

@@ -64,10 +64,15 @@ def load_sites(
             pl.col(meta_col_names_renamed[3]).alias("Strand"),
         )
     elif len(meta_col_names_renamed) == 3:
+        # The site column is a genomic coordinate; cast it explicitly so the
+        # Start derivation below never fails when the scan inferred Utf8
+        # (e.g. a header row, or a stray non-numeric entry). Mirrors the
+        # strict=False cast used for score/weight columns downstream.
+        site_col = pl.col(meta_col_names_renamed[1]).cast(pl.Int64, strict=False)
         df = df.with_columns(
             pl.col(meta_col_names_renamed[0]).alias("Chromosome"),
-            (pl.col(meta_col_names_renamed[1]) - 1).alias("Start"),
-            pl.col(meta_col_names_renamed[1]).alias("End"),
+            (site_col - 1).alias("Start"),
+            site_col.alias("End"),
             pl.col(meta_col_names_renamed[2]).alias("Strand"),
         )
     else:

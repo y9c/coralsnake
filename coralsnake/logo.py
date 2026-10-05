@@ -279,7 +279,7 @@ class Mlogo:
         except UnicodeEncodeError as e:
             raise ValueError(
                 "Motifs must be plain ASCII DNA/RNA letters (non-ASCII character "
-                f"in input: {joined[max(e.start - 10, 0): e.end + 1]!r})"
+                f"in input: {joined[max(e.start - 10, 0) : e.end + 1]!r})"
             ) from e
         raw = np.frombuffer(buf, dtype=np.uint8)  # shape (n * L,)
         uniq = np.unique(raw)

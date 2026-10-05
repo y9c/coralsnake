@@ -95,6 +95,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   profile is computed whenever any of `-o`, `-s`, `-p` or `--export-profile` is
   requested (previously `-o` was mandatory).
 
+### Performance
+- **Faster `metagene` with much lower peak memory**: the best transcript per
+  gene is resolved once from the (small) reference instead of sorting the whole
+  expanded site × transcript frame to pick it, and a no-op framewise window
+  pass in profile normalization was removed. Output is verified identical.
+
+### Fixed
+- `metagene` no longer crashes with `arithmetic on dtypes str and dyn int is
+  not allowed` when the site coordinate column is inferred as text (e.g. a
+  header row read as data, or a stray non-numeric entry): the coordinate is
+  cast to `Int64` before deriving the start position.
+
 ## [Unreleased] (cont.) — `refine` command (from PR #2, reworked)
 
 New `coralsnake refine` command (genome FASTA + GTF cleaning before `prepare`),

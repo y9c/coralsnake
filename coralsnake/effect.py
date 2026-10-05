@@ -22,49 +22,134 @@ LOGGER = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # IUPAC ambiguity codes.
 IUPAC = {
-    "A": ["A"], "C": ["C"], "G": ["G"], "U": ["T"], "T": ["T"],
-    "M": ["A", "C"], "R": ["A", "G"], "W": ["A", "T"], "S": ["C", "G"],
-    "Y": ["C", "T"], "K": ["G", "T"], "V": ["A", "C", "G"],
-    "H": ["A", "C", "T"], "D": ["A", "G", "T"], "B": ["C", "G", "T"],
-    "N": ["G", "A", "T", "C"], ".": ["G", "A", "T", "C"], "-": ["G", "A", "T", "C"],
+    "A": ["A"],
+    "C": ["C"],
+    "G": ["G"],
+    "U": ["T"],
+    "T": ["T"],
+    "M": ["A", "C"],
+    "R": ["A", "G"],
+    "W": ["A", "T"],
+    "S": ["C", "G"],
+    "Y": ["C", "T"],
+    "K": ["G", "T"],
+    "V": ["A", "C", "G"],
+    "H": ["A", "C", "T"],
+    "D": ["A", "G", "T"],
+    "B": ["C", "G", "T"],
+    "N": ["G", "A", "T", "C"],
+    ".": ["G", "A", "T", "C"],
+    "-": ["G", "A", "T", "C"],
 }
 
 # Complement map (also handles IUPAC codes).
 COMPLEMENT = {
-    "A": "T", "C": "G", "G": "C", "T": "A", "U": "A",
-    "M": "K", "R": "Y", "W": "W", "S": "S", "Y": "R", "K": "M",
-    "V": "B", "H": "D", "D": "H", "B": "V", "N": "N", ".": ".", "-": "-",
+    "A": "T",
+    "C": "G",
+    "G": "C",
+    "T": "A",
+    "U": "A",
+    "M": "K",
+    "R": "Y",
+    "W": "W",
+    "S": "S",
+    "Y": "R",
+    "K": "M",
+    "V": "B",
+    "H": "D",
+    "D": "H",
+    "B": "V",
+    "N": "N",
+    ".": ".",
+    "-": "-",
 }
 
 # Standard genetic code (RNA codons -> one-letter amino acid).
 CODON_TABLE = {
-    "UUU": "F", "UUC": "F", "UUA": "L", "UUG": "L",
-    "UCU": "S", "UCC": "S", "UCA": "S", "UCG": "S",
-    "UAU": "Y", "UAC": "Y", "UAA": "STOP", "UAG": "STOP",
-    "UGU": "C", "UGC": "C", "UGA": "STOP", "UGG": "W",
-    "CUU": "L", "CUC": "L", "CUA": "L", "CUG": "L",
-    "CCU": "P", "CCC": "P", "CCA": "P", "CCG": "P",
-    "CAU": "H", "CAC": "H", "CAA": "Q", "CAG": "Q",
-    "CGU": "R", "CGC": "R", "CGA": "R", "CGG": "R",
-    "AUU": "I", "AUC": "I", "AUA": "I", "AUG": "M",
-    "ACU": "T", "ACC": "T", "ACA": "T", "ACG": "T",
-    "AAU": "N", "AAC": "N", "AAA": "K", "AAG": "K",
-    "AGU": "S", "AGC": "S", "AGA": "R", "AGG": "R",
-    "GUU": "V", "GUC": "V", "GUA": "V", "GUG": "V",
-    "GCU": "A", "GCC": "A", "GCA": "A", "GCG": "A",
-    "GAU": "D", "GAC": "D", "GAA": "E", "GAG": "E",
-    "GGU": "G", "GGC": "G", "GGA": "G", "GGG": "G",
+    "UUU": "F",
+    "UUC": "F",
+    "UUA": "L",
+    "UUG": "L",
+    "UCU": "S",
+    "UCC": "S",
+    "UCA": "S",
+    "UCG": "S",
+    "UAU": "Y",
+    "UAC": "Y",
+    "UAA": "STOP",
+    "UAG": "STOP",
+    "UGU": "C",
+    "UGC": "C",
+    "UGA": "STOP",
+    "UGG": "W",
+    "CUU": "L",
+    "CUC": "L",
+    "CUA": "L",
+    "CUG": "L",
+    "CCU": "P",
+    "CCC": "P",
+    "CCA": "P",
+    "CCG": "P",
+    "CAU": "H",
+    "CAC": "H",
+    "CAA": "Q",
+    "CAG": "Q",
+    "CGU": "R",
+    "CGC": "R",
+    "CGA": "R",
+    "CGG": "R",
+    "AUU": "I",
+    "AUC": "I",
+    "AUA": "I",
+    "AUG": "M",
+    "ACU": "T",
+    "ACC": "T",
+    "ACA": "T",
+    "ACG": "T",
+    "AAU": "N",
+    "AAC": "N",
+    "AAA": "K",
+    "AAG": "K",
+    "AGU": "S",
+    "AGC": "S",
+    "AGA": "R",
+    "AGG": "R",
+    "GUU": "V",
+    "GUC": "V",
+    "GUA": "V",
+    "GUG": "V",
+    "GCU": "A",
+    "GCC": "A",
+    "GCA": "A",
+    "GCG": "A",
+    "GAU": "D",
+    "GAC": "D",
+    "GAA": "E",
+    "GAG": "E",
+    "GGU": "G",
+    "GGC": "G",
+    "GGA": "G",
+    "GGG": "G",
 }
 
 # Map a generic varcode-style effect onto a coarser category.
 FEATURE_MAPPER = {
-    "AlternateStartCodon": "StartCodon", "StartLoss": "StartCodon",
-    "StopLoss": "StopCodon", "ComplexSubstitution": "CDS",
-    "Deletion": "CDS", "ExonLoss": "CDS", "FrameShiftTruncation": "CDS",
-    "FrameShift": "CDS", "Insertion": "CDS", "PrematureStop": "CDS",
-    "Substitution": "CDS", "Silent": "CDS",
-    "ExonicSpliceSite": "SpliceSite", "IntronicSpliceSite": "SpliceSite",
-    "SpliceAcceptor": "SpliceSite", "SpliceDonor": "SpliceSite",
+    "AlternateStartCodon": "StartCodon",
+    "StartLoss": "StartCodon",
+    "StopLoss": "StopCodon",
+    "ComplexSubstitution": "CDS",
+    "Deletion": "CDS",
+    "ExonLoss": "CDS",
+    "FrameShiftTruncation": "CDS",
+    "FrameShift": "CDS",
+    "Insertion": "CDS",
+    "PrematureStop": "CDS",
+    "Substitution": "CDS",
+    "Silent": "CDS",
+    "ExonicSpliceSite": "SpliceSite",
+    "IntronicSpliceSite": "SpliceSite",
+    "SpliceAcceptor": "SpliceSite",
+    "SpliceDonor": "SpliceSite",
 }
 
 
@@ -84,6 +169,7 @@ def reverse_base(base):
 @dataclass
 class Site:
     """One input variant row."""
+
     chrom: str = "."
     pos: int = -1
     strand: str = "."
@@ -102,6 +188,7 @@ class Annot:
     Field order defines the output column order (kept identical to the
     standalone `variant` package).
     """
+
     mut_type: str | None = None
     gene_type: str | None = None
     gene_name: str | None = None
@@ -261,7 +348,9 @@ def _distance_to_splice(transcript, g_pos):
 # ---------------------------------------------------------------------------
 def _translate(cds: str) -> str:
     rna = cds.replace("T", "U")
-    return "".join(CODON_TABLE.get(rna[i : i + 3], "X") for i in range(0, len(rna) - 2, 3))
+    return "".join(
+        CODON_TABLE.get(rna[i : i + 3], "X") for i in range(0, len(rna) - 2, 3)
+    )
 
 
 def _tx_sequence(fasta, chrom, transcript):
@@ -369,7 +458,12 @@ def _mut2eff(site, transcripts_by_chrom, fasta, strandness, pad):
                 coding_pos = t_pos - start
                 codon_ref, aa_ref = _codon_and_aa(tx, t_pos, coding_pos, cds)
                 aa_pos = coding_pos // 3 + 1
-                if site.ref and site.alt and site.ref not in ("-", ".", "N") and site.alt not in ("-", ".", "N"):
+                if (
+                    site.ref
+                    and site.alt
+                    and site.ref not in ("-", ".", "N")
+                    and site.alt not in ("-", ".", "N")
+                ):
                     if codon_ref:
                         mtype = _refine_cds_effect(
                             codon_ref, site.ref, site.alt, coding_pos
@@ -546,9 +640,7 @@ def run_effect(
                         input_header[i] = n
                 body_lines = raw_lines  # every line is a variant (no header)
 
-            output_handle.write(
-                col_sep.join(input_header + Annot().get_names()) + "\n"
-            )
+            output_handle.write(col_sep.join(input_header + Annot().get_names()) + "\n")
 
             for raw in body_lines:
                 if not raw.strip():
@@ -558,10 +650,13 @@ def run_effect(
                     site = _site_from_cols(input_cols, columns_index_mapper, strandness)
                 except (ValueError, IndexError):
                     continue  # skip a malformed row instead of aborting the run
-                annot_list = _mut2eff(site, transcripts_by_chrom, fasta, strandness, npad)
+                annot_list = _mut2eff(
+                    site, transcripts_by_chrom, fasta, strandness, npad
+                )
                 for annot in annot_list:
                     output_handle.write(
-                        col_sep.join(input_cols + annot.get_values(as_string=True)) + "\n"
+                        col_sep.join(input_cols + annot.get_values(as_string=True))
+                        + "\n"
                     )
     finally:
         if fasta is not None:

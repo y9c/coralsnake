@@ -120,7 +120,10 @@ def run_coordinate(
         LOGGER.warning("No mapping provided!")
         chrom_mapper = {}
 
-    with xopen(input_file, "rt") as input_handle, xopen(output_file, "wt") as output_handle:
+    with (
+        xopen(input_file, "rt") as input_handle,
+        xopen(output_file, "wt") as output_handle,
+    ):
 
         def parse_line(input_cols):
             chrom = input_cols[chrom_col]
