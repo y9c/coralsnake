@@ -441,7 +441,11 @@ def _three_prime_bias(
         np.add.at(diff, p, 1)
         np.add.at(diff, np.minimum(p + bl, length), -1)
         cov = np.cumsum(diff)[:length]
-        if length < window or length <= 2 * offset:
+        # both the 5' window [offset, offset+window) and the 3' window
+        # [length-offset-window, length-offset) must lie inside cov; a shorter
+        # gene (or window > offset) would otherwise make the 3' slice start
+        # negative and silently wrap to the end of the array.
+        if length < offset + window:
             continue
         cov5 = float(np.median(cov[offset : offset + window]))
         cov3 = float(np.median(cov[length - offset - window : length - offset]))
@@ -1011,6 +1015,11 @@ def _estimate_library_complexity(unique: int, dup: int) -> int:
         return 0
     n = u + d
     lo, hi = float(u), float(max(u, 1e6))
+    # f(x) = x*(1-exp(-N/x)) is increasing in x and the root is always > u
+    # (f(u) < u for any dup>0), so grow hi until it brackets the root. A fixed
+    # hi bound under-reports for high-unique libraries (e.g. root > 1e6).
+    while hi * (1.0 - np.exp(-n / hi)) <= u:
+        hi *= 2.0
     for _ in range(200):
         mid = (lo + hi) / 2.0
         if mid * (1.0 - np.exp(-n / mid)) > u:

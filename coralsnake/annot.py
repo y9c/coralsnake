@@ -63,8 +63,10 @@ def parse_annot_file(tx_file, cache):
     exon_tree_by_chrom_strand = {}
     for (chromosome, strand), exons in exons_by_chrom_strand.items():
         starts, ends, rid = list(zip(*exons))
-        starts = np.int32(starts)
-        ends = np.int32(ends)
+        # int64: coordinates must not overflow on very long contigs (>2.1 Gb),
+        # which int32 would wrap negative and silently break transcript_pos.
+        starts = np.int64(starts)
+        ends = np.int64(ends)
         rids = np.int64(rid)
         exon_tree_by_chrom_strand[(chromosome, strand)] = (starts, ends, rids)
     # save the parsed data to a pickle file
@@ -131,8 +133,8 @@ def _annotate_batch(
         # No annotations at all -> every site is unannotated.
         return results
 
-    ex_starts = np.concatenate(exon_starts).astype(np.int32)
-    ex_ends = np.concatenate(exon_ends).astype(np.int32)
+    ex_starts = np.concatenate(exon_starts).astype(np.int64)
+    ex_ends = np.concatenate(exon_ends).astype(np.int64)
     ex_rids = np.concatenate(exon_rids).astype(np.int64)
     ex_groups = np.concatenate(exon_groups)
 
@@ -142,7 +144,7 @@ def _annotate_batch(
         q_idx = [i for i in range(start, stop) if (chroms[i], strands[i]) in tree_id]
         if not q_idx:
             continue
-        q_starts = np.array([positions[i] for i in q_idx], dtype=np.int32)
+        q_starts = np.array([positions[i] for i in q_idx], dtype=np.int64)
         q_ends = q_starts + 1
         q_groups = np.array(
             [tree_id[(chroms[i], strands[i])] for i in q_idx], dtype=np.uint32

@@ -256,12 +256,18 @@ def export_gtf(df: pl.DataFrame, path: str) -> str:
             f"{chrom}\tEnsembl\ttranscript\t{ts}\t{te}\t.\t{strand}\t.\t{_attrs(ta)}"
         )
 
-        for i, e in enumerate(sorted(exons, key=lambda e: e["Start"])):
+        exons_sorted = sorted(exons, key=lambda e: e["Start"])
+        n_exons = len(exons_sorted)
+        # GTF output rows are genomic-ascending, but ``exon_number`` is a 5'->3'
+        # rank (exon 1 = 5'-most), which is the reverse genomic order on '-'. The
+        # stored value is used when present; only the fallback needs reversing.
+        for i, e in enumerate(exons_sorted):
             es, ee = int(e["Start"]) + 1, int(e["End"])
+            fallback = str(n_exons - i) if strand == "-" else str(i + 1)
             ea = {
                 "gene_id": t["gene_id"],
                 "transcript_id": t["transcript_id"],
-                "exon_number": e["exon_number"] or str(i + 1),
+                "exon_number": e["exon_number"] or fallback,
             }
             # gene_name/gene_biotype on exon rows too (modern Ensembl GTFs
             # carry them on every row) so a re-parse round-trips the v2

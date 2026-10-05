@@ -110,6 +110,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   got float64` when a site coordinate failed to parse: such sites are excluded
   from the overlap search but still returned in the output as unmapped.
 
+### Fixed (0.2.5 audit round)
+- `metagene` no longer aborts when no site matches the reference (all-intergenic
+  / empty overlap): those sites are returned as unmapped instead of raising.
+- `metagene --region cds|5utr|3utr` no longer labels intergenic (unmapped) sites
+  as CDS, and derives gene splits from the full gene population rather than the
+  region-filtered subset.
+- `metagene` weighted profiles no longer crash with `mul not supported for
+  dtypes str and str` when a `-w` score column is read as text; score columns
+  are now always cast to numeric.
+- QC library complexity no longer under-reports (~5.7x) for high-unique
+  libraries.
+- Metagene binning no longer drops the right-edge bin (`1.0`).
+- 3′ bias no longer reads a negative slice when `--bias-window > --bias-offset`.
+- `liftover --table` no longer crashes on a blank/non-numeric position row
+  (it is returned unmapped).
+- `logo` no longer raises `KeyError` for non-IUPAC bases; `annot` uses int64
+  coordinates; `reference export` emits 5′→3′ `exon_number` on minus strand.
+
 ### Performance
 - **`metagene` overlap search now runs only against best-transcript exons**
   (the best transcript per gene is a reference-level property), eliminating the

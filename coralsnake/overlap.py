@@ -41,7 +41,12 @@ def calculate_bin_statistics(
 
     # Calculate which bin each data point falls into (0-based; values outside
     # [bin_range[0], bin_range[1]] must be excluded, matching the original).
+    # A value exactly at the right edge (bin_range[1]) is assigned one past the
+    # last bin by np.digitize(right=False); clamp only that exact edge into the
+    # last bin, while still excluding anything strictly above the range.
     bin_indices = np.digitize(data, bins, right=False) - 1
+    at_right_edge = data == bins[-1]
+    bin_indices = np.where(at_right_edge, num_bins - 1, bin_indices)
     in_range = (bin_indices >= 0) & (bin_indices < num_bins)
     kept = bin_indices[in_range]
     kept_weights = weights[in_range]

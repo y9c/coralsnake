@@ -122,11 +122,17 @@ def plot_motif_score(
     if ax is None:
         ax = gca()
     # turn colors into a defaultdict, defaulting to the mask color
-    c0 = defaultdict(lambda: mask_color) | COLOR_SCHEME
+    # (a defaultdict | mapping gives a plain dict, dropping the default
+    # factory, so an unknown base would KeyError).
+    c0 = defaultdict(lambda: mask_color, COLOR_SCHEME)
     if not isinstance(mask_index, list):
         mask_index = [mask_index]
     colors_dict = {
-        idx: (c0 | colors) if idx not in mask_index else c0
+        idx: (
+            defaultdict(lambda: mask_color, c0 | colors)
+            if idx not in mask_index
+            else c0
+        )
         for idx in range(len(motif_score))
     }
     if isinstance(mask_base, str):

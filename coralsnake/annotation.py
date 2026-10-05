@@ -81,11 +81,14 @@ def map_to_transcripts(
         groups2=input_groups,
     )
 
-    # Check if any overlaps were found
-    if len(idx_exon) == 0:
+    # No overlaps is a valid outcome (e.g. every site is intergenic, or on a
+    # contig absent from the reference): those sites come back as unmapped/null
+    # annotations via the left-join below, matching the function's contract.
+    # Only an empty reference itself is a configuration error.
+    if len(exon_indexed) == 0:
         raise ValueError(
-            "No overlaps found between input sites and exon reference. "
-            "Please check your input data and exon reference are matching."
+            "Reference contains no exons; cannot map any input sites. "
+            "Check the reference/GTF."
         )
 
     # Build overlapping pairs dataframe
@@ -236,6 +239,7 @@ def normalize_positions(
     split_strategy: str = "median",
     bin_number: int = 100,
     weight_col_index: list[int] | None = None,
+    gene_splits: tuple | None = None,
 ) -> tuple[pl.DataFrame, dict, tuple]:
     """
     Normalize transcript positions to relative feature positions (0-1 scale).
@@ -275,7 +279,11 @@ def normalize_positions(
     )
     gene_stats = dict(zip(gene_stats["feature_type"], gene_stats["count"]))
 
-    gene_splits = calculate_gene_splits(annotated_sites, split_strategy)
+    # Allow callers to supply precomputed splits (e.g. computed on the full
+    # gene population) so a region-filtered frame does not recompute the
+    # 5'UTR/CDS/3'UTR boundaries from only the selected subset.
+    if gene_splits is None:
+        gene_splits = calculate_gene_splits(annotated_sites, split_strategy)
 
     gene_bins = (
         annotated_sites.with_columns(
@@ -323,9 +331,13 @@ def normalize_positions(
     else:
         for col_index in weight_col_index:
             col_name = annotated_sites.columns[col_index]
+            # The weight column may still be Unicode (a score column read as
+            # text from the input); cast before multiplying, and treat
+            # unparseable values as 0 so they do not crash the histogram.
+            weight = gene_bins[col_name].cast(pl.Float64, strict=False).fill_null(0.0)
             bin_counts, _ = np.histogram(
                 gene_bins["feature_pos"],
-                weights=gene_bins["feature_weight"] * gene_bins[col_name],
+                weights=gene_bins["feature_weight"] * weight,
                 bins=np.linspace(0, 1, bin_number + 1),
             )
             n2c[f"count_{col_name}"] = bin_counts

@@ -127,7 +127,22 @@ def run_liftover_table(
     idx = {c: i for i, c in enumerate(header)}
     if pos_col not in idx:
         raise ValueError("input table missing column %r" % pos_col)
-    pos_arr = np.array([float(r[idx[pos_col]]) for r in rows], dtype=np.int64)
+
+    # A blank/non-numeric position (common in multi-feature tables) must not
+    # abort the whole liftover; map such rows to an unmapped (-1) position.
+    def _parse_pos(v):
+        s = str(v).strip()
+        if not s:
+            return -1
+        try:
+            f = float(s)
+        except (ValueError, TypeError):
+            return -1
+        if not np.isfinite(f):
+            return -1
+        return int(f)
+
+    pos_arr = np.array([_parse_pos(r[idx[pos_col]]) for r in rows], dtype=np.int64)
 
     annot = load_annotation(annotation_file, with_header=True)
     out_cols = list(header)

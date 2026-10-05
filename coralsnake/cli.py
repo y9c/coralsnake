@@ -915,7 +915,11 @@ def metagene(
     This is the full `metagene` package migrated into a coralsnake subcommand,
     built on the high-performance `polars` + `ruranges` stack.
     """
-    from .annotation import map_to_transcripts, normalize_positions
+    from .annotation import (
+        calculate_gene_splits,
+        map_to_transcripts,
+        normalize_positions,
+    )
     from .config import BUILTIN_REFERENCES
     from .download import download_references, list_references
     from .gtf import load_gtf
@@ -1047,16 +1051,18 @@ def metagene(
     # --- apply previously-ignored options: --normalize / --score-transform /
     #     --weight-names / --region ------------------------------------------
     weight_cols = [input_df.columns[i] for i in weight_col_index]
-    if score_transform != "none" or normalize:
-        for wc in weight_cols:
-            expr = pl.col(wc).cast(pl.Float64, strict=False)
-            if normalize:
-                expr = expr / pl.col("transcript_length")
-            if score_transform == "log2":
-                expr = expr.log(2.0)
-            elif score_transform == "log10":
-                expr = expr.log(10.0)
-            annotated_df = annotated_df.with_columns(expr.alias(wc))
+    # A weight/score column is always numeric; cast it even when no transform
+    # is requested, otherwise a string column later fails the weighted
+    # histogram in normalize_positions (mul on str).
+    for wc in weight_cols:
+        expr = pl.col(wc).cast(pl.Float64, strict=False)
+        if normalize:
+            expr = expr / pl.col("transcript_length")
+        if score_transform == "log2":
+            expr = expr.log(2.0)
+        elif score_transform == "log10":
+            expr = expr.log(10.0)
+        annotated_df = annotated_df.with_columns(expr.alias(wc))
     if weight_names:
         if len(weight_names) != len(weight_cols):
             raise click.ClickException(
@@ -1067,6 +1073,11 @@ def metagene(
         # rename() preserves column positions, so re-locate the (renamed)
         # weight columns rather than assuming they are at 0..n-1.
         weight_col_index = [annotated_df.columns.index(n) for n in weight_names]
+    # Gene region splits must be derived from the full gene population (all
+    # mapped sites), not from a region-filtered subset, so the normalized
+    # boundaries stay correct for --region profiles.
+    annotated_full = annotated_df
+
     if region != "all":
         target = {"5utr": "5UTR", "cds": "CDS", "3utr": "3UTR"}[region]
         annotated_df = (
@@ -1075,9 +1086,15 @@ def metagene(
                 // 2
             )
             .with_columns(
-                feature_type=pl.when(
-                    pl.col("transcript_pos") < pl.col("start_codon_pos")
+                feature_type=pl.when(pl.col("transcript_pos").is_null())
+                .then(pl.lit("None"))
+                # noncoding transcript (no CDS start/stop): exclude
+                .when(
+                    pl.col("start_codon_pos").is_null()
+                    | pl.col("stop_codon_pos").is_null()
                 )
+                .then(pl.lit("None"))
+                .when(pl.col("transcript_pos") < pl.col("start_codon_pos"))
                 .then(pl.lit("5UTR"))
                 # stop codon is part of the CDS; 3'UTR starts at stop_codon_pos + 3
                 .when(pl.col("transcript_pos") >= pl.col("stop_codon_pos") + 3)
@@ -1094,6 +1111,7 @@ def metagene(
             split_strategy="median",
             bin_number=bins,
             weight_col_index=weight_col_index,
+            gene_splits=calculate_gene_splits(annotated_full, "median"),
         )
         click.echo(
             f"Gene splits - 5'UTR: {gene_splits[0]:.3f}, "
