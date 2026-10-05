@@ -321,6 +321,50 @@ def assign_exon_number_for_cds_rows(exon_rows, cds_rows):
     return True
 
 
+def derive_codons_from_cds(cds_rows: list[Feature], transcript_row: Feature):
+    """Build start/stop codon Feature rows from a transcript's CDS extremes.
+
+    Many RefSeq-style GTFs carry ``CDS`` but no explicit
+    ``start_codon``/``stop_codon``. The start codon (ATG) is the 5'-most CDS
+    codon and the stop codon is the 3'-most three CDS bases; for a '-' strand
+    transcript that genomic order is reversed.
+
+    Returns ``(start_codon_row, stop_codon_row)``.
+    """
+    start = min(r.start for r in cds_rows)
+    end = max(r.end for r in cds_rows)
+    if transcript_row.strand == "-":
+        start_codon_span = (end - 2, end)  # 5'-most = highest genomic coords
+        # RefSeq: the stop codon is annotated 3 bases 3' of the CDS, i.e. below
+        # the CDS's lowest coordinate on '-' (and above the CDS's highest on '+').
+        stop_codon_span = (start - 3, start - 1)
+    else:
+        start_codon_span = (start, start + 2)
+        stop_codon_span = (end + 1, end + 3)
+
+    attrs = dict(transcript_row.attributes)
+    attrs.pop("exon_number", None)
+    rows = []
+    for feature, (a, b) in (
+        ("start_codon", start_codon_span),
+        ("stop_codon", stop_codon_span),
+    ):
+        rows.append(
+            Feature(
+                seqname=transcript_row.seqname,
+                source=transcript_row.source,
+                feature=feature,
+                start=a,
+                end=b,
+                score=transcript_row.score,
+                strand=transcript_row.strand,
+                frame="0",
+                attributes=dict(attrs),
+            )
+        )
+    return rows[0], rows[1]
+
+
 def get_canonical_transcript_id(final_gene_rows, canonicals=None):
     transcript_lengths = defaultdict(int)
     for row in final_gene_rows:
@@ -648,6 +692,19 @@ class GtfRefiner:
                 return None
             assign_exon_number_for_cds_rows(exon_rows, cds_rows)
             final_transcript_rows.extend(cds_rows)
+
+        # Reconstruct start/stop codons from CDS when the source GTF carries
+        # none: refine becomes self-healing so a CDS-only annotation still
+        # yields a populated metagene later. The derived rows flow through the
+        # carry step below like any other codon/UTR row.
+        if cds_rows is not None and (
+            "start_codon" not in data_features or "stop_codon" not in data_features
+        ):
+            sc_row, st_row = derive_codons_from_cds(cds_rows, transcript_row)
+            if "start_codon" not in data_features:
+                data_features["start_codon"] = [sc_row]
+            if "stop_codon" not in data_features:
+                data_features["stop_codon"] = [st_row]
 
         # carry codon/UTR/other feature rows through (drop their exon_number;
         # codon/UTR rows are re-numbered by the exons when present)

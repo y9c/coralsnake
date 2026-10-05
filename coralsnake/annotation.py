@@ -234,16 +234,82 @@ def calculate_gene_splits(
     return len_5utr / len_total, len_cds / len_total, len_3utr / len_total
 
 
+def region_aligned_breaks(
+    gene_splits: tuple[float, float, float], bin_number: int = 100
+) -> np.ndarray:
+    """
+    Build bin edges aligned to the 5'UTR / CDS / 3'UTR region boundaries so that
+    no single bin straddles a region junction.
+
+    Feature positions are normalised per-region, so the region boundaries live at
+    ``gene_splits[0]`` and ``gene_splits[0] + gene_splits[1]``. With the *uniform*
+    ``linspace(0, 1, N+1)`` breaks one bin can span a junction, which pulls e.g.
+    the first CDS-start sites into the last 5'UTR bin and inflates the boundary
+    bin (the spurious start-codon "peak"). Placing the edges exactly on the
+    boundaries keeps every bin wholly inside a single region.
+
+    Within each region the bins are allocated proportionally to the region's
+    normalized fraction, so every bin covers the same real fraction of the
+    aligned transcript.
+
+    Falls back to uniform breaks when the splits are all zero.
+    """
+    s0, s1, s2 = (float(x) for x in gene_splits)
+    if s0 == 0 and s1 == 0 and s2 == 0:
+        return np.linspace(0, 1, bin_number + 1)
+
+    s0 = min(s0, 1.0)
+    b2 = min(1.0, s0 + s1)
+    if b2 < s0:
+        b2 = s0
+
+    if b2 >= 1.0:
+        bounds = [0.0, 1.0] if s0 <= 0 else sorted({0.0, s0, 1.0})
+    else:
+        bounds = sorted({0.0, s0, b2, 1.0})
+
+    if len(bounds) < 2:
+        return np.linspace(0, 1, bin_number + 1)
+
+    chunks: list[np.ndarray] = []
+    for i in range(len(bounds) - 1):
+        lo, hi = bounds[i], bounds[i + 1]
+        width = hi - lo
+        if width <= 0:
+            continue
+        n = max(1, int(round(width * bin_number)))
+        seg = np.linspace(lo, hi, n + 1)
+        if chunks:
+            chunks.append(seg[1:])
+        else:
+            chunks.append(seg)
+
+    breaks = np.concatenate(chunks)
+    # Defensive: keep strictly increasing (guards against any rounding dup).
+    return breaks[np.concatenate([np.array([True]), np.diff(breaks) > 0])]
+
+
 def normalize_positions(
     annotated_sites: pl.DataFrame,
     split_strategy: str = "median",
     bin_number: int = 100,
     weight_col_index: list[int] | None = None,
     gene_splits: tuple | None = None,
+    metric: str = "sum",
 ) -> tuple[pl.DataFrame, dict, tuple]:
     """
     Normalize transcript positions to relative feature positions (0-1 scale).
     Returns the normalized DataFrame and the gene splits.
+
+    Bins are aligned to the 5'UTR / CDS / 3'UTR boundaries (see
+    :func:`region_aligned_breaks`) so no bin straddles a region junction.
+
+    ``metric`` selects the per-bin weight aggregation: ``"sum"`` yields
+    ``count_<col>`` (total weighted signal, may be inflated in compressed
+    short regions) and ``"mean"`` yields ``mean_<col>`` (signal per site,
+    comparable across regions). Both are always emitted; ``metric`` only
+    affects the returned value's naming preference for callers such as the
+    CLI that export a single column.
     """
     # check if the "transcript_id", "transcript_start" and  "transcript_end" in the dataframe columns
     # use the mid point of transcript_start and transcript_end as transcript_pos
@@ -324,19 +390,23 @@ def normalize_positions(
         .with_columns(feature_weight=pl.lit(1.0))
         .with_columns(
             feature_bin=pl.col("feature_pos").cut(
-                breaks=np.linspace(0, 1, bin_number + 1).tolist()
+                breaks=region_aligned_breaks(gene_splits, bin_number).tolist()
             )
         )
     )
+    breaks = region_aligned_breaks(gene_splits, bin_number)
     n2c = {}
     if weight_col_index is None or len(weight_col_index) == 0:
         bin_counts, _ = np.histogram(
             gene_bins["feature_pos"],
             weights=gene_bins["feature_weight"],
-            bins=np.linspace(0, 1, bin_number + 1),
+            bins=breaks,
         )
         n2c["count"] = bin_counts
     else:
+        # Raw site count per bin, used to derive the per-site mean (a region-
+        # comparable metric that is not inflated by short-region compression).
+        site_counts, _ = np.histogram(gene_bins["feature_pos"], bins=breaks)
         for col_index in weight_col_index:
             col_name = annotated_sites.columns[col_index]
             # The weight column may still be Unicode (a score column read as
@@ -346,10 +416,16 @@ def normalize_positions(
             bin_counts, _ = np.histogram(
                 gene_bins["feature_pos"],
                 weights=gene_bins["feature_weight"] * weight,
-                bins=np.linspace(0, 1, bin_number + 1),
+                bins=breaks,
             )
             n2c[f"count_{col_name}"] = bin_counts
-    bin_midpoints = np.linspace(0, 1, bin_number + 1)[:-1] + 0.5 / bin_number
+            n2c[f"mean_{col_name}"] = np.divide(
+                bin_counts,
+                site_counts,
+                out=np.zeros_like(bin_counts, dtype=float),
+                where=site_counts > 0,
+            )
+    bin_midpoints = (breaks[:-1] + breaks[1:]) / 2
     gene_bins = pl.DataFrame({"feature_midpoint": bin_midpoints, **n2c})
     return gene_bins, gene_stats, gene_splits
 

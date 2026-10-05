@@ -32,6 +32,7 @@ def plot_profile(
     output_path: str,
     figsize: tuple[float, float] = (6.4, 4.2),
     gene_model: bool = True,
+    metric: str = "sum",
 ):
     """
     Create the metagene profile plot using matplotlib (optional dependency).
@@ -63,14 +64,15 @@ def plot_profile(
     ax.axvspan(b2, 1, color="#ffe0b2", alpha=0.5, lw=0)
 
     # Profile curve(s)
-    count_cols = [c for c in gene_bins.columns if c.startswith("count")]
-    for col in count_cols:
+    prefix = {"sum": "count", "mean": "mean"}[metric]
+    metric_cols = [c for c in gene_bins.columns if c.startswith(prefix)]
+    for col in metric_cols:
         x = gene_bins["feature_midpoint"]
         y = gene_bins[col]
-        ax.plot(x, y, linewidth=2.0, label=col.removeprefix("count_"))
-        if len(count_cols) == 1:
+        ax.plot(x, y, linewidth=2.0, label=col.removeprefix(prefix + "_"))
+        if len(metric_cols) == 1:
             ax.fill_between(x, 0, y, alpha=0.22)
-    if len(count_cols) == 1:
+    if len(metric_cols) == 1:
         ax.legend(frameon=False, loc="upper right")
 
     # Region boundaries

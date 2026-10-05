@@ -851,6 +851,17 @@ def group(
     help="Normalize scores by transcript length",
 )
 @click.option(
+    "--metric",
+    "metric",
+    type=click.Choice(["sum", "mean"]),
+    default="sum",
+    help=(
+        "Metagene bin aggregation: 'sum' (count_*; total signal, may be "
+        "inflated in short compressed regions) or 'mean' (mean_*; signal per "
+        "site, comparable across 5'UTR/CDS/3'UTR). Default: sum"
+    ),
+)
+@click.option(
     "--list",
     "list_references_flag",
     is_flag=True,
@@ -903,6 +914,7 @@ def metagene(
     weight_names,
     score_transform,
     normalize,
+    metric,
     list_references_flag,
     download_ref,
     export_table,
@@ -1112,6 +1124,7 @@ def metagene(
             bin_number=bins,
             weight_col_index=weight_col_index,
             gene_splits=calculate_gene_splits(annotated_full, "median"),
+            metric=metric,
         )
         click.echo(
             f"Gene splits - 5'UTR: {gene_splits[0]:.3f}, "
@@ -1129,9 +1142,12 @@ def metagene(
         annotated_df.write_csv(output_file, separator=separator)
         click.echo(f"✓ Saved annotated intervals to: {output_file}")
 
-    # Save score statistics (if requested)
-    if output_score:
-        gene_bins.insert_column(
+    # Using the region-aligned breaks from normalize_positions, no bin straddles
+    # a region junction, so the boundary spike on the metagene curve is removed.
+    # The profile / score export keeps every metric column (count_* sum and
+    # mean_* per-site mean); the plot honours --metric by picking one family.
+    def _with_feature_type(df):
+        return df.insert_column(
             0,
             pl.when(pl.col("feature_midpoint") < gene_splits[0])
             .then(pl.lit("5UTR"))
@@ -1139,25 +1155,21 @@ def metagene(
             .then(pl.lit("3UTR"))
             .otherwise(pl.lit("CDS"))
             .alias("feature_type"),
-        ).write_csv(output_score, separator=separator)
+        )
+
+    # Save score statistics (if requested)
+    if output_score:
+        _with_feature_type(gene_bins).write_csv(output_score, separator=separator)
         click.echo(f"✓ Saved binned statistics to: {output_score}")
 
     # Save metagene profile matrix (machine-readable; same layout as output_score)
     if export_profile:
-        gene_bins.insert_column(
-            0,
-            pl.when(pl.col("feature_midpoint") < gene_splits[0])
-            .then(pl.lit("5UTR"))
-            .when((pl.col("feature_midpoint") > gene_splits[0] + gene_splits[1]))
-            .then(pl.lit("3UTR"))
-            .otherwise(pl.lit("CDS"))
-            .alias("feature_type"),
-        ).write_csv(export_profile, separator=separator)
+        _with_feature_type(gene_bins).write_csv(export_profile, separator=separator)
         click.echo(f"✓ Saved metagene profile to: {export_profile}")
 
     # Generate plot (optional matplotlib)
     if output_figure:
-        plot_profile(gene_bins, gene_splits, output_figure)
+        plot_profile(gene_bins, gene_splits, output_figure, metric=metric)
         click.echo(f"✓ Saved plot to: {output_figure}")
 
 
