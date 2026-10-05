@@ -4,6 +4,7 @@ Each test guards one verified bug fix. Where the audit pinned down that a
 behavior was *already correct* (e.g. the SAM-convention minus-strand handling
 in t2g), a ground-truth test locks the correct behavior in.
 """
+
 import time
 from pathlib import Path
 
@@ -39,15 +40,27 @@ def _align(ref_id, start, seq, cigar, flag=0, mate_ref=None, mate_start=None):
 # tbam2gbam (t2g)
 # ---------------------------------------------------------------------------
 class TestT2GRegressions:
-    def _tx_bam(self, tmp_path, seq, cigar, start=0, flag=0,
-                mate_ref=None, mate_start=None, ref_len=100):
+    def _tx_bam(
+        self,
+        tmp_path,
+        seq,
+        cigar,
+        start=0,
+        flag=0,
+        mate_ref=None,
+        mate_start=None,
+        ref_len=100,
+    ):
         th = pysam.AlignmentHeader.from_dict(
             {"HD": {"VN": "1.4"}, "SQ": [{"SN": "t1", "LN": ref_len}]}
         )
         bam = tmp_path / "in.bam"
         with pysam.AlignmentFile(str(bam), "wb", header=th) as out:
-            out.write(_align(0, start, seq, cigar, flag,
-                             mate_ref=mate_ref, mate_start=mate_start))
+            out.write(
+                _align(
+                    0, start, seq, cigar, flag, mate_ref=mate_ref, mate_start=mate_start
+                )
+            )
         annot = tmp_path / "a.tsv"
         annot.write_text(
             "gene_id\ttranscript_id\tchrom\tstrand\tspans\n"
@@ -61,8 +74,9 @@ class TestT2GRegressions:
         """CIGAR =/X must consume the reference: the intron N is inserted."""
         from coralsnake.tbam2gbam import convert_bam
 
-        bam, annot, fai = self._tx_bam(tmp_path, "ACGTACGTAC",
-                                       [(7, 5), (8, 3), (0, 2)], start=45)
+        bam, annot, fai = self._tx_bam(
+            tmp_path, "ACGTACGTAC", [(7, 5), (8, 3), (0, 2)], start=45
+        )
         out = tmp_path / "out.bam"
         convert_bam(bam, str(out), annot, fai, threads=1)
         with pysam.AlignmentFile(str(out), "rb") as f:
@@ -76,8 +90,13 @@ class TestT2GRegressions:
         from coralsnake.tbam2gbam import convert_bam
 
         bam, annot, fai = self._tx_bam(
-            tmp_path, "ACGTACGTAC", [(0, 10)], start=20, flag=0x1 | 0x2,
-            mate_ref=0, mate_start=45,
+            tmp_path,
+            "ACGTACGTAC",
+            [(0, 10)],
+            start=20,
+            flag=0x1 | 0x2,
+            mate_ref=0,
+            mate_start=45,
         )
         out = tmp_path / "out.bam"
         convert_bam(bam, str(out), annot, fai, threads=1)
@@ -88,13 +107,21 @@ class TestT2GRegressions:
 
     def test_out_of_range_read_demoted_not_crash(self, tmp_path):
         """A read whose position exceeds the reference becomes unmapped."""
-        from coralsnake.tbam2gbam import (parse_alignment, remap_to_genome,  # noqa: F401
-                                          transcript_to_genome)
+        from coralsnake.tbam2gbam import (
+            parse_alignment,
+            remap_to_genome,  # noqa: F401
+            transcript_to_genome,
+        )
         from coralsnake.utils import Transcript, Span
 
         # boundary check: pos == length is out of range (was IndexError)
-        tx = Transcript(gene_id="g", transcript_id="t", chrom="c", strand="+",
-                        exons={1: Span(1000, 1100), 2: Span(2000, 2050)})
+        tx = Transcript(
+            gene_id="g",
+            transcript_id="t",
+            chrom="c",
+            strand="+",
+            exons={1: Span(1000, 1100), 2: Span(2000, 2050)},
+        )
         with pytest.raises(ValueError):
             transcript_to_genome(tx.length, tx)
 
@@ -106,7 +133,9 @@ class TestT2GRegressions:
         th = pysam.AlignmentHeader.from_dict(
             {"HD": {"VN": "1.4"}, "SQ": [{"SN": "t", "LN": 150}]}
         )
-        align = pysam.AlignedSegment.fromstring("r1\t0\tt\t100\t60\t5M\t*\t0\t0\tACGTA\tIIIII", th)
+        align = pysam.AlignedSegment.fromstring(
+            "r1\t0\tt\t100\t60\t5M\t*\t0\t0\tACGTA\tIIIII", th
+        )
         align.reference_start = tx.length  # past the end -> out-of-range remap
         annot = {"t": tx}
         out = parse_alignment(align, annot, gh)
@@ -117,13 +146,23 @@ class TestT2GRegressions:
 # gbam2tbam (g2t)
 # ---------------------------------------------------------------------------
 class TestG2TRegressions:
-    def _gbam(self, tmp_path, chrom="chr1", start=137, seq=None, cigar=None,
-              flag=0x10, annot_strand="-"):
+    def _gbam(
+        self,
+        tmp_path,
+        chrom="chr1",
+        start=137,
+        seq=None,
+        cigar=None,
+        flag=0x10,
+        annot_strand="-",
+    ):
         seq = seq or "ACGTA"
         cigar = cigar or [(0, 5)]
         gh = pysam.AlignmentHeader.from_dict(
-            {"HD": {"VN": "1.4"}, "SQ": [{"SN": "chr1", "LN": 10000},
-                                          {"SN": "chrX", "LN": 10000}]}
+            {
+                "HD": {"VN": "1.4"},
+                "SQ": [{"SN": "chr1", "LN": 10000}, {"SN": "chrX", "LN": 10000}],
+            }
         )
         bam = tmp_path / "g.bam"
         ref_id = 0 if chrom == "chr1" else 1
@@ -188,8 +227,9 @@ class TestAnnotateRegressions:
         inp = tmp_path / "v.tsv"
         inp.write_text("chr1\t64\t+\tT\tA\n")  # 3rd stop-codon base
         out = tmp_path / "o.tsv"
-        run_annotate(str(inp), str(out), str(gtf), reference_transcript=[fa],
-                     columns="1,2,3,4,5")
+        run_annotate(
+            str(inp), str(out), str(gtf), reference_transcript=[fa], columns="1,2,3,4,5"
+        )
         row = out.read_text().rstrip("\n").split("\n")[1].split("\t")
         header = out.read_text().rstrip("\n").split("\n")[0].split("\t")
         d = dict(zip(header, row))
@@ -216,9 +256,9 @@ class TestAnnotateRegressions:
 
         df = pl.DataFrame([_site(61), _site(62), _site(63), _site(29)])
         _, stats, _ = normalize_positions(df, split_strategy="median", bin_number=100)
-        assert stats.get("CDS") == 2          # 61, 62 = 2nd/3rd stop-codon bases
-        assert stats.get("3UTR") == 1         # 63 = first base after the stop codon
-        assert stats.get("5UTR") == 1         # 29 = just before the start codon
+        assert stats.get("CDS") == 2  # 61, 62 = 2nd/3rd stop-codon bases
+        assert stats.get("3UTR") == 1  # 63 = first base after the stop codon
+        assert stats.get("5UTR") == 1  # 29 = just before the start codon
 
     def test_metagene_noncoding_excluded(self):
         """Sites on a noncoding transcript (no start/stop codon) are 'None',
@@ -253,8 +293,9 @@ class TestAnnotateRegressions:
         inp = tmp_path / "v.tsv"
         inp.write_text("chr1\t26\t+\t.\t.\n")
         out = tmp_path / "o.tsv"
-        run_annotate(str(inp), str(out), str(gtf), reference_transcript=[fa],
-                     columns="1,2,3,4,5")
+        run_annotate(
+            str(inp), str(out), str(gtf), reference_transcript=[fa], columns="1,2,3,4,5"
+        )
         lines = out.read_text().rstrip("\n").split("\n")
         d = dict(zip(lines[0].split("\t"), lines[1].split("\t")))
         assert d["region"] == "CDS"
@@ -267,8 +308,9 @@ class TestAnnotateRegressions:
         inp = tmp_path / "v.tsv"
         inp.write_text("chr1\t26\t+\tCC\tGA\n")  # 2-base substitution
         out = tmp_path / "o.tsv"
-        run_annotate(str(inp), str(out), str(gtf), reference_transcript=[fa],
-                     columns="1,2,3,4,5")
+        run_annotate(
+            str(inp), str(out), str(gtf), reference_transcript=[fa], columns="1,2,3,4,5"
+        )
         lines = out.read_text().rstrip("\n").split("\n")
         d = dict(zip(lines[0].split("\t"), lines[1].split("\t")))
         assert d["mut_type"] == "ComplexSubstitution"
@@ -286,8 +328,9 @@ class TestAnnotateRegressions:
         inp = tmp_path / "s.tsv"
         inp.write_text("chr1\t15\t+\nchr1\t99\t+\nchr1\tbad\t+\n")
         out = tmp_path / "o.tsv"
-        run_annotate(str(inp), str(out), None, annotation_table=str(table),
-                     columns="1,2,3")
+        run_annotate(
+            str(inp), str(out), None, annotation_table=str(table), columns="1,2,3"
+        )
         lines = out.read_text().rstrip("\n").split("\n")
         widths = {len(row.split("\t")) for row in lines}
         assert widths == {16}  # 3 input + 13 unified columns
@@ -330,8 +373,17 @@ class TestMotifEdge:
         inp = tmp_path / "s.tsv"
         inp.write_text("c\t1000\t+\n")
         out = tmp_path / "o.tsv"
-        run_motif(str(inp), str(out), str(fa), 3, 3, False, "1,2,3",
-                  to_upper=True, wrap_site=False)
+        run_motif(
+            str(inp),
+            str(out),
+            str(fa),
+            3,
+            3,
+            False,
+            "1,2,3",
+            to_upper=True,
+            wrap_site=False,
+        )
         motif = out.read_text().rstrip("\n").split("\n")[0].split("\t")[3]
         assert motif == "NNNNNNN"  # 3 + 1 + 3, all out of bounds
 
@@ -362,8 +414,7 @@ class TestAnnotCache:
 
         tab = tmp_path / "t.tsv"
         tab.write_text(
-            "gene_id\ttranscript_id\tchrom\tstrand\tspans\n"
-            "G1\tT1\tchr1\t+\t101-200\n"
+            "gene_id\ttranscript_id\tchrom\tstrand\tspans\nG1\tT1\tchr1\t+\t101-200\n"
         )
         tree, info = parse_annot_file(str(tab), cache=True)
         assert len(info) == 1
@@ -381,3 +432,46 @@ class TestAnnotCache:
         os.utime(tab, None)  # bump mtime
         tree2, info2 = parse_annot_file(str(tab), cache=True)
         assert len(info2) == 2  # fresh table parsed, stale cache ignored
+
+
+class TestMetageneNullCoord:
+    def test_null_coordinate_sites_do_not_crash(self):
+        """Sites whose coordinate failed to parse (-> null) must not surface to
+        ruranges as float64-with-NaN (which it rejects). They drop out of the
+        overlap search but remain in the output as unmapped (null annotation)."""
+        import polars as pl
+        from coralsnake.annotation import map_to_transcripts
+
+        ref = pl.DataFrame(
+            {
+                "Chromosome": ["chr1", "chr1"],
+                "Start": [100, 900],
+                "End": [200, 1000],
+                "Strand": ["+", "+"],
+                "gene_id": ["g1", "g2"],
+                "transcript_id": ["t1", "t2"],
+                "exon_number": ["1", "1"],
+                "gene_biotype": ["pc", "pc"],
+                "gene_name": ["a", "b"],
+                "transcript_length": [100, 100],
+                "transcript_level": [0, 0],
+                "Start_exon": [0, 0],
+                "End_exon": [100, 100],
+                "stop_codon_pos": [80, 80],
+                "start_codon_pos": [10, 10],
+            }
+        )
+        sites = pl.DataFrame(
+            {
+                "Chromosome": ["chr1", "chr1", "chr1"],
+                "Start": [150, None, 950],
+                "End": [151, None, 951],
+                "Strand": ["+", "+", "+"],
+            }
+        )
+        # The nullable column would otherwise be realised as float64 in numpy.
+        annotated = map_to_transcripts(sites, ref)
+        # one row per input site, the null-coordinate row unmapped
+        assert annotated.height == sites.height
+        assert annotated["gene_id"].null_count() == 1
+        assert annotated["transcript_id"].null_count() == 1

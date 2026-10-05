@@ -20,16 +20,51 @@ def map_to_transcripts(
     # Add row index to input sites for later joining
     input_sites_indexed = input_sites.with_row_index("_tmp_row_index")
 
-    # Prepare arrays for overlap detection
-    input_starts = input_sites_indexed["Start"].cast(pl.Int64).to_numpy()
-    input_ends = input_sites_indexed["End"].cast(pl.Int64).to_numpy()
-    input_chroms = input_sites_indexed["Chromosome"].to_numpy()
-    input_strands = input_sites_indexed["Strand"].to_numpy()
+    # ruranges requires integer coordinate arrays. A nullable Int column (which
+    # arises when a site coordinate failed to parse) is realised by numpy as
+    # float64-with-NaN, which ruranges rejects. Drop sites without a finite
+    # integer position from the overlap search, but keep their row index so the
+    # final left-join still returns them (as unmapped/null annotations).
+    # ``_pos`` is the positional index the overlap search returns (``input_idx``
+    # indexes this filtered frame); ``_tmp_row_index`` is carried through to the
+    # final left-join against the full input.
+    sites_ok = input_sites_indexed.filter(
+        pl.col("Start").is_not_null() & pl.col("End").is_not_null()
+    ).with_row_index("_pos")
 
-    exon_starts = exon_ref["Start"].cast(pl.Int64).to_numpy()
-    exon_ends = exon_ref["End"].cast(pl.Int64).to_numpy()
-    exon_chroms = exon_ref["Chromosome"].to_numpy()
-    exon_strands = exon_ref["Strand"].to_numpy()
+    # The best transcript per gene (min transcript_level, then max
+    # transcript_length, then min transcript_id) is a property of the
+    # reference: those three attributes are constant across a transcript's
+    # exons. Resolve it ONCE, then restrict the overlap search itself to the
+    # best transcripts' exons. That avoids the site x isoform blow-up in the
+    # overlap output and the joins (the old code sorted the whole expanded
+    # frame to pick a best transcript, and its peak memory was the bottleneck).
+    # Verified equivalent: a site maps to the same (gene, transcript) set either
+    # way.
+    best_tx = (
+        exon_ref.sort(
+            ["gene_id", "transcript_level", "transcript_length", "transcript_id"],
+            descending=[False, False, True, False],
+        )
+        .group_by("gene_id", maintain_order=True)
+        .first()
+        .select(["gene_id", "transcript_id"])
+    )
+    exon_ref_best = exon_ref.filter(
+        pl.col("transcript_id").is_in(best_tx["transcript_id"].to_list())
+    )
+    exon_indexed = exon_ref_best.with_row_index("exon_idx")
+
+    # Prepare arrays for overlap detection
+    input_starts = sites_ok["Start"].cast(pl.Int64).to_numpy()
+    input_ends = sites_ok["End"].cast(pl.Int64).to_numpy()
+    input_chroms = sites_ok["Chromosome"].to_numpy()
+    input_strands = sites_ok["Strand"].to_numpy()
+
+    exon_starts = exon_indexed["Start"].cast(pl.Int64).to_numpy()
+    exon_ends = exon_indexed["End"].cast(pl.Int64).to_numpy()
+    exon_chroms = exon_indexed["Chromosome"].to_numpy()
+    exon_strands = exon_indexed["Strand"].to_numpy()
 
     # Create group IDs combining chromosome and strand for strand-aware overlaps
     input_labels = np.char.add(input_chroms.astype(str), input_strands.astype(str))
@@ -61,38 +96,15 @@ def map_to_transcripts(
         }
     )
 
-    # The best transcript per gene (min transcript_level, then max
-    # transcript_length, then min transcript_id) is a property of the
-    # reference: those three attributes are constant across a transcript's
-    # exons. So it can be computed ONCE on the (small) reference instead of
-    # sorting the huge expanded site x transcript blow-up. Sorting the whole
-    # expanded frame was the pipeline bottleneck (and its peak memory).
-    best_tx = (
-        exon_ref.sort(
-            ["gene_id", "transcript_level", "transcript_length", "transcript_id"],
-            descending=[False, False, True, False],
-        )
-        .group_by("gene_id", maintain_order=True)
-        .first()
-        .select(["gene_id", "transcript_id"])
-    )
-
-    # Join with original dataframes, dropping any exon whose transcript is not
-    # the gene's best BEFORE the site join and coordinate math, so the working
-    # set stays near one row per site instead of the full cross-product.
-    exon_indexed = exon_ref.with_row_index("exon_idx")
-
-    annot = (
-        overlaps_df.join(exon_indexed, on="exon_idx", how="inner")
-        .join(best_tx, on=["gene_id", "transcript_id"], how="inner")
-        .join(
-            input_sites_indexed.select(
-                ["_tmp_row_index", "Chromosome", "Start", "End", "Strand"]
-            ),
-            left_on="input_idx",
-            right_on="_tmp_row_index",
-            suffix="_qry",
-        )
+    # Join with original dataframes. exon_indexed already contains only the
+    # best transcripts' exons, so no further best-transcript filter is needed.
+    annot = overlaps_df.join(exon_indexed, on="exon_idx", how="inner").join(
+        sites_ok.select(
+            ["_pos", "_tmp_row_index", "Chromosome", "Start", "End", "Strand"]
+        ),
+        left_on="input_idx",
+        right_on="_pos",
+        suffix="_qry",
     )
 
     # Add reference columns
@@ -149,9 +161,7 @@ def map_to_transcripts(
         "Start_exon",
         "End_exon",
     ]
-    annot = annot.select(["input_idx"] + annotation_cols).rename(
-        {"input_idx": "_tmp_row_index"}
-    )
+    annot = annot.select(["_tmp_row_index"] + annotation_cols)
 
     # Join annotation back to input_sites
     annotated_sites = (

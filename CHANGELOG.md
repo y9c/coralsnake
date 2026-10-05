@@ -106,6 +106,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not allowed` when the site coordinate column is inferred as text (e.g. a
   header row read as data, or a stray non-numeric entry): the coordinate is
   cast to `Int64` before deriving the start position.
+- `metagene`/`liftover` no longer crash with `'starts2' must be integer-like,
+  got float64` when a site coordinate failed to parse: such sites are excluded
+  from the overlap search but still returned in the output as unmapped.
+
+### Performance
+- **`metagene` overlap search now runs only against best-transcript exons**
+  (the best transcript per gene is a reference-level property), eliminating the
+  site × isoform blow-up. Peak memory at scale is down ~40% and the output is
+  unchanged.
 
 ## [Unreleased] (cont.) — `refine` command (from PR #2, reworked)
 

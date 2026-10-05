@@ -130,10 +130,17 @@ def map_to_local(
 
     query_indexed = query.with_row_index("_query_idx")
 
+    # ruranges requires integer coordinate arrays; a nullable Int query column
+    # (e.g. a site coordinate that failed to parse) becomes float64-with-NaN in
+    # numpy, which ruranges rejects. Drop rows without a finite position.
+    query_ok = query_indexed.filter(
+        pl.col("Start").is_not_null() & pl.col("End").is_not_null()
+    )
+
     # Prepare arrays for overlap detection
-    query_starts = query_indexed["Start"].cast(pl.Int64).to_numpy()
-    query_ends = query_indexed["End"].cast(pl.Int64).to_numpy()
-    query_chroms = query_indexed["Chromosome"].to_numpy()
+    query_starts = query_ok["Start"].cast(pl.Int64).to_numpy()
+    query_ends = query_ok["End"].cast(pl.Int64).to_numpy()
+    query_chroms = query_ok["Chromosome"].to_numpy()
     # query_strands not needed for overlap grouping
 
     ref_starts = ref_indexed["Start"].cast(pl.Int64).to_numpy()
@@ -185,7 +192,7 @@ def map_to_local(
     )
 
     # Join with original dataframes
-    result = overlaps_df.join(query_indexed, on="_query_idx").join(
+    result = overlaps_df.join(query_ok, on="_query_idx").join(
         ref_indexed, on="_ref_idx", suffix="_ref"
     )
 
