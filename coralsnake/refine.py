@@ -487,7 +487,10 @@ class GtfRefiner:
         canonicals=None,
     ):
         self.input_gtf = input_gtf
-        self.output_gtf = output_prefix + ".annotation.gtf"
+        # ``.annotation.gtf.gz``: write_gtf bgzip-compresses + tabix-indexes the
+        # coordinate-sorted body directly (pysam), producing a .tbi index for
+        # downstream tabix-based access.
+        self.output_gtf = output_prefix + ".annotation.gtf.gz"
         self.output_skip_gtf = output_prefix + ".skip.gtf"
         self.feature_summary_txt = output_prefix + ".gene_features_summary.txt"
         self.seqname_mapper = seqname_mapper

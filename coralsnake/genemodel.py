@@ -473,33 +473,60 @@ class GeneModel:
         """Serialize the annotation back to a GTF file.
 
         Attributes are written in insertion order; when ``sort`` is set the
-        body is sorted by (seqname, start, end). ``bgzip`` additionally creates
-        ``path + ".gz"`` with a tabix index (best-effort, using pysam).
-        """
-        with open(path, "w") as fw:
-            for comment in self.header:
-                fw.write(comment + "\n")
-            for comment in extra_comments:
-                comment = comment.strip()
-                fw.write(
-                    ("#" + comment if not comment.startswith("#") else comment) + "\n"
-                )
-            body = []
-            for gene in self.genes.values():
-                for row in gene.rows:
-                    if check:
-                        self._check_row(row)
-                    body.append(row.to_gtf_line())
-            if sort:
-                body.sort(
-                    key=lambda line: (
-                        line.split("\t")[0],
-                        int(line.split("\t")[3]),
-                        int(line.split("\t")[4]),
-                    )
-                )
-            fw.writelines(line + "\n" for line in body)
+        body is sorted by (seqname, start, end). ``bgzip`` creates a bgzip'd,
+        coordinate-indexed GTF using pysam (no external CLI tools):
 
+        * if ``path`` ends with ``".gz"``, the sorted body is bgzip-compressed
+          directly to ``path`` and a ``.tbi`` tabix index is written next to it
+          (no separate plain file).
+        * otherwise the plain ``path`` is written, and ``path + ".gz"`` (with
+          its ``.tbi`` index) is produced alongside it.
+        """
+        lines: list[str] = []
+        for comment in self.header:
+            lines.append(comment + "\n")
+        for comment in extra_comments:
+            comment = comment.strip()
+            lines.append(
+                ("#" + comment if not comment.startswith("#") else comment) + "\n"
+            )
+        body = []
+        for gene in self.genes.values():
+            for row in gene.rows:
+                if check:
+                    self._check_row(row)
+                body.append(row.to_gtf_line())
+        if sort:
+            body.sort(
+                key=lambda line: (
+                    line.split("\t")[0],
+                    int(line.split("\t")[3]),
+                    int(line.split("\t")[4]),
+                )
+            )
+        lines.extend(line + "\n" for line in body)
+
+        if path.endswith(".gz"):
+            if not bgzip:
+                raise ValueError("A '.gz' output path requires bgzip=True")
+            import os
+            import tempfile
+
+            fd, tmp = tempfile.mkstemp(suffix=".gtf")
+            try:
+                with os.fdopen(fd, "w") as fw:
+                    fw.writelines(lines)
+                pysam.tabix_compress(tmp, path, force=True)
+                pysam.tabix_index(path, preset="gff", force=True)
+            except Exception as e:  # pragma: no cover - best-effort indexing
+                LOGGER.warning(f"Skipping bgzip/tabix indexing: {e}")
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            return
+
+        with open(path, "w") as fw:
+            fw.writelines(lines)
         if bgzip:
             try:
                 gz = path + ".gz"
