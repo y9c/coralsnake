@@ -312,10 +312,27 @@ def reference_export(ref, table_path, gtf_path):
     no_args_is_help=True,
     context_settings=dict(help_option_names=["-h", "--help"]),
 )
-@click.option("--fasta-file", "-f", "fasta_file", help="Fasta file.", default=None)
-@click.option("--gtf-file", "-g", "gtf_file", help="GTF file.", default=None)
-@click.option("--outdir", "-o", "outdir", help="Output directory.", default="./")
-@click.option("--name", "-n", "name", help="Name of refined genome.", default=None)
+@click.option("--fasta-file", "-f", "fasta_file", help="Input FASTA.", default=None)
+@click.option("--gtf-file", "-g", "gtf_file", help="Input GTF.", default=None)
+@click.option(
+    "--output",
+    "-o",
+    "output",
+    type=click.Path(),
+    required=True,
+    help=(
+        "Output refined GTF path. If it ends with '.gz' the GTF is "
+        "coordinate-sorted, bgzip-compressed and tabix-indexed via pysam; "
+        "otherwise a plain sorted GTF is written."
+    ),
+)
+@click.option(
+    "--skip-file",
+    "skip_file",
+    type=click.Path(),
+    default=None,
+    help="Save rows/genes that could not be refined (default: do not write).",
+)
 @click.option(
     "--rename-mapper",
     "-m",
@@ -340,8 +357,8 @@ def reference_export(ref, table_path, gtf_path):
 def refine(
     fasta_file,
     gtf_file,
-    outdir,
-    name,
+    output,
+    skip_file,
     rename_mapper,
     seqname_pattern,
     canonical_transcripts,
@@ -362,8 +379,8 @@ def refine(
     refine_genome_references(
         input_fasta=fasta_file,
         input_gtf=gtf_file,
-        outdir=outdir,
-        name=name,
+        output=output,
+        skip_file=skip_file,
         rename_mapper=rename_mapper,
         seqname_pattern=seqname_pattern,
         canonical_transcripts=canonical_transcripts,

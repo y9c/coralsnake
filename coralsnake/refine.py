@@ -407,11 +407,11 @@ def _add_ensembl_canonical_tag(attributes):
 
 class FastaRefiner:
     def __init__(
-        self, input_fasta, output_prefix, seqname_mapper=None, seqname_pattern=None
+        self, input_fasta, output_fasta, seqname_mapper=None, seqname_pattern=None
     ):
         self.input_fasta = input_fasta
-        self.output_fasta = output_prefix + ".genome.fasta"
-        self.output_sizes = output_prefix + ".genome.sizes"
+        self.output_fasta = output_fasta
+        self.output_sizes = os.path.splitext(output_fasta)[0] + ".sizes"
         self.seqname_mapper = seqname_mapper
         self.seqname_pattern = seqname_pattern
 
@@ -481,18 +481,15 @@ class GtfRefiner:
     def __init__(
         self,
         input_gtf,
-        output_prefix,
+        output_gtf,
+        skip_file=None,
         seqname_mapper=None,
         seqname_pattern=None,
         canonicals=None,
     ):
         self.input_gtf = input_gtf
-        # ``.annotation.gtf.gz``: write_gtf bgzip-compresses + tabix-indexes the
-        # coordinate-sorted body directly (pysam), producing a .tbi index for
-        # downstream tabix-based access.
-        self.output_gtf = output_prefix + ".annotation.gtf.gz"
-        self.output_skip_gtf = output_prefix + ".skip.gtf"
-        self.feature_summary_txt = output_prefix + ".gene_features_summary.txt"
+        self.output_gtf = output_gtf
+        self.skip_file = skip_file
         self.seqname_mapper = seqname_mapper
         self.seqname_pattern = seqname_pattern
         self.canonicals = canonicals
@@ -541,18 +538,21 @@ class GtfRefiner:
             extra_comments=("!refined gtf",),
             sort=True,
             check=True,
-            bgzip=True,
+            # bgzip + tabix index only when the requested output is gzipped.
+            bgzip=self.output_gtf.endswith(".gz"),
         )
-        with open(self.output_skip_gtf, "w") as fw:
-            for row in skipped_rows:
-                fw.write(row.to_gtf_line() + "\n")
+        if self.skip_file:
+            with open(self.skip_file, "w") as fw:
+                for row in skipped_rows:
+                    fw.write(row.to_gtf_line() + "\n")
 
         total = sum(features_counter.values())
-        with open(self.feature_summary_txt, "w") as fw:
-            fw.write("Total\tRatio\tFeatures\n")
-            if total:
-                for features, count in features_counter.items():
-                    fw.write(f"{count}\t{count / total:.6f}\t{','.join(features)}\n")
+        # Feature-type summary goes to stdout (fds 1) by default.
+        print("Feature-type distribution of refined genes:")
+        print("Total\tRatio\tFeatures")
+        if total:
+            for features, count in features_counter.items():
+                print(f"{count}\t{count / total:.6f}\t{','.join(features)}")
 
     # -- per-gene transform -----------------------------------------------------
 
@@ -726,25 +726,40 @@ class GtfRefiner:
 # ---------------------------------------------------------------------------
 
 
+def _derive_fasta_output(output: str) -> str:
+    """Derive the refined FASTA path from the GTF ``--output`` path."""
+    base = output
+    for ext in (".gtf.gz", ".gtf"):
+        if base.endswith(ext):
+            base = base[: -len(ext)]
+            break
+    return base + ".genome.fasta"
+
+
 def refine_genome_references(
     input_fasta=None,
     input_gtf=None,
-    outdir="./",
-    name=None,
+    output=None,
+    skip_file=None,
     rename_mapper=None,
     seqname_pattern=None,
     canonical_transcripts=None,
 ):
-    """Refine a genome FASTA and/or GTF for downstream coralsnake commands."""
+    """Refine a genome FASTA and/or GTF for downstream coralsnake commands.
+
+    ``output`` is the path of the refined GTF. If it ends with ``.gz`` the GTF is
+    coordinate-sorted, bgzip-compressed and tabix-indexed via pysam; otherwise a
+    plain (sorted) GTF is written. ``skip_file`` optionally captures rows that
+    could not be refined; the feature-type summary is printed to stdout.
+    """
     if input_fasta is None and input_gtf is None:
         raise ValueError("Nothing to refine: pass --fasta-file and/or --gtf-file.")
+    if output is None:
+        raise ValueError("--output is required.")
 
-    if name is None:
-        name = os.path.basename(os.path.abspath(outdir))
-    if not name:
-        name = "refined"
-    os.makedirs(outdir, exist_ok=True)
-    output_prefix = os.path.join(outdir, name)
+    for path in (output, skip_file):
+        if path:
+            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
 
     seqname_mapper = (
         None if rename_mapper is None else load_seqname_mapper(rename_mapper)
@@ -758,7 +773,7 @@ def refine_genome_references(
     if input_fasta is not None:
         FastaRefiner(
             input_fasta=input_fasta,
-            output_prefix=output_prefix,
+            output_fasta=_derive_fasta_output(output),
             seqname_mapper=seqname_mapper,
             seqname_pattern=seqname_pattern,
         ).run()
@@ -766,10 +781,11 @@ def refine_genome_references(
     if input_gtf is not None:
         GtfRefiner(
             input_gtf=input_gtf,
-            output_prefix=output_prefix,
+            output_gtf=output,
+            skip_file=skip_file,
             seqname_mapper=seqname_mapper,
             seqname_pattern=seqname_pattern,
             canonicals=canonicals,
         ).run()
 
-    return output_prefix
+    return output
